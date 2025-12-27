@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        button { margin: 10px; padding: 10px; }
+        .result { background: #f0f0f0; padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Fluency AI Pro - API Test</h1>
+    
+    <button onclick="testCreateRoom()">Test Create Room</button>
+    <button onclick="testJoinRoom()">Test Join Room</button>
+    <button onclick="testSendMessage()">Test Send Message</button>
+    
+    <div id="results"></div>
+    
+    <script>
+        const BACKEND = 'https://fluency-backend-w63ykaeuha-uc.a.run.app';
+        const results = document.getElementById('results');
+        
+        function log(msg) {
+            results.innerHTML += `<div class="result">${new Date().toLocaleTimeString()}: ${msg}</div>`;
+        }
+        
+        async function testCreateRoom() {
+            try {
+                log('Creating room...');
+                const res = await fetch(BACKEND, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'create_room',
+                        userId: 'test-user-123',
+                        userName: 'Test User',
+                        userAvatar: '🦁'
+                    })
+                });
+                const data = await res.json();
+                log(`✅ CREATE SUCCESS: Room Code = ${data.roomCode}, ID = ${data.roomId}`);
+                window.testRoomId = data.roomId;
+                window.testRoomCode = data.roomCode;
+            } catch(e) {
+                log(`❌ CREATE FAILED: ${e.message}`);
+            }
+        }
+        
+        async function testJoinRoom() {
+            const code = prompt('Enter room code:', window.testRoomCode);
+            if (!code) return;
+            
+            try {
+                log(`Joining room ${code}...`);
+                const res = await fetch(BACKEND, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'join_room',
+                        roomCode: code,
+                        userId: 'test-user-456',
+                        userName: 'Test User 2',
+                        userAvatar: '🦊'
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    log(`✅ JOIN SUCCESS: Connected to ${data.opponent.name}`);
+                } else {
+                    log(`❌ JOIN FAILED: ${data.error}`);
+                }
+            } catch(e) {
+                log(`❌ JOIN FAILED: ${e.message}`);
+            }
+        }
+        
+        async function testSendMessage() {
+            if (!window.testRoomId) {
+                alert('Create a room first!');
+                return;
+            }
+            
+            try {
+                log(`Sending message...`);
+                const res = await fetch(BACKEND, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'send_message',
+                        roomId: window.testRoomId,
+                        text: 'Test message!',
+                        senderId: 'test-user-123'
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    log(`✅ MESSAGE SENT`);
+                } else {
+                    log(`❌ SEND FAILED: ${data.error || 'Unknown'}`);
+                }
+            } catch(e) {
+                log(`❌ SEND FAILED: ${e.message}`);
+            }
+        }
+    </script>
+</body>
+</html>
