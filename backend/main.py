@@ -7,11 +7,12 @@ from google.cloud import firestore
 from vertexai.generative_models import GenerativeModel, Content, Part
 
 # --- CONFIGURATION ---
-# Primary Model (Gemini 2.0 Flash - Generally Available)
-MODEL_ID = "gemini-3-flash-preview"
+# Primary Model (Gemini 2.0 Flash - Stable)
+MODEL_ID = "gemini-2.0-flash"
 # Fallback Model
-FALLBACK_MODEL_ID = "gemini-3-flash-preview"
+FALLBACK_MODEL_ID = "gemini-1.5-flash"
 PROJECT_ID = "project-fluency-ai-pro-d3189"
+
 # FAKE BOT PERSONAS (For "Human-Like" Bot Matches)
 # Indian names, specific imperfections, realistic behaviors.
 BOT_PERSONAS = [
@@ -352,34 +353,150 @@ def fluency_backend(request):
         # But user said "simulations should be placed properly and not on login page".
         # Assuming Sim chat uses this same backend.
         if req_type == "chat":
-             # Restore basic Sim chat
+             # Simulation chat with grammar feedback
              model = get_model()
              persona_id = data.get('personaId', 'unknown')
              context = data.get('context', 'General Chat')
              msg = data.get('message', '')
-             history = data.get('history', []) # List of strings "User: ...", "You: ..."
+             history = data.get('history', [])
+             stage = data.get('stage', '')
              
-             history_text = "\n".join(history[-10:])
+             # Skip warmup messages
+             if msg.lower() == 'warmup':
+                 return (json.dumps({
+                     "reply": "Ready to chat! ☕",
+                     "hasCorrection": False,
+                     "correction": None,
+                     "points": 0
+                 }), 200, headers)
              
-             prompt = f"""
-             You are an AI roleplay partner in a simulation.
-             Role/Scenario: {context}
-             (Internal ID: {persona_id})
+             history_text = "\n".join(history[-6:]) if history else ""
              
-             Your Goal: Engage the user in a realistic conversation based on the scenario. 
-             Keep your responses concise (1-2 sentences). 
-             Be helpful but stay in character.
+             # Strict grammar checking prompt
+             prompt = f"""You are a friendly AI in a "{context}" roleplay scenario AND a strict English grammar teacher.
+Stage: {stage}
+
+Conversation so far:
+{history_text}
+User: {msg}
+
+FIRST: Respond naturally in 1-2 sentences with a relevant emoji. Stay in character.
+
+SECOND: STRICTLY check the user's English for ANY errors including:
+- Wrong word order (e.g., "how much take its time" should be "how much time does it take")
+- Missing articles (a, an, the)
+- Wrong prepositions
+- Subject-verb disagreement
+- Incorrect tense usage
+- Spelling mistakes
+- Wrong word choice
+
+BE STRICT! Indian English learners often make word order mistakes. If the sentence doesn't sound like a native speaker would say it, MARK IT AS A MISTAKE.
+
+Reply in this exact JSON format only:
+{{"reply": "your response with emoji", "hasCorrection": false, "correction": null, "points": 5}}
+
+If there IS ANY grammar/spelling issue (BE STRICT!), use:
+{{"reply": "your response", "hasCorrection": true, "correction": {{"original": "the exact wrong phrase", "corrected": "the correct way to say it", "reason": "clear explanation why", "example": "another example sentence using correct form", "type": "grammar"}}, "points": 5}}
+
+JSON only, no other text:"""
              
-             Conversation History:
-             {history_text}
-             User: {msg}
-             """
-             
-             response = model.generate_content(prompt)
-             return (json.dumps({"reply": response.text.strip()}), 200, headers)
+             try:
+                 response = model.generate_content(prompt)
+                 response_text = response.text.strip()
+                 
+                 # Clean markdown if present
+                 if '```' in response_text:
+                     parts = response_text.split('```')
+                     for part in parts:
+                         if part.strip().startswith('json'):
+                             response_text = part.strip()[4:].strip()
+                             break
+                         elif part.strip().startswith('{'):
+                             response_text = part.strip()
+                             break
+                 
+                 # Find JSON in response
+                 start = response_text.find('{')
+                 end = response_text.rfind('}') + 1
+                 if start != -1 and end > start:
+                     response_text = response_text[start:end]
+                 
+                 result = json.loads(response_text)
+                 return (json.dumps(result), 200, headers)
+             except json.JSONDecodeError as je:
+                 print(f"[JSON_ERROR] {je} - Raw: {response_text[:200]}")
+                 # Return a simple reply if JSON fails
+                 return (json.dumps({
+                     "reply": "That sounds interesting! Tell me more. 😊",
+                     "hasCorrection": False,
+                     "correction": None,
+                     "points": 5
+                 }), 200, headers)
+             except Exception as e:
+                 print(f"[CHAT_ERROR] {e}")
+                 return (json.dumps({
+                     "reply": "I see! Tell me more about that. 🤔",
+                     "hasCorrection": False,
+                     "correction": None,
+                     "points": 5
+                 }), 200, headers)
+
+        if req_type == "detailed_explanation":
+            # Get detailed grammar explanation from AI professor
+            model = get_model()
+            original = data.get('original', '')
+            corrected = data.get('corrected', '')
+            reason = data.get('reason', '')
+            mother_tongue = data.get('motherTongue', 'Hindi')
+            
+            prompt = f"""You are a friendly English professor named "Prof. Sharma" helping an Indian student who speaks {mother_tongue}.
+Explain this grammar/spelling mistake in a structured, easy-to-understand way:
+
+WRONG: "{original}"
+CORRECT: "{corrected}"
+BASIC ISSUE: {reason}
+
+Provide a STRUCTURED explanation with these NUMBERED sections:
+1. WHY IT'S WRONG: Explain simply why this is incorrect (2-3 sentences)
+2. THE RULE: State the grammar/spelling rule clearly (1-2 sentences)  
+3. {mother_tongue.upper()} SPEAKERS NOTE: Why {mother_tongue} speakers make this mistake (1-2 sentences)
+4. CORRECT USAGE: Show how to use it correctly
+
+Give 3 practice examples and 2 memory tips.
+
+IMPORTANT: Format your explanation with clear numbered points like:
+"1. WHY IT'S WRONG: The word 'docter' is... 2. THE RULE: English spelling follows... 3. {mother_tongue.upper()} SPEAKERS NOTE: In {mother_tongue}..."
+
+Reply in this JSON format ONLY:
+{{"explanation": "1. WHY IT'S WRONG: ... 2. THE RULE: ... 3. {mother_tongue.upper()} SPEAKERS NOTE: ... 4. CORRECT USAGE: ...", "examples": ["example 1", "example 2", "example 3"], "tips": ["tip 1", "tip 2"]}}
+
+JSON only:"""
+
+
+            try:
+                response = model.generate_content(prompt)
+                response_text = response.text.strip()
+                
+                # Clean and parse JSON
+                start = response_text.find('{')
+                end = response_text.rfind('}') + 1
+                if start != -1 and end > start:
+                    response_text = response_text[start:end]
+                
+                result = json.loads(response_text)
+                return (json.dumps(result), 200, headers)
+            except Exception as e:
+                print(f"[EXPLANATION_ERROR] {e}")
+                return (json.dumps({
+                    "explanation": f"This is a common mistake where '{original}' should be '{corrected}'. {reason} Many {mother_tongue} speakers make this error because of differences in grammar structure.",
+                    "examples": [corrected, f"Another example: {corrected.replace('I', 'We')}", f"Question form: Do you {corrected.split(' ', 1)[-1] if ' ' in corrected else corrected}?"],
+                    "tips": ["Practice saying this correctly 5 times", "Write 3 sentences using this pattern daily"]
+                }), 200, headers)
 
     except Exception as e:
         print(f"[GLOBAL_ERR] {e}")
         return (json.dumps({"error": str(e)}), 200, headers)
+
 
     return (json.dumps({"error": "Unknown type"}), 400, headers)

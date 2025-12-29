@@ -16,18 +16,39 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onClose, onDashboa
     const [phase, setPhase] = useState(0); // 0: intro, 1: vocabulary, 2: grammar, 3: fluency, 4: sentence, 5: final, 6: winner
     const audioRef = useRef(null);
 
-    // Determine who is player1 vs player2 based on userId
-    const amIPlayer1 = myUserId === opponentData?.creatorId;
-    const myScores = amIPlayer1 ? dualAnalysis?.player1 : dualAnalysis?.player2;
-    const oppScores = amIPlayer1 ? dualAnalysis?.player2 : dualAnalysis?.player1;
+    // Player1 is always "me" - the backend receives myMsgs as player1History
+    // and oppMsgs as player2History in App.jsx endSession function
+    const myScores = dualAnalysis?.player1;
+    const oppScores = dualAnalysis?.player2;
 
-    // Fallback for missing data
-    const safeMyScores = myScores || { vocabulary: 0, grammar: 0, fluency: 0, sentence_making: 0, overall: 0, feedback: '' };
-    const safeOppScores = oppScores || { vocabulary: 0, grammar: 0, fluency: 0, sentence_making: 0, overall: 0, feedback: '' };
+    // Fallback for missing data with reasonable defaults
+    const safeMyScores = myScores || { vocabulary: 50, grammar: 50, fluency: 50, sentence_making: 50, overall: 50, feedback: 'Analysis unavailable' };
+    const safeOppScores = oppScores || { vocabulary: 50, grammar: 50, fluency: 50, sentence_making: 50, overall: 50, feedback: 'Analysis unavailable' };
 
-    const myTotal = safeMyScores.overall;
-    const oppTotal = safeOppScores.overall;
+    // Calculate overall from individual scores if overall is 0 or missing
+    const calculateOverall = (scores) => {
+        if (scores.overall && scores.overall > 0) return scores.overall;
+        const v = scores.vocabulary || 0;
+        const g = scores.grammar || 0;
+        const f = scores.fluency || 0;
+        const s = scores.sentence_making || 0;
+        if (v + g + f + s === 0) return 50; // Default if all zeros
+        return Math.round((v + g + f + s) / 4);
+    };
+
+    const myTotal = calculateOverall(safeMyScores);
+    const oppTotal = calculateOverall(safeOppScores);
     const winner = myTotal > oppTotal ? 'me' : (myTotal < oppTotal ? 'opponent' : 'tie');
+
+    // Debug logging
+    console.log('WinnerReveal Data:', {
+        dualAnalysis,
+        myScores: safeMyScores,
+        oppScores: safeOppScores,
+        myTotal,
+        oppTotal,
+        winner
+    });
 
     const metrics = [
         { name: 'Vocabulary', key: 'vocabulary', icon: '📚', emoji: '🔤', color: 'from-emerald-500 to-green-600' },
@@ -130,13 +151,13 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onClose, onDashboa
         <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto"
+            className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto"
         >
             <motion.div
                 initial={{ scale: 0.5, opacity: 0, rotateY: 180 }}
                 animate={{ scale: 1, opacity: 1, rotateY: 0 }}
                 transition={{ type: 'spring', damping: 15, stiffness: 100 }}
-                className="bg-gradient-to-br from-emerald-900 via-teal-900 to-green-900 rounded-3xl shadow-2xl w-full max-w-sm p-6 relative overflow-hidden border border-emerald-500/30"
+                className="bg-gradient-to-br from-emerald-900 via-teal-900 to-green-900 rounded-3xl shadow-2xl w-full max-w-md p-6 relative overflow-hidden border border-emerald-500/30 my-auto"
             >
                 {/* Animated background particles */}
                 <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -316,6 +337,45 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onClose, onDashboa
                     )}
                 </AnimatePresence>
 
+                {/* Winner Announcement */}
+                <AnimatePresence>
+                    {phase >= 6 && (
+                        <motion.div
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ type: 'spring', damping: 12, delay: 0.3 }}
+                            className={`relative z-10 mb-6 p-6 rounded-2xl text-center ${winner === 'me'
+                                ? 'bg-gradient-to-r from-yellow-400 via-amber-500 to-orange-500'
+                                : winner === 'opponent'
+                                    ? 'bg-gradient-to-r from-gray-500 to-gray-600'
+                                    : 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                                }`}
+                        >
+                            <motion.div
+                                animate={{ scale: [1, 1.2, 1], rotate: [0, 5, -5, 0] }}
+                                transition={{ duration: 1, repeat: 2 }}
+                                className="text-6xl mb-2"
+                            >
+                                {winner === 'me' ? '👑' : winner === 'opponent' ? '😔' : '🤝'}
+                            </motion.div>
+                            <h3 className="text-2xl font-black text-white mb-1">
+                                {winner === 'me'
+                                    ? '🎉 YOU WON! 🎉'
+                                    : winner === 'opponent'
+                                        ? `${opponentData?.name || 'Opponent'} Wins`
+                                        : "IT'S A TIE!"}
+                            </h3>
+                            <p className="text-white/80 text-sm">
+                                {winner === 'me'
+                                    ? 'Congratulations! Your English skills are impressive!'
+                                    : winner === 'opponent'
+                                        ? "Great effort! Keep practicing and you'll win next time!"
+                                        : 'What a close match! Both of you did great!'}
+                            </p>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {/* Return Dashboard Button */}
                 {phase >= 6 && (
                     <motion.button
@@ -331,5 +391,6 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onClose, onDashboa
         </motion.div>
     );
 };
+
 
 export default WinnerReveal;
