@@ -4,13 +4,9 @@ service cloud.firestore {
     
     // Queue collection (for matchmaking rooms)
     match /queue/{roomId} {
-      // Allow users to read rooms they created or joined
-      allow read: if request.auth != null && (
-        resource.data.createdBy == request.auth.uid ||
-        resource.data.hostId == request.auth.uid ||
-        resource.data.userId == request.auth.uid ||
-        resource.data.player2Id == request.auth.uid
-      );
+      // Allow all authenticated users to read room status
+      // This prevents "Permission Denied" resets during rapid transitions
+      allow read: if request.auth != null;
       
       // Messages subcollection
       match /messages/{messageId} {

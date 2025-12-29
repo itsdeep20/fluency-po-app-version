@@ -172,9 +172,9 @@ def fluency_backend(request):
             # 3. NO ROOM FOUND - HOST A NEW ONE
             # Check for duplicates
             existing = db.collection('queue').where('hostId', '==', user_id).where('status', '==', 'waiting').limit(1).stream()
-            if next(existing, None):
-                # Clean up old waiting room from THIS user if any
-                return (json.dumps({"success": True, "matched": False, "message": "Already waiting"}), 200, headers)
+            existing_room = next(existing, None)
+            if existing_room:
+                return (json.dumps({"success": True, "matched": False, "roomId": existing_room.id, "message": "Already waiting"}), 200, headers)
 
             ref = db.collection('queue').add({
                 'roomCode': "RND"+str(random.randint(1000,9999)),
@@ -249,54 +249,89 @@ def fluency_backend(request):
             room_id = data.get('roomId')
             user_id = data.get('userId')
             
-            # 1. Fetch User Data for 'lastBots'
-            user_ref = db.collection('users').document(user_id)
-            user_doc = user_ref.get()
-            last_bots = []
-            if user_doc.exists:
-                last_bots = user_doc.to_dict().get('lastBots', [])
+            room_ref = db.collection('queue').document(room_id)
+            
+            @firestore.transactional
+            def atomic_bot_match(transaction, ref):
+                snapshot = ref.get(transaction=transaction)
+                if not snapshot.exists:
+                    return None
                 
-            # 2. Filter available bots
-            available_bots = [b for b in BOT_PERSONAS if b['id'] not in last_bots]
-            # Fallback if all bots used recently (shouldn't happen with large pool, but good safety)
-            if not available_bots:
-                available_bots = BOT_PERSONAS
-            
-            # 3. Select Bot
-            bot = random.choice(available_bots)
-            
-            # 4. Update 'lastBots' (Push new, keep max 3)
-            new_last_bots = last_bots + [bot['id']]
-            if len(new_last_bots) > 3:
-                new_last_bots = new_last_bots[-3:] # Keep last 3
+                # If already matched with a human, don't overwrite!
+                if snapshot.get('status') == 'matched':
+                    return snapshot.to_dict()
                 
-            if user_doc.exists:
-                user_ref.update({'lastBots': new_last_bots})
-            else:
-                user_ref.set({'uid': user_id, 'lastBots': new_last_bots}, merge=True)
-            
-            role_pair = random.choice(ROLE_PAIRS)
-            role_idx = random.randint(0, 1) # 0 for P1(User), 1 for P2(Bot)
-            
-            # User is P1 (Host)
-            # Update room to 'matched' but with isBotMatch=True
-            db.collection('queue').document(room_id).update({
-                'status': 'matched',
-                'player2Id': bot['id'], 'player2Name': bot['name'], 'player2Avatar': bot['avatar'],
-                'isBotMatch': True, 'botPersona': bot,
-                'startedAt': firestore.SERVER_TIMESTAMP,
-                'roleData': {
-                    'pairId': role_pair['id'], 'topic': role_pair['topic'],
-                    'player1Role': role_pair['roles'][0], 'player1Icon': role_pair['icons'][0], 'player1Desc': role_pair['descriptions'][0],
-                    'player2Role': role_pair['roles'][1], 'player2Icon': role_pair['icons'][1], 'player2Desc': role_pair['descriptions'][1]
+                # Fetch User Data for 'lastBots'
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                last_bots = []
+                if user_doc.exists:
+                    last_bots = user_doc.to_dict().get('lastBots', [])
+                    
+                # Filter available bots
+                available_bots = [b for b in BOT_PERSONAS if b['id'] not in last_bots]
+                if not available_bots:
+                    available_bots = BOT_PERSONAS
+                
+                bot = random.choice(available_bots)
+                
+                # Update 'lastBots'
+                new_last_bots = last_bots + [bot['id']]
+                if len(new_last_bots) > 3:
+                    new_last_bots = new_last_bots[-3:]
+                    
+                if user_doc.exists:
+                    transaction.update(user_ref, {'lastBots': new_last_bots})
+                else:
+                    transaction.set(user_ref, {'uid': user_id, 'lastBots': new_last_bots}, merge=True)
+                
+                role_pair = random.choice(ROLE_PAIRS)
+                role_idx = random.randint(0, 1)
+                
+                transaction.update(ref, {
+                    'status': 'matched',
+                    'player2Id': bot['id'], 'player2Name': bot['name'], 'player2Avatar': bot['avatar'],
+                    'isBotMatch': True, 'botPersona': bot,
+                    'startedAt': firestore.SERVER_TIMESTAMP,
+                    'roleData': {
+                        'pairId': role_pair['id'], 'topic': role_pair['topic'],
+                        'player1Role': role_pair['roles'][0], 'player1Icon': role_pair['icons'][0], 'player1Desc': role_pair['descriptions'][0],
+                        'player2Role': role_pair['roles'][1], 'player2Icon': role_pair['icons'][1], 'player2Desc': role_pair['descriptions'][1]
+                    }
+                })
+                
+                return {
+                    "matched": True, "roomId": room_id,
+                    "opponent": {"id": bot['id'], "name": bot['name'], "avatar": bot['avatar']},
+                    "myRole": role_pair['roles'][0], "myIcon": role_pair['icons'][0], "myDesc": role_pair['descriptions'][0], "topic": role_pair['topic']
                 }
-            })
-            
-            return (json.dumps({
-                "success": True, "matched": True, "roomId": room_id,
-                "opponent": {"id": bot['id'], "name": bot['name'], "avatar": bot['avatar']},
-                "myRole": role_pair['roles'][0], "myIcon": role_pair['icons'][0], "myDesc": role_pair['descriptions'][0], "topic": role_pair['topic']
-            }), 200, headers)
+
+            try:
+                result = atomic_bot_match(db.transaction(), room_ref)
+                if not result:
+                    return (json.dumps({"success": False, "error": "Room not found"}), 200, headers)
+                
+                # If it was already matched (human join win!), result will be the snapshot dict
+                if 'roleData' in result and 'opponent' not in result:
+                    # It's already matched with a human (player2Id exists)
+                    if result.get('player2Id') and not result.get('isBotMatch'):
+                        am_i_host = (result.get('hostId') == user_id)
+                        opp_id = result.get('player2Id') if am_i_host else result.get('hostId')
+                        opp_name = result.get('player2Name') if am_i_host else result.get('userName')
+                        opp_avatar = result.get('player2Avatar') if am_i_host else result.get('userAvatar')
+                        
+                        return (json.dumps({
+                            "success": True, 
+                            "matched": True, 
+                            "roomId": room_id,
+                            "opponent": {"id": opp_id, "name": opp_name, "avatar": opp_avatar},
+                            "topic": result.get('roleData', {}).get('topic')
+                        }), 200, headers)
+
+                return (json.dumps({"success": True, **result}), 200, headers)
+            except Exception as e:
+                print(f"Trigger bot error: {e}")
+                return (json.dumps({"success": False, "error": str(e)}), 200, headers)
 
         # --- SEND MESSAGE (With Bot Logic) ---
         if req_type == "send_message":

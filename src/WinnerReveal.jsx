@@ -12,7 +12,17 @@ const SOUNDS = {
     countUp: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3'
 };
 
-const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onClose, onDashboard }) => {
+const WinnerReveal = ({
+    dualAnalysis,
+    myUserId,
+    opponentData,
+    onClose,
+    onDashboard,
+    feedbackState,
+    onFeedback,
+    onSetFeedbackRating,
+    onSetFeedbackText
+}) => {
     const [phase, setPhase] = useState(0); // 0: intro, 1: vocabulary, 2: grammar, 3: fluency, 4: sentence, 5: final, 6: winner
     const audioRef = useRef(null);
 
@@ -378,14 +388,56 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onClose, onDashboa
 
                 {/* Return Dashboard Button */}
                 {phase >= 6 && (
-                    <motion.button
-                        initial={{ y: 50, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        onClick={onDashboard}
-                        className="w-full bg-white text-emerald-900 font-bold py-4 rounded-xl hover:scale-[1.02] transition-transform shadow-xl relative z-20 flex items-center justify-center gap-2"
-                    >
-                        Back to Dashboard
-                    </motion.button>
+                    <div className="space-y-4">
+                        {/* Contextual Feedback Section */}
+                        <div className="mt-4 pt-6 border-t border-emerald-500/20 text-left">
+                            <div className="text-[10px] font-black text-emerald-400 uppercase mb-3 tracking-widest">How was this match?</div>
+                            {feedbackState.submitted ? (
+                                <div className="bg-emerald-400/10 text-emerald-200 rounded-2xl p-4 text-center text-sm font-bold flex items-center justify-center gap-2 border border-emerald-500/30">
+                                    <Star size={16} fill="currentColor" /> Match recorded! Thank you.
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="flex justify-center gap-3">
+                                        {[1, 2, 3, 4, 5].map(star => (
+                                            <button
+                                                key={star}
+                                                onClick={() => onSetFeedbackRating(star)}
+                                                className={`text-3xl transition-all transform ${feedbackState.rating >= star ? 'text-yellow-400 scale-125' : 'text-emerald-900/50 hover:text-emerald-400'}`}
+                                            >
+                                                ⭐
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <textarea
+                                        value={feedbackState.text}
+                                        onChange={(e) => onSetFeedbackText(e.target.value)}
+                                        placeholder="Rate the opponent or the AI scoring..."
+                                        className="w-full p-4 bg-emerald-900/40 rounded-2xl border border-emerald-500/30 text-emerald-100 text-sm focus:border-emerald-400 focus:outline-none h-24 resize-none placeholder:text-emerald-700"
+                                    />
+                                    {feedbackState.rating > 0 && (
+                                        <motion.button
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            onClick={() => onFeedback(feedbackState.rating, feedbackState.text)}
+                                            className="w-full py-3 bg-emerald-500 text-emerald-950 rounded-xl font-black text-xs hover:bg-emerald-400 transition-colors uppercase tracking-widest"
+                                        >
+                                            Submit Match Feedback
+                                        </motion.button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <motion.button
+                            initial={{ y: 50, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            onClick={onDashboard}
+                            className="w-full bg-white text-emerald-900 font-black py-4 rounded-2xl hover:scale-[1.02] transition-transform shadow-2xl relative z-20 flex items-center justify-center gap-2 uppercase tracking-widest"
+                        >
+                            Complete Session & Exit
+                        </motion.button>
+                    </div>
                 )}
             </motion.div>
         </motion.div>

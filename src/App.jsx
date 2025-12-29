@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 
 import {
-  Send, Zap, Swords, Trophy, Briefcase, Coffee, Stethoscope,
+  Send, Zap, Swords, Sword, MessageSquare, Trophy, Briefcase, Coffee, Stethoscope,
   Train, Plane, Loader2, LogOut, MessageCircle, Target,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
   ChevronUp, ChevronDown, AlertTriangle
@@ -66,7 +66,7 @@ const App = () => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
   const [currentStage, setCurrentStage] = useState("");
-  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0 });
+  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0, lastPracticeDate: null });
   const [userAvatar, setUserAvatar] = useState('🦁');
   const [sessionPoints, setSessionPoints] = useState(0);
   const [isBotTyping, setIsBotTyping] = useState(false);
@@ -106,10 +106,20 @@ const App = () => {
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackSessionId, setFeedbackSessionId] = useState(null);
+  const [helpFeedbackText, setHelpFeedbackText] = useState('');
+  const [helpFeedbackRating, setHelpFeedbackRating] = useState(0);
+  const [helpFeedbackSubmitted, setHelpFeedbackSubmitted] = useState(false);
   const [showSessionSummary, setShowSessionSummary] = useState(null);
   const [showAchievements, setShowAchievements] = useState(false);
   const [showDetailedExplanation, setShowDetailedExplanation] = useState(null);
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
+  const isEndingRef = useRef(false);
+  const isJoiningRef = useRef(false);
+  const isAlertingRef = useRef(false);
+  const isBotTypingRef = useRef(false); // To prevent state races
+  const [isEnding, setIsEnding] = useState(false);
+  const [showExitWarning, setShowExitWarning] = useState(false);
   const messagesEndRef = useRef(null);
 
 
@@ -127,43 +137,54 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      if (!user) return;
-      try {
-        const docRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setStats(prev => ({ ...prev, ...data.stats }));
-          if (data.userAvatar) setUserAvatar(data.userAvatar);
-        } else {
-          await setDoc(docRef, { uid: user.uid, stats, userAvatar, lastBots: [] });
-        }
+    if (!user) {
+      setStats({ streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0, lastPracticeDate: null });
+      setRecentChats([]);
+      return;
+    }
 
-        // Load recent sessions
-        const sessionsRef = collection(db, 'users', user.uid, 'sessions');
-        const sessionsQuery = query(sessionsRef, orderBy('timestamp', 'desc'), limit(5));
-        const sessionsSnap = await getDocs(sessionsQuery);
+    const docRef = doc(db, 'users', user.uid);
 
-        const recentSessions = sessionsSnap.docs.map(docSnap => {
-          const data = docSnap.data();
-          const sim = SIMULATIONS.find(s => s.id === data.simId);
-          return {
-            id: docSnap.id,
-            type: data.type === '1v1' ? 'battle' : 'simulation',
-            title: data.simName || data.opponentName || 'Session',
-            icon: sim ? '✓' : (data.type === '1v1' ? '⚔️' : '💬'),
-            simId: data.simId,
-            lastMessage: data.lastMessage || `Score: ${data.score || data.accuracy}%`,
-            timestamp: data.timestamp?.toDate() || new Date(),
-            accuracy: data.accuracy,
-            points: data.points
-          };
-        });
-        setRecentChats(recentSessions);
-      } catch (e) { console.error(e); }
+    // 1. User Stats Listener
+    const unsubStats = onSnapshot(docRef, async (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setStats(prev => ({ ...prev, ...data.stats }));
+        if (data.userAvatar) setUserAvatar(data.userAvatar);
+      } else {
+        // Initial setup if doc doesn't exist
+        await setDoc(docRef, { uid: user.uid, stats: { streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0, lastPracticeDate: null }, userAvatar, lastBots: [] });
+      }
+    }, (err) => console.error("Stats listener error:", err));
+
+    // 2. Recent Sessions Listener
+    const sessionsRef = collection(db, 'users', user.uid, 'sessions');
+    const sessionsQuery = query(sessionsRef, orderBy('timestamp', 'desc'), limit(5));
+
+    const unsubSessions = onSnapshot(sessionsQuery, (snap) => {
+      const recentSessions = snap.docs.map(docSnap => {
+        const data = docSnap.data();
+        const sim = SIMULATIONS.find(s => s.id === data.simId);
+        return {
+          id: docSnap.id,
+          type: data.type === '1v1' ? 'battle' : 'simulation',
+          title: data.simName || data.opponentName || 'Session',
+          simId: data.simId,
+          lastMessage: data.lastMessage || `Score: ${data.score || data.accuracy || 0}%`,
+          timestamp: data.timestamp?.toDate() || new Date(),
+          accuracy: data.accuracy || data.score || 0,
+          points: data.points,
+          opponentAvatar: data.opponentAvatar || (data.type === '1v1' ? '👤' : (sim?.icon && '🤖')),
+          won: data.won
+        };
+      });
+      setRecentChats(recentSessions);
+    }, (err) => console.error("Sessions listener error:", err));
+
+    return () => {
+      unsubStats();
+      unsubSessions();
     };
-    fetchUserData();
   }, [user]);
 
 
@@ -182,6 +203,12 @@ const App = () => {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const formatTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  const getLocalDateStr = (date = new Date()) => {
+    const y = date.getFullYear();
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const d = date.getDate().toString().padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
   const handleLogin = async (p) => { try { if (p === 'google') await signInWithPopup(auth, new GoogleAuthProvider()); else await signInAnonymously(auth); } catch (e) { } };
 
   const saveUserData = async (newStats, newAvatar) => {
@@ -232,6 +259,13 @@ const App = () => {
   const startRandomMatch = async () => {
     if (isSearching) return;
     setIsSearching(true); setSearchStatusText("Finding a partner...");
+
+    // Warmup backend for faster bot response
+    fetch(`${BACKEND_URL}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'warmup' })
+    }).catch(() => { });
+
     setTimeout(async () => {
       try {
         const res = await fetch(`${BACKEND_URL}`, {
@@ -239,11 +273,19 @@ const App = () => {
           body: JSON.stringify({ type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar })
         });
         const data = await res.json();
+        console.log('MATCH_DEBUG: find_random_match response:', data);
         if (data.success) {
-          if (data.matched) { joinMatch(data.roomId, data.opponent, 'human', data.topic); }
-          else {
+          if (data.matched) {
+            if (isJoiningRef.current) return;
+            joinMatch(data.roomId, data.opponent, 'human', data.topic);
+          } else {
             setSearchStatusText("Waiting for opponent...");
-            searchTimeoutRef.current = setTimeout(() => { setSearchStatusText("Connecting you with a partner..."); triggerBot(data.roomId); }, 7000);
+            searchTimeoutRef.current = setTimeout(() => {
+              if (!isJoiningRef.current) {
+                setSearchStatusText("Connecting you with a partner...");
+                triggerBot(data.roomId);
+              }
+            }, 3000); // Reduced to 3s for faster entry
 
             randomSearchListener.current = onSnapshot(doc(db, 'queue', data.roomId), (snap) => {
               if (snap.exists() && snap.data().status === 'matched' && !snap.data().isBotMatch) {
@@ -256,29 +298,46 @@ const App = () => {
               setIsSearching(false);
             });
           }
-        } else { alert("Error finding match"); setIsSearching(false); }
+        } else {
+          const err = data.error || "Error finding match";
+          alert(err);
+          setIsSearching(false);
+        }
       } catch (e) { console.error(e); setIsSearching(false); }
     }, 1000);
   };
 
   const triggerBot = async (roomId) => {
+    if (!roomId) return;
     // Check if we are still searching before triggering bot
     try {
+      if (isJoiningRef.current) return;
       const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'trigger_bot_match', roomId, userId: user.uid }) });
       const data = await res.json();
       // Ensure we haven't canceled or already matched with a human
-      if (data.success && data.matched && roomId) {
+      if (data.success && data.matched && !isJoiningRef.current) {
         joinMatch(data.roomId, data.opponent, 'human', data.topic);
+        // Inject first message immediately for Bot Match
+        if (data.isBotMatch) {
+          const greeting = "Hi! I'm " + data.opponent.name + ". Let's practice. " + (data.topic || "");
+          setMessages([{ id: 'init_bot', sender: 'opponent', text: greeting }]);
+        }
       }
     } catch (e) {
       console.error("Trigger bot error:", e);
-      setIsSearching(false);
     }
   };
 
   const joinMatch = (roomId, opponent, type, topic) => {
-    // If we're already in an active session with messages, don't re-join
-    if (activeSession && activeSession.id === roomId) return;
+    console.log('MATCH_DEBUG: joinMatch called', { roomId, type, topic });
+    if (isJoiningRef.current) return;
+    isJoiningRef.current = true;
+
+    // If we're already in an active session, don't re-join
+    if (activeSession && activeSession.id === roomId) {
+      isJoiningRef.current = false;
+      return;
+    }
 
     // Cleanup searching state
     if (randomSearchListener.current) {
@@ -315,6 +374,14 @@ const App = () => {
       },
       (error) => {
         console.error("Chat listener error:", error);
+        if (!isAlertingRef.current) {
+          isAlertingRef.current = true;
+          alert("Chat connection lost. Please try matching again.");
+          setTimeout(() => { isAlertingRef.current = false; }, 2000);
+          setView('dashboard');
+          setActiveSession(null);
+          isJoiningRef.current = false;
+        }
       }
     );
 
@@ -327,6 +394,14 @@ const App = () => {
       },
       (error) => {
         console.error("Match listener error:", error);
+        if (!isAlertingRef.current) {
+          isAlertingRef.current = true;
+          alert("Match connection error. Returning to dashboard.");
+          setTimeout(() => { isAlertingRef.current = false; }, 2000);
+          setView('dashboard');
+          setActiveSession(null);
+          isJoiningRef.current = false;
+        }
       }
     );
   };
@@ -336,22 +411,27 @@ const App = () => {
     setPreparingSim(sim);
 
     try {
-      // Warm up backend with a ping (this wakes up the cold instance)
-      const warmupPromise = fetch(`${BACKEND_URL}`, {
+      // Warm up backend in background
+      fetch(`${BACKEND_URL}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'chat', message: 'warmup', personaId: sim.id, context: sim.desc, history: [], stage: sim.stages[0] })
-      });
+      }).catch(e => { });
+    } catch (e) { }
 
-      // Wait at least 2.5 seconds to show the loading screen (longer for better UX)
-      await Promise.all([warmupPromise, new Promise(resolve => setTimeout(resolve, 2500))]);
-    } catch (e) {
-      console.log('Warmup ping sent');
-    }
+    // User requested 3.5s animation for better interest
+    await new Promise(resolve => setTimeout(resolve, 3500));
 
-    // Now transition to chat - AI speaks first!
+    // AI speaks first!
     setPreparingSim(null);
-    setActiveSession({ id: sim.id, opponent: { name: sim.title, avatar: '🤖' }, type: 'bot', topic: sim.desc });
+    const sessionId = 'sim_' + Date.now() + Math.random().toString(36).substring(2, 7);
+    setActiveSession({
+      id: sim.id,
+      sessionId,
+      opponent: { name: sim.title, avatar: '🤖' },
+      type: 'bot',
+      topic: sim.desc
+    });
     setMessages([{ id: 'ai_greeting', sender: 'opponent', text: sim.greeting }]);
     setCurrentStage(sim.stages[0]);
     setSessionPoints(0);
@@ -479,30 +559,51 @@ const App = () => {
   };
 
   const endSession = async (initiatedByMe = true) => {
+    if (!activeSession || isEndingRef.current) return;
+    isEndingRef.current = true;
+
+    // Prepare for feedback
+    setFeedbackSessionId(activeSession.sessionId || activeSession.id);
+    setFeedbackRating(0);
+    setFeedbackText('');
+    setFeedbackSubmitted(false);
 
     setTimerActive(false);
     if (initiatedByMe && activeSession?.type !== 'bot') {
       try { await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'end_session', roomId: activeSession.id, endedBy: user.uid }) }); } catch (e) { }
     }
-    if (chatListener.current) chatListener.current();
-    if (matchListener.current) matchListener.current();
+    if (chatListener.current) { chatListener.current(); chatListener.current = null; }
+    if (matchListener.current) { matchListener.current(); matchListener.current = null; }
 
     // Calculate accuracy based on messages and corrections
-    const totalMessages = messages.filter(m => m.sender === 'me').length;
-    const corrections = messages.filter(m => m.sender === 'correction').length;
-    const sessionAccuracy = totalMessages > 0 ? Math.round(((totalMessages - corrections) / totalMessages) * 100) : 100;
+    const myMessages = messages.filter(m => m.sender === 'me');
+    const totalSent = myMessages.length;
+    const correctionCount = messages.filter(m => m.sender === 'correction').length;
+    const cleanCount = totalSent - correctionCount;
+
+    let sessionAccuracy = 100;
+    if (totalSent === 0) {
+      sessionAccuracy = 0;
+    } else if (totalSent < 3) {
+      // Engagement Guard: Under 3 messages gets 0% accuracy
+      sessionAccuracy = 0;
+    } else {
+      // Weighted Accuracy Formula: Clean=100%, Corrected=65%
+      sessionAccuracy = Math.round(((cleanCount * 100) + (correctionCount * 65)) / totalSent);
+    }
 
     if (activeSession?.type === 'bot') {
       // Store session history to Firestore
       const sessionData = {
         simId: activeSession.id,
         simName: activeSession.opponent?.name || 'Simulation',
+        opponentAvatar: activeSession.opponent?.avatar || '🤖',
         points: sessionPoints,
         accuracy: sessionAccuracy,
-        messagesCount: totalMessages,
-        correctionsCount: corrections,
+        messagesCount: totalSent,
+        correctionsCount: correctionCount,
         timestamp: serverTimestamp(),
-        lastMessage: messages.filter(m => m.sender === 'me').pop()?.text || ''
+        lastMessage: myMessages.pop()?.text || ''
       };
 
       try {
@@ -511,14 +612,39 @@ const App = () => {
         await addDoc(sessionsRef, sessionData);
       } catch (e) { console.error('Failed to save session:', e); }
 
-      // Update stats with cumulative accuracy
+      // Update stats with cumulative accuracy and streak
+      const todayStr = getLocalDateStr();
       setStats(prev => {
+        const lastDate = prev.lastPracticeDate;
+        let newStreak = prev.streak || 0;
+
+        if (lastDate !== todayStr) {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = getLocalDateStr(yesterday);
+
+          if (lastDate === yesterdayStr) {
+            newStreak += 1;
+          } else {
+            newStreak = 1;
+          }
+        }
+
         const newTotalSessions = prev.sessions + 1;
         const newTotalPoints = prev.points + sessionPoints;
         const newAvgScore = Math.round(((prev.avgScore || 0) * prev.sessions + sessionAccuracy) / newTotalSessions);
         const newLevel = newTotalPoints >= 1000 ? 'Master' : newTotalPoints >= 500 ? 'Expert' : newTotalPoints >= 200 ? 'Advanced' : newTotalPoints >= 50 ? 'Intermediate' : 'Rookie';
-        const n = { ...prev, sessions: newTotalSessions, points: newTotalPoints, avgScore: newAvgScore, level: newLevel };
-        saveUserData(n, null);
+
+        const n = {
+          ...prev,
+          sessions: newTotalSessions,
+          points: newTotalPoints,
+          avgScore: newAvgScore,
+          level: newLevel,
+          streak: newStreak,
+          lastPracticeDate: todayStr
+        };
+        setTimeout(() => saveUserData(n, null), 10);
         return n;
       });
 
@@ -527,15 +653,15 @@ const App = () => {
         simName: activeSession.opponent?.name || 'Session',
         points: sessionPoints,
         accuracy: sessionAccuracy,
-        messagesCount: totalMessages,
-        correctionsCount: corrections
+        messagesCount: totalSent,
+        correctionsCount: correctionCount
       });
       setView('dashboard'); setActiveSession(null);
 
     } else {
       setView('analyzing');
       try {
-        const myMsgs = messages.filter(m => m.sender === 'me').map(m => m.text);
+        const myMsgs = myMessages.map(m => m.text);
         const oppMsgs = messages.filter(m => m.sender === 'opponent').map(m => m.text);
         const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'analyze', player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
@@ -549,23 +675,66 @@ const App = () => {
             type: '1v1',
             score: myScore,
             opponentName: activeSession.opponent?.name || 'Opponent',
+            opponentAvatar: activeSession.opponent?.avatar || '👤',
             won: myScore > (data?.player2?.overall || 0),
             timestamp: serverTimestamp()
           });
         } catch (e) { }
 
 
+        const todayStr = getLocalDateStr();
         setStats(prev => {
+          const lastDate = prev.lastPracticeDate;
+          let newStreak = prev.streak || 0;
+
+          if (lastDate !== todayStr) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = getLocalDateStr(yesterday);
+
+            if (lastDate === yesterdayStr) {
+              newStreak += 1;
+            } else {
+              newStreak = 1;
+            }
+          }
+
           const newTotalSessions = prev.sessions + 1;
           const newAvgScore = Math.round((prev.avgScore * prev.sessions + myScore) / newTotalSessions);
-          const n = { ...prev, sessions: newTotalSessions, points: prev.points + myScore, avgScore: newAvgScore };
-          saveUserData(n, null);
+          const n = {
+            ...prev,
+            sessions: newTotalSessions,
+            points: prev.points + myScore,
+            avgScore: newAvgScore,
+            streak: newStreak,
+            lastPracticeDate: todayStr
+          };
+          setTimeout(() => saveUserData(n, null), 10);
           return n;
         });
         setShowWinnerReveal(true);
         setView('dashboard');
       } catch (e) { setView('dashboard'); }
       setActiveSession(null);
+    }
+
+    setIsEnding(false);
+    setShowExitWarning(false);
+
+    // Reset guards after delay
+    setTimeout(() => {
+      isEndingRef.current = false;
+      isJoiningRef.current = false;
+    }, 1500);
+  };
+
+  const handleEndClick = () => {
+    const myMessagesCount = messages.filter(m => m.sender === 'me').length;
+    // Warn if less than 3 messages (Early Exit)
+    if (myMessagesCount < 3) {
+      setShowExitWarning(true);
+    } else {
+      endSession(true);
     }
   };
 
@@ -625,6 +794,38 @@ const App = () => {
                     {preparingSim.id === 'sim_friend' && "Just be yourself! Casual conversations are great for building fluency."}
                     {!['sim_interview', 'sim_cafe', 'sim_doctor', 'sim_train', 'sim_airport', 'sim_friend'].includes(preparingSim.id) && "Take your time and speak naturally. There's no rush!"}
                   </p>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Early Exit Warning Modal */}
+        <AnimatePresence>
+          {showExitWarning && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+              <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-white rounded-3xl w-full max-w-sm p-6 text-center shadow-2xl">
+                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle size={32} />
+                </div>
+                <h3 className="text-xl font-black text-gray-900 mb-2">Leaving so soon?</h3>
+                <p className="text-gray-500 text-sm mb-6">
+                  You've only sent <span className="font-bold text-gray-900">{messages.filter(m => m.sender === 'me').length} messages</span>.
+                  Ending now will mark your accuracy as <span className="text-red-600 font-bold">0%</span> and won't count towards your streak!
+                </p>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setShowExitWarning(false)}
+                    className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md"
+                  >
+                    CONTINUE CHATTING
+                  </button>
+                  <button
+                    onClick={() => { setShowExitWarning(false); endSession(true); }}
+                    className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-xl hover:bg-gray-200 transition-all"
+                  >
+                    EXIT ANYWAY
+                  </button>
                 </div>
               </motion.div>
             </motion.div>
@@ -776,7 +977,18 @@ const App = () => {
               </div>
               <div className="text-left">
                 <div className="text-[10px] text-gray-400 font-bold uppercase">Streak</div>
-                <div className="text-sm font-black text-gray-900">{stats.streak || 0} days</div>
+                <div className="text-sm font-black text-gray-900">
+                  {(() => {
+                    if (!stats.lastPracticeDate) return 0;
+                    const todayStr = getLocalDateStr();
+                    const lastDate = stats.lastPracticeDate;
+                    if (lastDate === todayStr) return stats.streak;
+                    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+                    const yesterdayStr = getLocalDateStr(yesterday);
+                    if (lastDate === yesterdayStr) return stats.streak;
+                    return 0;
+                  })()} days
+                </div>
               </div>
             </button>
             <div className="w-px h-8 bg-gray-200"></div>
@@ -908,41 +1120,87 @@ const App = () => {
                 <div className="text-xs text-gray-400 mt-1">Start a simulation to see your history here</div>
               </div>
             ) : (
-              <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
-                {recentChats.map(chat => (
-                  <button
-                    key={chat.id}
-                    onClick={() => {
-                      if (chat.type === 'simulation' && chat.simId) {
-                        const sim = SIMULATIONS.find(s => s.id === chat.simId);
-                        if (sim) startSimulation(sim);
-                      } else if (chat.type === 'battle') {
-                        // Start random match
-                        startRandomMatch();
-                      }
-                    }}
-                    className="flex-shrink-0 w-44 bg-white border border-gray-100 rounded-2xl p-4 text-left hover:border-emerald-300 hover:shadow-lg transition-all group"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-2xl">{chat.type === 'battle' ? '⚔️' : SIMULATIONS.find(s => s.id === chat.simId)?.icon ? '✓' : '💬'}</span>
-                      {chat.accuracy && (
-                        <span className={`text - [10px] font - bold px - 2 py - 0.5 rounded - full ${chat.accuracy >= 80 ? 'bg-emerald-100 text-emerald-700' : chat.accuracy >= 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'} `}>
-                          {chat.accuracy}%
-                        </span>
-                      )}
-                    </div>
-                    <div className="font-bold text-gray-900 text-sm truncate group-hover:text-emerald-700">{chat.title}</div>
-                    <div className="text-xs text-gray-400 truncate mt-1">{chat.lastMessage}</div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[10px] text-gray-300">
-                        {chat.timestamp instanceof Date ? chat.timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
-                      </span>
-                      {chat.points && (
-                        <span className="text-[10px] text-emerald-600 font-semibold">+{chat.points} pts</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
+              <div className="flex gap-4 overflow-x-auto pb-6 -mx-4 px-4 scrollbar-hide py-2">
+                {recentChats.map(chat => {
+                  const sim = SIMULATIONS.find(s => s.id === chat.simId);
+                  const isBattle = chat.type === 'battle';
+
+                  // Use specific avatar or simulation icon
+                  const AvatarDisplay = () => {
+                    if (isBattle && chat.opponentAvatar) return <span className="text-2xl">{chat.opponentAvatar}</span>;
+                    if (sim?.icon) {
+                      const Icon = sim.icon;
+                      return <Icon size={24} className="text-white" />;
+                    }
+                    return <span className="text-2xl">🤖</span>;
+                  };
+
+                  const iconColor = sim?.color || (isBattle ? 'bg-indigo-600' : 'bg-gray-500');
+
+                  return (
+                    <motion.button
+                      key={chat.id}
+                      whileHover={{ y: -4, scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        if (chat.type === 'simulation' && chat.simId) {
+                          const s = SIMULATIONS.find(simul => simul.id === chat.simId);
+                          if (s) startSimulation(s);
+                        } else if (chat.type === 'battle') {
+                          setLoadingAction('compete');
+                          startRandomMatch();
+                        }
+                      }}
+                      className="flex-shrink-0 w-56 bg-white rounded-[2rem] p-5 text-left border border-gray-100 shadow-sm hover:shadow-xl hover:border-emerald-200 transition-all group relative overflow-hidden"
+                    >
+                      {/* Status Badge (Win/Loss/Score) */}
+                      <div className="flex items-start justify-between mb-4 relative z-10">
+                        <div className={`w-12 h-12 ${iconColor} rounded-2xl flex items-center justify-center shadow-lg shadow-current/20`}>
+                          <AvatarDisplay />
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1">
+                          {isBattle && chat.won !== undefined && (
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${chat.won ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'} uppercase tracking-tight`}>
+                              {chat.won ? 'WIN' : 'LOSS'}
+                            </span>
+                          )}
+                          <div className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${chat.accuracy >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : chat.accuracy >= 60 ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-red-50 text-red-600 border-red-100'} border`}>
+                            {chat.accuracy}%
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="relative z-10">
+                        <div className="font-black text-gray-900 text-sm mb-1 truncate group-hover:text-emerald-700 transition-colors uppercase tracking-tight">
+                          {chat.title}
+                        </div>
+                        <div className="text-[11px] text-gray-500 line-clamp-2 min-h-[32px] leading-relaxed mb-3">
+                          {chat.lastMessage}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                          <div className="flex items-center gap-1.5 text-gray-400 font-bold uppercase text-[9px]">
+                            <Clock size={10} strokeWidth={3} />
+                            <span>
+                              {chat.timestamp instanceof Date ? chat.timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
+                            </span>
+                          </div>
+
+                          {chat.points && (
+                            <div className="flex items-center gap-0.5 text-indigo-600 font-black text-[11px]">
+                              <Zap size={10} fill="currentColor" />
+                              <span>{chat.points}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Hover Overlay */}
+                      <div className="absolute inset-0 bg-emerald-600/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                    </motion.button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1064,8 +1322,32 @@ const App = () => {
 
         {/* MODALS */}
         <AnimatePresence>
-          {showWinnerReveal && dualAnalysis && <WinnerReveal dualAnalysis={dualAnalysis} myUserId={user.uid} opponentData={activeSession?.opponent} onClose={() => setShowWinnerReveal(false)} onDashboard={() => { setShowWinnerReveal(false); setView('dashboard'); }} />}
-
+          {showWinnerReveal && (
+            <WinnerReveal
+              dualAnalysis={dualAnalysis}
+              myUserId={user.uid}
+              opponentData={activeSession?.opponent}
+              feedbackState={{ rating: feedbackRating, text: feedbackText, submitted: feedbackSubmitted }}
+              onFeedback={async (rating, text) => {
+                try {
+                  await addDoc(collection(db, 'feedback'), {
+                    userId: user.uid,
+                    rating: rating,
+                    text: text,
+                    sessionId: feedbackSessionId,
+                    opponentId: activeSession?.opponent?.id || null,
+                    type: 'battle',
+                    timestamp: serverTimestamp()
+                  });
+                  setFeedbackSubmitted(true);
+                } catch (e) { console.error(e); }
+              }}
+              onSetFeedbackRating={setFeedbackRating}
+              onSetFeedbackText={setFeedbackText}
+              onDashboard={() => { setShowWinnerReveal(false); setView('dashboard'); }}
+              onClose={() => setShowWinnerReveal(false)}
+            />
+          )}
         </AnimatePresence>
 
         <AnimatePresence>
@@ -1229,7 +1511,7 @@ const App = () => {
               <motion.div
                 initial={{ scale: 0.8, y: 50 }}
                 animate={{ scale: 1, y: 0 }}
-                className="bg-white rounded-3xl w-full max-w-sm p-6 text-center my-auto max-h-[90vh] overflow-y-auto"
+                className="bg-white rounded-3xl w-full max-w-sm p-6 text-center my-auto max-h-[90vh] overflow-y-auto shadow-2xl"
               >
                 <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center shadow-lg shadow-emerald-200">
                   <span className="text-4xl">{showSessionSummary.accuracy >= 80 ? '🌟' : showSessionSummary.accuracy >= 50 ? '👍' : '💪'}</span>
@@ -1288,9 +1570,60 @@ const App = () => {
                   </div>
                 </div>
 
+                {/* Contextual Feedback Section */}
+                <div className="mt-8 pt-6 border-t border-gray-100 text-left">
+                  <div className="text-xs font-black text-gray-400 uppercase mb-3 tracking-widest">How was this session?</div>
+                  {feedbackSubmitted ? (
+                    <div className="bg-emerald-50 text-emerald-700 rounded-2xl p-4 text-center text-sm font-bold flex items-center justify-center gap-2">
+                      <Sparkles size={16} /> Thank you for the feedback!
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <button
+                            key={star}
+                            onClick={() => setFeedbackRating(star)}
+                            className={`text-2xl transition-all ${feedbackRating >= star ? 'text-amber-400 scale-110' : 'text-gray-200'}`}
+                          >
+                            ⭐
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        value={feedbackText}
+                        onChange={(e) => setFeedbackText(e.target.value)}
+                        placeholder="Any comments on the AI or match quality?"
+                        className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 text-sm focus:border-emerald-400 focus:outline-none h-20 resize-none"
+                      />
+                      {feedbackRating > 0 && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await addDoc(collection(db, 'feedback'), {
+                                userId: user.uid,
+                                rating: feedbackRating,
+                                text: feedbackText,
+                                sessionId: feedbackSessionId,
+                                simId: showSessionSummary.simId || null,
+                                simName: showSessionSummary.simName,
+                                timestamp: serverTimestamp()
+                              });
+                              setFeedbackSubmitted(true);
+                            } catch (e) { console.error(e); }
+                          }}
+                          className="w-full py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition-colors"
+                        >
+                          Send Feedback
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <button
                   onClick={() => setShowSessionSummary(null)}
-                  className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:from-emerald-600 hover:to-teal-600 transition-all"
+                  className="w-full py-4 mt-6 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black rounded-2xl hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg shadow-emerald-200 uppercase tracking-widest text-sm"
                 >
                   Continue Practicing 🚀
                 </button>
@@ -1357,23 +1690,22 @@ const App = () => {
         </AnimatePresence>
 
 
-        {/* Help & Support Modal */}
         <AnimatePresence>
           {showHelp && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-md p-6 relative my-auto max-h-[90vh] overflow-y-auto">
-                <button onClick={() => { setShowHelp(false); setFeedbackSubmitted(false); setFeedbackText(''); setFeedbackRating(0); }} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
+                <button onClick={() => { setShowHelp(false); setHelpFeedbackSubmitted(false); setHelpFeedbackText(''); setHelpFeedbackRating(0); }} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
 
                 <div className="text-center mb-6">
                   <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-200">
                     <MessageCircle className="text-white" size={32} />
                   </div>
                   <h3 className="text-2xl font-black text-gray-900">Fluency Pro</h3>
-                  <p className="text-gray-500 text-sm">Version 1.0.0</p>
+                  <p className="text-gray-500 text-sm">Version 1.1.0</p>
                 </div>
 
                 {/* About */}
-                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 mb-4">
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 mb-4 text-left">
                   <h4 className="font-bold text-emerald-800 mb-2">🇮🇳 Made in India</h4>
                   <p className="text-emerald-700 text-sm leading-relaxed">
                     Built by a passionate solo developer to help millions of Indians improve their spoken English through AI-powered practice sessions.
@@ -1381,60 +1713,69 @@ const App = () => {
                 </div>
 
                 {/* Features */}
-                <div className="space-y-2 mb-6">
+                <div className="space-y-3 mb-6">
                   <div className="flex items-center gap-3 text-sm text-gray-600">
                     <Sparkles size={16} className="text-amber-500" /> Real-time grammar feedback
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
-                    <Users size={16} className="text-indigo-500" /> Battle mode with global players
+                    <Users size={16} className="text-indigo-500" /> Battle mode matching global players
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
-                    <Target size={16} className="text-emerald-500" /> Immersive scenario simulations
+                    <Target size={16} className="text-emerald-500" /> Scenario-based simulations
                   </div>
                 </div>
 
                 {/* Feedback Form */}
-                <div className="border-t pt-6">
-                  <h4 className="font-bold text-gray-900 mb-3">💬 Send Feedback</h4>
-                  {feedbackSubmitted ? (
-                    <div className="bg-emerald-50 text-emerald-700 rounded-xl p-4 text-center">
+                <div className="border-t pt-6 text-left">
+                  <h4 className="font-bold text-gray-900 mb-3 uppercase text-xs tracking-widest text-gray-400">💬 Share Your Experience</h4>
+                  {helpFeedbackSubmitted ? (
+                    <div className="bg-emerald-50 text-emerald-700 rounded-2xl p-4 text-center font-bold">
                       <div className="text-2xl mb-2">🎉</div>
-                      Thank you for your feedback!
+                      We've received your feedback!
                     </div>
                   ) : (
                     <>
                       {/* Rating */}
-                      <div className="flex justify-center gap-2 mb-4">
+                      <div className="flex justify-center gap-3 mb-5">
                         {[1, 2, 3, 4, 5].map(star => (
-                          <button key={star} onClick={() => setFeedbackRating(star)} className={`text-2xl transition-transform hover:scale-110 ${feedbackRating >= star ? 'text-amber-400' : 'text-gray-300'}`}>
-                            ⭐
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => { console.log('Star clicked:', star); setHelpFeedbackRating(star); }}
+                            className={`p-1 transition-all rounded-full hover:bg-gray-50 ${helpFeedbackRating >= star ? 'scale-125' : 'grayscale opacity-30 shadow-none'}`}
+                          >
+                            <span className="text-3xl">⭐</span>
                           </button>
                         ))}
                       </div>
                       <textarea
-                        value={feedbackText}
-                        onChange={(e) => setFeedbackText(e.target.value)}
-                        placeholder="Tell us what you think..."
-                        className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none text-sm resize-none h-24"
+                        value={helpFeedbackText}
+                        onChange={(e) => setHelpFeedbackText(e.target.value)}
+                        placeholder="What can we improve? (Found a bug? Match issues?)"
+                        className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none text-sm resize-none h-28 mb-4 border-gray-100"
                       />
                       <button
                         onClick={async () => {
-                          if (feedbackRating > 0) {
+                          if (helpFeedbackRating > 0) {
                             try {
+                              console.log('Submitting general feedback:', helpFeedbackRating, helpFeedbackText);
                               await addDoc(collection(db, 'feedback'), {
                                 userId: user.uid,
-                                rating: feedbackRating,
-                                text: feedbackText,
+                                rating: helpFeedbackRating,
+                                text: helpFeedbackText,
+                                sessionId: feedbackSessionId,
+                                source: 'help_modal',
                                 timestamp: serverTimestamp()
                               });
-                              setFeedbackSubmitted(true);
-                            } catch (e) { console.error(e); }
+                              setHelpFeedbackSubmitted(true);
+                            } catch (e) { alert('Failed to send! Check connection.'); }
+                          } else {
+                            alert('Please select a star rating first!');
                           }
                         }}
-                        disabled={feedbackRating === 0}
-                        className="w-full mt-3 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                        className={`w-full py-4 rounded-xl font-black transition-all shadow-lg ${helpFeedbackRating > 0 ? 'bg-emerald-600 text-white shadow-emerald-200 hover:bg-emerald-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
                       >
-                        Submit Feedback
+                        SUBMIT FEEDBACK
                       </button>
                     </>
                   )}
@@ -1561,7 +1902,20 @@ const App = () => {
                 <Clock size={12} /> {formatTime(timeRemaining)}
               </div>
             )}
-            <button onClick={() => endSession(true)} className="px-4 py-2 bg-red-500 text-white font-bold rounded-full text-sm hover:bg-red-600 transition-colors">End Session</button>
+            <button
+              onClick={handleEndClick}
+              disabled={isEnding}
+              className={`px-4 py-2 text-white font-bold rounded-full text-sm transition-all flex items-center gap-2 ${isEnding ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 shadow-md active:scale-95'}`}
+            >
+              {isEnding ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Ending...
+                </>
+              ) : (
+                'End Session'
+              )}
+            </button>
           </div>
         </header>
 
