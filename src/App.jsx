@@ -251,6 +251,9 @@ const App = () => {
                 const r = snap.data(); const amI = r.hostId === user.uid;
                 joinMatch(data.roomId, { id: amI ? r.player2Id : r.hostId, name: amI ? r.player2Name : r.userName, avatar: amI ? r.player2Avatar : r.userAvatar }, 'human', r.roleData?.topic);
               }
+            }, (error) => {
+              console.error("Match listener (queue) error:", error);
+              setIsSearching(false);
             });
           }
         } else { alert("Error finding match"); setIsSearching(false); }
@@ -259,29 +262,73 @@ const App = () => {
   };
 
   const triggerBot = async (roomId) => {
+    // Check if we are still searching before triggering bot
     try {
       const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'trigger_bot_match', roomId, userId: user.uid }) });
       const data = await res.json();
-      if (data.success && data.matched) joinMatch(data.roomId, data.opponent, 'human', data.topic);
-    } catch (e) { setIsSearching(false); }
+      // Ensure we haven't canceled or already matched with a human
+      if (data.success && data.matched && roomId) {
+        joinMatch(data.roomId, data.opponent, 'human', data.topic);
+      }
+    } catch (e) {
+      console.error("Trigger bot error:", e);
+      setIsSearching(false);
+    }
   };
 
   const joinMatch = (roomId, opponent, type, topic) => {
-    if (randomSearchListener.current) randomSearchListener.current();
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    setIsSearching(false);
-    setActiveSession({ id: roomId, opponent, type, topic });
-    setMessages([{ id: 'sys', sender: 'system', text: `Connected with ${opponent.name}` }]);
-    setTimeRemaining(420); setTimerActive(true); setView('chat');
+    // If we're already in an active session with messages, don't re-join
+    if (activeSession && activeSession.id === roomId) return;
 
+    // Cleanup searching state
+    if (randomSearchListener.current) {
+      randomSearchListener.current();
+      randomSearchListener.current = null;
+    }
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+
+    setIsSearching(false);
+    setLoadingAction(null);
+
+    // Initialize session
+    setActiveSession({ id: roomId, opponent, type, topic });
+    setMessages([{ id: 'sys' + Date.now(), sender: 'system', text: `Connected with ${opponent.name}` }]);
+    setTimeRemaining(420);
+    setTimerActive(true);
+    setSessionPoints(0);
+    setView('chat');
+
+    // Chat listener with error handling
     const q = query(collection(db, 'queue', roomId, 'messages'), orderBy('createdAt'));
-    chatListener.current = onSnapshot(q, (snap) => {
-      const msgs = []; snap.forEach(d => msgs.push({ id: d.id, sender: d.data().senderId === user.uid ? 'me' : 'opponent', text: d.data().text }));
-      setMessages(prev => [...prev.filter(m => m.sender === 'system'), ...msgs]);
-    });
-    matchListener.current = onSnapshot(doc(db, 'queue', roomId), (snap) => {
-      if (snap.exists() && snap.data().status === 'ended' && snap.data().endedBy !== user.uid) endSession(false);
-    });
+    chatListener.current = onSnapshot(q,
+      (snap) => {
+        const msgs = [];
+        snap.forEach(d => msgs.push({
+          id: d.id,
+          sender: d.data().senderId === user.uid ? 'me' : 'opponent',
+          text: d.data().text
+        }));
+        setMessages(prev => [...prev.filter(m => m.sender === 'system' || m.sender === 'correction'), ...msgs]);
+      },
+      (error) => {
+        console.error("Chat listener error:", error);
+      }
+    );
+
+    // Match status listener with error handling
+    matchListener.current = onSnapshot(doc(db, 'queue', roomId),
+      (snap) => {
+        if (snap.exists() && snap.data().status === 'ended' && snap.data().endedBy !== user.uid) {
+          endSession(false);
+        }
+      },
+      (error) => {
+        console.error("Match listener error:", error);
+      }
+    );
   };
 
   const startSimulation = async (sim) => {
@@ -1154,63 +1201,8 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        {/* Preparing Simulation Modal */}
-        <AnimatePresence>
-          {preparingSim && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-gradient-to-br from-emerald-900 via-teal-800 to-emerald-900 z-50 flex items-center justify-center p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="text-center max-w-sm w-full"
-              >
-                {/* Simulation Icon */}
-                <motion.div
-                  className="w-24 h-24 mx-auto mb-6 bg-white/10 rounded-3xl flex items-center justify-center backdrop-blur-sm border border-white/20"
-                  animate={{ rotate: [0, 5, -5, 0] }}
-                  transition={{ repeat: Infinity, duration: 2 }}
-                >
-                  {preparingSim.icon && <preparingSim.icon size={48} className="text-white" />}
-                </motion.div>
-
-                <h2 className="text-2xl font-black text-white mb-2">Preparing {preparingSim.title}...</h2>
-                <p className="text-emerald-200 text-sm mb-8">Setting up your practice session</p>
-
-                {/* Loading Dots */}
-                <div className="flex justify-center gap-2 mb-8">
-                  {[0, 1, 2].map(i => (
-                    <motion.div
-                      key={i}
-                      className="w-3 h-3 bg-white rounded-full"
-                      animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
-                      transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
-                    />
-                  ))}
-                </div>
-
-                {/* Tips Card */}
-                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
-                  <div className="flex items-center gap-2 text-amber-300 text-sm font-semibold mb-2">
-                    <Sparkles size={14} /> Scenario Tips
-                  </div>
-                  <p className="text-white/80 text-xs leading-relaxed">
-                    {preparingSim.id === 'sim_interview' && "Be confident! Start with a firm greeting and maintain eye contact (even virtually)."}
-                    {preparingSim.id === 'sim_cafe' && "Practice ordering clearly. Don't forget to say 'please' and 'thank you'!"}
-                    {preparingSim.id === 'sim_doctor' && "Describe your symptoms clearly. Use phrases like 'I have been feeling...'"}
-                    {preparingSim.id === 'sim_train' && "Know your destination! Ask about timings, platform numbers, and ticket prices."}
-                    {preparingSim.id === 'sim_airport' && "Keep your passport ready! Practice phrases for check-in and security."}
-                    {preparingSim.id === 'sim_friend' && "Just be yourself! Casual conversations are great for building fluency."}
-                    {!['sim_interview', 'sim_cafe', 'sim_doctor', 'sim_train', 'sim_airport', 'sim_friend'].includes(preparingSim.id) && "Take your time and speak naturally. There's no rush!"}
-                  </p>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* SHARED MODALS & OVERLAYS */}
+        {renderGlobalModals()}
 
 
         <AnimatePresence>

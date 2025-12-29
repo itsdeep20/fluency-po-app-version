@@ -3,6 +3,7 @@ import json
 import vertexai
 import time
 import random
+from datetime import datetime, timedelta, timezone
 from google.cloud import firestore
 from vertexai.generative_models import GenerativeModel, Content, Part
 
@@ -118,44 +119,69 @@ def fluency_backend(request):
             user_name = data.get('userName')
             user_avatar = data.get('userAvatar')
             
-            # Check for waiting queue
-            waiting_docs = db.collection('queue').where('status', '==', 'waiting').where('mode', '==', 'random').limit(1).stream()
-            found_room = next(waiting_docs, None)
+            # 1. Filter out rooms older than 3 minutes to avoid stale matches
+            three_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=3)
             
-            if found_room and found_room.to_dict().get('hostId') != user_id:
-                # MATCH FOUND (Human)
-                room_data = found_room.to_dict()
+            # 2. Try to find an existing room to join
+            waiting_docs = db.collection('queue') \
+                .where('status', '==', 'waiting') \
+                .where('mode', '==', 'random') \
+                .where('createdAt', '>', three_mins_ago) \
+                .limit(10).stream() # Get a few to avoid host matching self
+            
+            found_room = None
+            for doc_snap in waiting_docs:
+                if doc_snap.to_dict().get('hostId') != user_id:
+                    found_room = doc_snap
+                    break
+            
+            if found_room:
+                # MATCH FOUND (Human) - Use a transaction to ensure atomic join
+                room_ref = db.collection('queue').document(found_room.id)
                 role_pair = random.choice(ROLE_PAIRS)
                 role_idx = random.randint(0, 1)
                 
-                db.collection('queue').document(found_room.id).update({
-                    'status': 'matched',
-                    'player2Id': user_id, 'player2Name': user_name, 'player2Avatar': user_avatar,
-                    'startedAt': firestore.SERVER_TIMESTAMP,
-                    'roleData': {
-                        'pairId': role_pair['id'], 'topic': role_pair['topic'],
-                        'player1Role': role_pair['roles'][role_idx], 'player1Icon': role_pair['icons'][role_idx], 'player1Desc': role_pair['descriptions'][role_idx],
-                        'player2Role': role_pair['roles'][1-role_idx], 'player2Icon': role_pair['icons'][1-role_idx], 'player2Desc': role_pair['descriptions'][1-role_idx]
-                    }
-                })
-                return (json.dumps({
-                    "success": True, "matched": True, "roomId": found_room.id,
-                    "opponent": {"id": room_data.get('hostId'), "name": room_data.get('userName'), "avatar": room_data.get('userAvatar')},
-                    "myRole": role_pair['roles'][1-role_idx], "myIcon": role_pair['icons'][1-role_idx], "myDesc": role_pair['descriptions'][1-role_idx], "topic": role_pair['topic']
-                }), 200, headers)
-            else:
-                # ADD TO QUEUE
-                # Check if user already has a waiting room to avoid duplicates
-                existing = db.collection('queue').where('hostId', '==', user_id).where('status', '==', 'waiting').limit(1).stream()
-                if next(existing, None):
-                    return (json.dumps({"success": True, "matched": False, "message": "Already waiting"}), 200, headers)
+                @firestore.transactional
+                def update_room(transaction, ref):
+                    snapshot = ref.get(transaction=transaction)
+                    if not snapshot.exists or snapshot.get('status') != 'waiting':
+                        return None # Room taken or gone
+                    
+                    transaction.update(ref, {
+                        'status': 'matched',
+                        'player2Id': user_id, 'player2Name': user_name, 'player2Avatar': user_avatar,
+                        'startedAt': firestore.SERVER_TIMESTAMP,
+                        'roleData': {
+                            'pairId': role_pair['id'], 'topic': role_pair['topic'],
+                            'player1Role': role_pair['roles'][role_idx], 'player1Icon': role_pair['icons'][role_idx], 'player1Desc': role_pair['descriptions'][role_idx],
+                            'player2Role': role_pair['roles'][1-role_idx], 'player2Icon': role_pair['icons'][1-role_idx], 'player2Desc': role_pair['descriptions'][1-role_idx]
+                        }
+                    })
+                    return snapshot.to_dict()
 
-                ref = db.collection('queue').add({
-                    'roomCode': "RND"+str(random.randint(1000,9999)),
-                    'hostId': user_id, 'userName': user_name, 'userAvatar': user_avatar,
-                    'status': 'waiting', 'mode': 'random', 'createdAt': firestore.SERVER_TIMESTAMP
-                })
-                return (json.dumps({"success": True, "matched": False, "roomId": ref[1].id}), 200, headers)
+                room_data = update_room(db.transaction(), room_ref)
+                
+                if room_data:
+                    return (json.dumps({
+                        "success": True, "matched": True, "roomId": found_room.id,
+                        "opponent": {"id": room_data.get('hostId'), "name": room_data.get('userName'), "avatar": room_data.get('userAvatar')},
+                        "myRole": role_pair['roles'][1-role_idx], "myIcon": role_pair['icons'][1-role_idx], "myDesc": role_pair['descriptions'][1-role_idx], "topic": role_pair['topic']
+                    }), 200, headers)
+                # If room_data is None, transaction failed, fall through to host a new room
+            
+            # 3. NO ROOM FOUND - HOST A NEW ONE
+            # Check for duplicates
+            existing = db.collection('queue').where('hostId', '==', user_id).where('status', '==', 'waiting').limit(1).stream()
+            if next(existing, None):
+                # Clean up old waiting room from THIS user if any
+                return (json.dumps({"success": True, "matched": False, "message": "Already waiting"}), 200, headers)
+
+            ref = db.collection('queue').add({
+                'roomCode': "RND"+str(random.randint(1000,9999)),
+                'hostId': user_id, 'userName': user_name, 'userAvatar': user_avatar,
+                'status': 'waiting', 'mode': 'random', 'createdAt': firestore.SERVER_TIMESTAMP
+            })
+            return (json.dumps({"success": True, "matched": False, "roomId": ref[1].id}), 200, headers)
 
         # --- CREATE PRIVATE ROOM ---
         if req_type == "create_room":
@@ -194,16 +220,28 @@ def fluency_backend(request):
             if room_data.get('hostId') == user_id:
                 return (json.dumps({"success": False, "error": "Cannot join your own room"}), 200, headers)
             
-            # Update room to matched
-            db.collection('queue').document(room.id).update({
-                'status': 'matched',
-                'player2Id': user_id, 'player2Name': user_name, 'player2Avatar': user_avatar,
-                'startedAt': firestore.SERVER_TIMESTAMP
-            })
+            # Update room to matched with transaction
+            room_ref = db.collection('queue').document(room.id)
+            @firestore.transactional
+            def join_room_txn(transaction, ref):
+                snapshot = ref.get(transaction=transaction)
+                if not snapshot.exists or snapshot.get('status') != 'waiting':
+                    return None
+                
+                transaction.update(ref, {
+                    'status': 'matched',
+                    'player2Id': user_id, 'player2Name': user_name, 'player2Avatar': user_avatar,
+                    'startedAt': firestore.SERVER_TIMESTAMP
+                })
+                return snapshot.to_dict()
+                
+            res_data = join_room_txn(db.transaction(), room_ref)
+            if not res_data:
+                return (json.dumps({"success": False, "error": "Room taken or gone"}), 200, headers)
             
             return (json.dumps({
                 "success": True, "roomId": room.id,
-                "opponent": {"id": room_data.get('hostId'), "name": room_data.get('userName'), "avatar": room_data.get('userAvatar')}
+                "opponent": {"id": res_data.get('hostId'), "name": res_data.get('userName'), "avatar": res_data.get('userAvatar')}
             }), 200, headers)
 
         # --- TRIGGER FAKE BOT MATCH ---
