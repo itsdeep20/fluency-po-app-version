@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
-  doc, serverTimestamp, orderBy, getDocs, limit
+  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc
 } from 'firebase/firestore';
 
 import {
@@ -58,6 +58,12 @@ const STAT_INFO = {
 };
 
 const App = () => {
+  const KNOWN_BOTS = {
+    'Aman': 'bot_aman', 'Rahul': 'bot_rahul', 'Neha': 'bot_neha', 'Pooja': 'bot_pooja',
+    'Rohit': 'bot_rohit', 'Simran': 'bot_simran', 'Ankit': 'bot_ankit',
+    'Priya': 'bot_priya', 'Kavya': 'bot_kavya', 'Diya': 'bot_diya', 'Riya': 'bot_riya'
+  };
+
   const [user, setUser] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [view, setView] = useState('landing');
@@ -130,6 +136,21 @@ const App = () => {
   const messagesEndRef = useRef(null);
 
   const adjustedTimestamps = useRef({}); // New ref to track visual display time
+
+  // Live Users & Presence System
+  const [activeUsersTab, setActiveUsersTab] = useState('live'); // 'live' or 'recent'
+  const [liveUsers, setLiveUsers] = useState([]);
+  const [incomingInvitation, setIncomingInvitation] = useState(null);
+  const [invitationCountdown, setInvitationCountdown] = useState(16);
+  const [pendingInviteTarget, setPendingInviteTarget] = useState(null); // For confirmation popup
+  const [sentInviteTarget, setSentInviteTarget] = useState(null); // Track who we sent to
+  const [offlineUserTarget, setOfflineUserTarget] = useState(null); // For offline user popup
+  const invitationTimerRef = useRef(null);
+  const sentInviteTargetRef = useRef(null); // Ref for cleaning up on unmount
+  const presenceRef = useRef(null);
+  const presenceListenerRef = useRef(null);
+  const invitationListenerRef = useRef(null);
+  const heartbeatRef = useRef(null);
 
   const resetChatStates = () => {
     isSyncingQueue.current = false;
@@ -298,6 +319,87 @@ const App = () => {
     }
   }, [view, user]);
 
+  // Presence Tracking System
+  useEffect(() => {
+    if (!user || !db) return;
+
+    // Only track presence when on dashboard (not in session)
+    if (view === 'dashboard') {
+      // Set online status
+      const presenceDocRef = doc(db, 'presence', user.uid);
+      setDoc(presenceDocRef, {
+        name: user.displayName || 'Player',
+        avatar: userAvatar,
+        level: stats.level || 'Rookie',
+        lastSeen: serverTimestamp(),
+        isOnline: true,
+        view: 'dashboard'
+      }, { merge: true }).catch(e => console.error('Presence set error:', e));
+
+      // Heartbeat every 30 seconds
+      heartbeatRef.current = setInterval(() => {
+        setDoc(presenceDocRef, { lastSeen: serverTimestamp() }, { merge: true })
+          .catch(e => console.error('Heartbeat error:', e));
+      }, 30000);
+
+      // Listen for all live users (excluding self)
+      const liveQuery = query(
+        collection(db, 'presence'),
+        where('isOnline', '==', true)
+      );
+      presenceListenerRef.current = onSnapshot(liveQuery, (snap) => {
+        const live = snap.docs
+          .filter(d => d.id !== user.uid)
+          .map(d => ({ id: d.id, ...d.data() }));
+        setLiveUsers(live);
+      }, e => console.error('Live users listener error:', e));
+
+      // Listen for incoming invitations
+      const invitationDocRef = doc(db, 'invitations', user.uid);
+      invitationListenerRef.current = onSnapshot(invitationDocRef, (snap) => {
+        if (snap.exists()) {
+          const inv = snap.data();
+          if (inv.status === 'pending') {
+            setIncomingInvitation({ id: snap.id, ...inv });
+          } else if (inv.status === 'cancelled') {
+            setIncomingInvitation(null);
+            alert('Request cancelled - sender left dashboard');
+          } else {
+            setIncomingInvitation(null);
+          }
+        } else {
+          setIncomingInvitation(null);
+        }
+      }, e => console.error('Invitation listener error:', e));
+
+      // Cleanup
+      return () => {
+        if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+        if (presenceListenerRef.current) presenceListenerRef.current();
+        if (invitationListenerRef.current) invitationListenerRef.current();
+
+        // Cancel pending invitation if we leave dashboard
+        if (sentInviteTargetRef.current) {
+          const targetId = sentInviteTargetRef.current.id;
+          console.log('[CLEANUP] Cancelling invitation to:', targetId);
+          // Set cancelled status so they know we left
+          const invRef = doc(db, 'invitations', targetId);
+          setDoc(invRef, { status: 'cancelled' }, { merge: true }).catch(e => console.error('Cancel error:', e));
+          // Delete after short delay (fire and forget)
+          setTimeout(() => deleteDoc(invRef).catch(e => console.error('Delete error:', e)), 500);
+        }
+
+        // Set offline
+        setDoc(presenceDocRef, { isOnline: false, lastSeen: serverTimestamp() }, { merge: true })
+          .catch(e => console.error('Presence cleanup error:', e));
+      };
+    } else {
+      // Set away status when not on dashboard
+      const presenceDocRef = doc(db, 'presence', user.uid);
+      setDoc(presenceDocRef, { isOnline: false, view: view }, { merge: true })
+        .catch(e => console.error('Away status error:', e));
+    }
+  }, [view, user, userAvatar, stats.level]);
 
   useEffect(() => {
     if (timerActive && timeRemaining > 0) {
@@ -310,6 +412,57 @@ const App = () => {
       return () => clearInterval(timerRef.current);
     }
   }, [timerActive]);
+
+  // Invitation Countdown Timer
+  useEffect(() => {
+    if (incomingInvitation && view === 'dashboard') {
+      // Reset countdown to 16 seconds when new invitation arrives
+      setInvitationCountdown(16);
+
+      // Start countdown
+      invitationTimerRef.current = setInterval(() => {
+        setInvitationCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(invitationTimerRef.current);
+            // Auto-decline with timeout status
+            autoTimeoutInvitation();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => {
+        if (invitationTimerRef.current) clearInterval(invitationTimerRef.current);
+      };
+    } else {
+      // Clear timer if no invitation or not on dashboard
+      if (invitationTimerRef.current) {
+        clearInterval(invitationTimerRef.current);
+        invitationTimerRef.current = null;
+      }
+    }
+  }, [incomingInvitation, view]);
+
+  // Sync ref with state for cleanup access
+  useEffect(() => {
+    sentInviteTargetRef.current = sentInviteTarget;
+  }, [sentInviteTarget]);
+
+  const autoTimeoutInvitation = async () => {
+    if (!incomingInvitation) return;
+    try {
+      const invRef = doc(db, 'invitations', user.uid);
+      // Set status to 'timeout' so sender knows it auto-expired
+      await setDoc(invRef, { status: 'timeout' }, { merge: true });
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await deleteDoc(invRef);
+      setIncomingInvitation(null);
+    } catch (e) {
+      console.error('Auto timeout error:', e);
+      setIncomingInvitation(null);
+    }
+  };
 
   // Clean up typing listener
   useEffect(() => {
@@ -346,6 +499,230 @@ const App = () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'warmup' })
     }).catch(() => { });
+  };
+
+  // Invitation System Functions
+  const sentInvitationListenerRef = useRef(null);
+
+  const sendInvitation = async (targetUser) => {
+    if (!user || !targetUser) return;
+    try {
+      const invitationRef = doc(db, 'invitations', targetUser.id);
+      console.log('[INVITE DEBUG] Creating invitation for:', targetUser.id, 'from:', user.uid);
+
+      await setDoc(invitationRef, {
+        fromUserId: user.uid,
+        fromName: user.displayName || 'Player',
+        fromAvatar: userAvatar,
+        fromLevel: stats.level || 'Rookie',
+        createdAt: serverTimestamp(),
+        status: 'pending'
+      });
+      console.log('[INVITE DEBUG] Invitation created successfully');
+
+      // Show waiting state
+      setLoadingAction('waiting-invite');
+
+      // Listen for the invitation to be accepted/declined
+      if (sentInvitationListenerRef.current) {
+        console.log('[INVITE DEBUG] Cleaning up previous listener');
+        sentInvitationListenerRef.current();
+      }
+
+      console.log('[INVITE DEBUG] Setting up listener for:', invitationRef.path);
+      sentInvitationListenerRef.current = onSnapshot(invitationRef, (snap) => {
+        console.log('[INVITE DEBUG] Listener triggered. Exists:', snap.exists());
+
+        if (!snap.exists()) {
+          console.log('[INVITE DEBUG] Document deleted - invitation declined or cleaned up');
+          // Invitation was deleted (declined)
+          setLoadingAction(null);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+          return;
+        }
+
+        const data = snap.data();
+        console.log('[INVITE DEBUG] Document data:', JSON.stringify(data));
+
+        if (data.status === 'accepted' && data.roomId) {
+          console.log('[INVITE DEBUG] ACCEPTED! Room:', data.roomId);
+          // Invitation accepted! Join the room
+          setLoadingAction(null);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+
+          // Clean up the invitation
+          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+
+          // Join the match as the host (we sent the invite)
+          joinMatch(data.roomId, {
+            id: targetUser.id,
+            name: targetUser.name,
+            avatar: targetUser.avatar
+          }, 'human', 'Direct Match');
+        } else if (data.status === 'declined') {
+          console.log('[INVITE DEBUG] DECLINED by recipient');
+          setLoadingAction(null);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+          // Clean up the invitation
+          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+          // Notify sender that invitation was declined
+          alert('Invitation declined by ' + targetUser.name);
+        } else if (data.status === 'timeout') {
+          console.log('[INVITE DEBUG] TIMEOUT - no response');
+          setLoadingAction(null);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+          // Clean up the invitation
+          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+          // Notify sender that invitation timed out
+          alert('Invitation timed out - no response from ' + targetUser.name);
+        } else {
+          console.log('[INVITE DEBUG] Status is:', data.status, '- waiting for change...');
+        }
+      }, (error) => {
+        console.error('[INVITE DEBUG] Listener error:', error);
+        setLoadingAction(null);
+      });
+
+      console.log('[INVITE DEBUG] Invitation sent and listener active');
+    } catch (e) {
+      console.error('[INVITE DEBUG] Send invitation error:', e);
+      setLoadingAction(null);
+    }
+  };
+
+  const acceptInvitation = async () => {
+    if (!incomingInvitation) return;
+    try {
+      // Create a room for both players
+      const res = await fetch(`${BACKEND_URL}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'create_invitation_room',
+          hostId: incomingInvitation.fromUserId,
+          hostName: incomingInvitation.fromName,
+          hostAvatar: incomingInvitation.fromAvatar,
+          guestId: user.uid,
+          guestName: user.displayName || 'Player',
+          guestAvatar: userAvatar
+        })
+      });
+      const data = await res.json();
+
+      if (data.success && data.roomId) {
+        // Update invitation status
+        await setDoc(doc(db, 'invitations', user.uid), { status: 'accepted', roomId: data.roomId }, { merge: true });
+
+        // Join the match
+        joinMatch(data.roomId, {
+          id: incomingInvitation.fromUserId,
+          name: incomingInvitation.fromName,
+          avatar: incomingInvitation.fromAvatar
+        }, 'human', 'Direct Match');
+      }
+      setIncomingInvitation(null);
+    } catch (e) {
+      console.error('Accept invitation error:', e);
+      setIncomingInvitation(null);
+    }
+  };
+
+  const declineInvitation = async () => {
+    if (!incomingInvitation) return;
+    try {
+      const invRef = doc(db, 'invitations', user.uid);
+      console.log('[DECLINE DEBUG] Setting status to declined for:', user.uid);
+      // First update status to 'declined' so sender's listener sees it
+      await setDoc(invRef, { status: 'declined' }, { merge: true });
+      console.log('[DECLINE DEBUG] Status updated, waiting 500ms...');
+      // Small delay to ensure sender receives the update
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('[DECLINE DEBUG] Deleting invitation...');
+      // Then delete
+      await deleteDoc(invRef);
+      console.log('[DECLINE DEBUG] Invitation deleted');
+      setIncomingInvitation(null);
+    } catch (e) {
+      console.error('[DECLINE DEBUG] Error:', e);
+      setIncomingInvitation(null);
+    }
+  };
+
+  // Cancel a sent invitation (when sender leaves dashboard)
+  const cancelSentInvitation = async () => {
+    if (!sentInviteTarget) return;
+    try {
+      const invRef = doc(db, 'invitations', sentInviteTarget.id);
+      console.log('[CANCEL DEBUG] Cancelling invitation to:', sentInviteTarget.id);
+      await setDoc(invRef, { status: 'cancelled' }, { merge: true });
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await deleteDoc(invRef);
+      setSentInviteTarget(null);
+      setLoadingAction(null);
+      if (sentInvitationListenerRef.current) {
+        sentInvitationListenerRef.current();
+        sentInvitationListenerRef.current = null;
+      }
+    } catch (e) {
+      console.error('[CANCEL DEBUG] Error:', e);
+    }
+  };
+
+  // Show confirmation popup before sending invitation
+  const requestBattle = (targetUser) => {
+    setPendingInviteTarget(targetUser);
+  };
+
+  // Confirm and send the invitation
+  const confirmSendInvitation = () => {
+    if (pendingInviteTarget) {
+      setSentInviteTarget(pendingInviteTarget);
+      sendInvitation(pendingInviteTarget);
+      setPendingInviteTarget(null);
+    }
+  };
+
+  // Cancel the confirmation popup
+  const cancelPendingInvite = () => {
+    setPendingInviteTarget(null);
+  };
+
+  // Start specific bot match
+  const startBotMatch = async (botId, botName) => {
+    console.log('[BOT MATCH] Starting match with:', botId, botName);
+    setLoadingAction('compete');
+    try {
+      console.log('[BOT MATCH] Sending create_bot_room request...');
+      const res = await fetch(`${BACKEND_URL}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'create_bot_room', userId: user.uid, userName: user.displayName || 'Player', userAvatar, botId })
+      });
+      const data = await res.json();
+      console.log('[BOT MATCH] Response:', data);
+
+      if (data.success && data.roomId) {
+        console.log('[BOT MATCH] Joining room:', data.roomId);
+        joinMatch(data.roomId, { id: botId, name: botName, avatar: '🤖' }, 'battle-bot', 'Bot Battle');
+      } else {
+        console.error('[BOT MATCH] Failed to create room:', data);
+        alert('Failed to start bot match: ' + (data.error || 'Unknown error'));
+      }
+    } catch (e) {
+      console.error('[BOT MATCH] Error:', e);
+      alert('Error starting bot match');
+    }
+    setLoadingAction(null);
   };
 
   // Matchmaking
@@ -680,12 +1057,15 @@ const App = () => {
     const text = inputText; setInputText("");
     if (activeSession.type === 'bot') {  // Simulations only - NOT battle-bot
       const now = Date.now();
-      setMessages(prev => [...prev, { id: 'loc' + now, sender: 'me', text, createdAt: now }].sort((a, b) => {
+      const msgId = 'loc' + now;
+
+      // Step 1: Add message with status='sending'
+      setMessages(prev => [...prev, { id: msgId, sender: 'me', text, createdAt: now, status: 'sending' }].sort((a, b) => {
         const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
         const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
         return tA - tB;
       }));
-      setIsOpponentTyping(true); // Single typing state
+
       try {
         const history = messages.filter(m => m.sender !== 'system' && m.sender !== 'correction').map(m => `${m.sender === 'me' ? 'User' : 'AI'}: ${m.text}`);
         const res = await fetch(`${BACKEND_URL}`, {
@@ -693,6 +1073,19 @@ const App = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'chat', message: text, personaId: activeSession.id, context: activeSession.topic, history, stage: currentStage })
         });
+
+        // Step 2: Update to status='sent' (single tick ✓)
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'sent' } : m));
+
+        // Step 3: After 500ms, update to status='seen' (double blue tick ✓✓)
+        await new Promise(r => setTimeout(r, 500));
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'seen' } : m));
+
+        // Step 4: After 1-2 sec realistic delay, show typing dots
+        const typingDelay = 1000 + Math.random() * 1000; // 1-2 seconds
+        await new Promise(r => setTimeout(r, typingDelay));
+        setIsOpponentTyping(true);
+
         const data = await res.json();
 
         if (data.reply) {
@@ -731,7 +1124,8 @@ const App = () => {
     } else {  // Human or Battle-Bot - use send_message
       // Optimistic Update for Human Match
       const now = Date.now();
-      const optimisticMsg = { id: 'loc_' + now, sender: 'me', text, createdAt: now };
+      const msgId = 'loc_' + now;
+      const optimisticMsg = { id: msgId, sender: 'me', text, createdAt: now, status: 'sending' };
       setMessages(prev => [...prev, optimisticMsg].sort((a, b) => {
         const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
         const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
@@ -744,9 +1138,29 @@ const App = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid })
         });
+
+        // Step 2: Update to status='sent' (single tick ✓)
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'sent' } : m));
+
+        // For Battle-Bot: Simulate seen + typing with delays
+        if (activeSession.type === 'battle-bot') {
+          // Step 3: After 500ms, status='seen' (double blue tick ✓✓)
+          await new Promise(r => setTimeout(r, 500));
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'seen' } : m));
+
+          // Step 4: After 1-2 sec, show typing dots
+          const typingDelay = 1000 + Math.random() * 1000;
+          await new Promise(r => setTimeout(r, typingDelay));
+          setIsOpponentTyping(true);
+        } else {
+          // For Human matches: status will be updated when other user actually sees it
+          // For now, just mark as delivered after a short delay
+          await new Promise(r => setTimeout(r, 300));
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'delivered' } : m));
+        }
       } catch (e) {
         console.error('Send message error:', e);
-        // Optional: show error message or remove optimistic msg
+        // Mark as failed (keep as sending to show there was an issue)
       }
     }
   };
@@ -789,25 +1203,35 @@ const App = () => {
   const endSession = async (initiatedByMe = true) => {
     if (!activeSession || isEndingRef.current) return;
     isEndingRef.current = true;
+
+    // IMMEDIATE: For non-bot sessions, show analyzing view right away to avoid blank screen
+    const isCompetitive = activeSession?.type !== 'bot';
+    const capturedMessages = [...messages]; // Capture messages BEFORE reset
+    const capturedSession = { ...activeSession }; // Capture session info
+
+    if (isCompetitive) {
+      setView('analyzing'); // Instant visual feedback
+    }
+
     resetChatStates();
 
     // Prepare for feedback
-    setFeedbackSessionId(activeSession.sessionId || activeSession.id);
+    setFeedbackSessionId(capturedSession.sessionId || capturedSession.id);
     setFeedbackRating(0);
     setFeedbackText('');
     setFeedbackSubmitted(false);
 
     setTimerActive(false);
-    if (initiatedByMe && activeSession?.type !== 'bot') {
-      try { await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'end_session', roomId: activeSession.id, endedBy: user.uid }) }); } catch (e) { }
+    if (initiatedByMe && isCompetitive) {
+      try { await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'end_session', roomId: capturedSession.id, endedBy: user.uid }) }); } catch (e) { }
     }
     if (chatListener.current) { chatListener.current(); chatListener.current = null; }
     if (matchListener.current) { matchListener.current(); matchListener.current = null; }
 
     // Calculate accuracy based on messages and corrections
-    const myMessages = messages.filter(m => m.sender === 'me');
+    const myMessages = capturedMessages.filter(m => m.sender === 'me');
     const totalSent = myMessages.length;
-    const correctionCount = messages.filter(m => m.sender === 'correction').length;
+    const correctionCount = capturedMessages.filter(m => m.sender === 'correction').length;
     const cleanCount = totalSent - correctionCount;
 
     let sessionAccuracy = 100;
@@ -821,18 +1245,18 @@ const App = () => {
       sessionAccuracy = Math.round(((cleanCount * 100) + (correctionCount * 65)) / totalSent);
     }
 
-    if (activeSession?.type === 'bot') {
+    if (capturedSession?.type === 'bot') {
       // Store session history to Firestore
       const sessionData = {
-        simId: activeSession.id,
-        simName: activeSession.opponent?.name || 'Simulation',
-        opponentAvatar: activeSession.opponent?.avatar || '🤖',
+        simId: capturedSession.id,
+        simName: capturedSession.opponent?.name || 'Simulation',
+        opponentAvatar: capturedSession.opponent?.avatar || '🤖',
         points: sessionPoints,
         accuracy: sessionAccuracy,
         messagesCount: totalSent,
         correctionsCount: correctionCount,
         timestamp: serverTimestamp(),
-        lastMessage: myMessages.pop()?.text || ''
+        lastMessage: myMessages[myMessages.length - 1]?.text || ''
       };
 
       try {
@@ -879,7 +1303,7 @@ const App = () => {
 
       // Show session summary modal
       setShowSessionSummary({
-        simName: activeSession.opponent?.name || 'Session',
+        simName: capturedSession.opponent?.name || 'Session',
         points: sessionPoints,
         accuracy: sessionAccuracy,
         messagesCount: totalSent,
@@ -891,9 +1315,9 @@ const App = () => {
       setView('analyzing');
       try {
         const myMsgs = myMessages.map(m => m.text);
-        const oppMsgs = messages.filter(m => m.sender === 'opponent').map(m => m.text);
-        console.log('[ANALYZE DEBUG] Sending:', { roomId: activeSession.id, analyzedBy: user.uid, myMsgs, oppMsgs });
-        const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'analyze', roomId: activeSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
+        const oppMsgs = capturedMessages.filter(m => m.sender === 'opponent').map(m => m.text);
+        console.log('[ANALYZE DEBUG] Sending:', { roomId: capturedSession.id, analyzedBy: user.uid, myMsgs, oppMsgs });
+        const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
         setDualAnalysis(data);
         const myScore = data?.player1?.total || 70;
@@ -911,8 +1335,8 @@ const App = () => {
           await addDoc(sessionsRef, {
             type: '1v1',
             score: myData?.total || 0,
-            opponentName: activeSession.opponent?.name || 'Opponent',
-            opponentAvatar: activeSession.opponent?.avatar || '👤',
+            opponentName: capturedSession.opponent?.name || 'Opponent',
+            opponentAvatar: capturedSession.opponent?.avatar || '👤',
             won: didIWin,
             timestamp: serverTimestamp()
           });
@@ -986,6 +1410,142 @@ const App = () => {
     if (!user) return null;
     return (
       <>
+        {/* Offline User Popup */}
+        <AnimatePresence>
+          {offlineUserTarget && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+              onClick={() => setOfflineUserTarget(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.8, y: 50 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.8, y: 50 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl relative overflow-hidden"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-sm grayscale opacity-70">
+                  {offlineUserTarget.opponentAvatar || '👤'}
+                </div>
+
+                <h3 className="text-2xl font-black text-gray-800 mb-3">{offlineUserTarget.title} is Offline</h3>
+                <p className="text-gray-500 text-sm mb-8 font-medium">
+                  This user is away.<br /><span className="text-emerald-600 font-bold">Challenge a Bot instead! 🤖</span>
+                </p>
+
+                <button
+                  onClick={() => setOfflineUserTarget(null)}
+                  className="w-full py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                >
+                  Close
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Send Invitation Confirmation Popup */}
+        <AnimatePresence>
+          {pendingInviteTarget && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.8, y: 50 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.8, y: 50 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl relative overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-emerald-400 to-teal-500"></div>
+
+                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-sm">
+                  <Swords className="text-emerald-600" size={32} />
+                </div>
+
+                <h3 className="text-xl font-bold text-gray-800 mb-2">Send Battle Request?</h3>
+                <p className="text-gray-500 text-sm mb-6">
+                  Challenge <span className="font-bold text-gray-800">{pendingInviteTarget.name}</span> to a live speaking battle. They will have 16 seconds to accept.
+                </p>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={cancelPendingInvite}
+                    className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmSendInvitation}
+                    className="flex-1 py-3 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/30 transform hover:scale-[1.02]"
+                  >
+                    Send Request 🚀
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Incoming Match Invitation Popup */}
+        <AnimatePresence>
+          {incomingInvitation && view === 'dashboard' && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.8, y: 50 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.8, y: 50 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl"
+              >
+                {/* Countdown Timer */}
+                <div className="mb-4">
+                  <div className={`text-sm font-bold ${invitationCountdown <= 5 ? 'text-red-500' : 'text-gray-500'}`}>
+                    ⏱️ {invitationCountdown}s remaining
+                  </div>
+                  <div className="w-full h-2 bg-gray-200 rounded-full mt-2 overflow-hidden">
+                    <motion.div
+                      initial={{ width: '100%' }}
+                      animate={{ width: `${(invitationCountdown / 16) * 100}%` }}
+                      transition={{ duration: 0.5 }}
+                      className={`h-full rounded-full ${invitationCountdown <= 5 ? 'bg-red-500' : invitationCountdown <= 10 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    />
+                  </div>
+                </div>
+
+                <div className="text-5xl mb-4">{incomingInvitation.fromAvatar || '👤'}</div>
+                <h3 className="text-xl font-bold text-gray-800 mb-1">{incomingInvitation.fromName}</h3>
+                <p className="text-sm text-emerald-600 font-semibold mb-2">{incomingInvitation.fromLevel}</p>
+                <p className="text-gray-500 text-sm mb-6">wants to practice with you!</p>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={declineInvitation}
+                    className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                  >
+                    Decline
+                  </button>
+                  <button
+                    onClick={acceptInvitation}
+                    className="flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold transition-colors shadow-lg shadow-emerald-500/30"
+                  >
+                    Accept ✓
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Preparing Simulation Modal */}
         <AnimatePresence>
           {preparingSim && (
@@ -1349,104 +1909,155 @@ const App = () => {
             </motion.div>
           )}
 
-          {/* Recent Chats Section */}
+          {/* Live Users / Recent Sessions Section */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-500 uppercase">Recent Sessions</h3>
-              {recentChats.length > 0 && (
-                <span className="text-xs text-gray-400">{recentChats.length} sessions</span>
-              )}
+            {/* Tab Toggle */}
+            <div className="flex items-center gap-2 mb-3">
+              <button
+                onClick={() => setActiveUsersTab('live')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${activeUsersTab === 'live'
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+              >
+                🟢 Live Users ({liveUsers.length})
+              </button>
+              <button
+                onClick={() => setActiveUsersTab('recent')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${activeUsersTab === 'recent'
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+              >
+                Recent ({recentChats.length})
+              </button>
             </div>
-            {recentChats.length === 0 ? (
-              <div className="bg-gray-50 rounded-2xl p-6 text-center">
-                <div className="text-3xl mb-2">📝</div>
-                <div className="font-semibold text-gray-600">No sessions yet</div>
-                <div className="text-xs text-gray-400 mt-1">Start a simulation to see your history here</div>
-              </div>
-            ) : (
-              <div className="flex gap-4 overflow-x-auto pb-6 -mx-4 px-4 scrollbar-hide py-2">
-                {recentChats.map(chat => {
-                  const sim = SIMULATIONS.find(s => s.id === chat.simId);
-                  const isBattle = chat.type === 'battle';
 
-                  // Use specific avatar or simulation icon
-                  const AvatarDisplay = () => {
-                    if (isBattle && chat.opponentAvatar) return <span className="text-2xl">{chat.opponentAvatar}</span>;
-                    if (sim?.icon) {
-                      const Icon = sim.icon;
-                      return <Icon size={24} className="text-white" />;
-                    }
-                    return <span className="text-2xl">🤖</span>;
-                  };
-
-                  const iconColor = sim?.color || (isBattle ? 'bg-indigo-600' : 'bg-gray-500');
-
-                  return (
+            {/* Cards Container */}
+            {activeUsersTab === 'live' ? (
+              // LIVE USERS TAB
+              liveUsers.length === 0 ? (
+                <div className="bg-gradient-to-br from-gray-50 to-emerald-50/30 rounded-2xl p-6 text-center">
+                  <div className="text-3xl mb-2">🌐</div>
+                  <div className="font-semibold text-gray-600">No one online right now</div>
+                  <div className="text-xs text-gray-400 mt-1">Check back soon to find practice partners!</div>
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
+                  {liveUsers.map(liveUser => (
                     <motion.button
-                      key={chat.id}
-                      whileHover={{ y: -4, scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => {
-                        triggerWarmup();
-                        if (chat.type === 'simulation' && chat.simId) {
-                          const s = SIMULATIONS.find(simul => simul.id === chat.simId);
-                          if (s) startSimulation(s);
-                        } else if (chat.type === 'battle') {
-                          setLoadingAction('compete');
-                          startRandomMatch();
-                        }
-                      }}
-                      className="flex-shrink-0 w-56 bg-white rounded-[2rem] p-5 text-left border border-gray-100 shadow-sm hover:shadow-xl hover:border-emerald-200 transition-all group relative overflow-hidden"
+                      key={liveUser.id}
+                      whileHover={{ y: -4, scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => requestBattle(liveUser)}
+                      className="flex-shrink-0 w-20 bg-white rounded-2xl p-3 text-center border border-gray-100 shadow-sm hover:shadow-lg hover:border-emerald-300 transition-all group relative"
                     >
-                      {/* Status Badge (Win/Loss/Score) */}
-                      <div className="flex items-start justify-between mb-4 relative z-10">
-                        <div className={`w-12 h-12 ${iconColor} rounded-2xl flex items-center justify-center shadow-lg shadow-current/20`}>
-                          <AvatarDisplay />
-                        </div>
-
-                        <div className="flex flex-col items-end gap-1">
-                          {isBattle && chat.won !== undefined && (
-                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${chat.won ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'} uppercase tracking-tight`}>
-                              {chat.won ? 'WIN' : 'LOSS'}
-                            </span>
-                          )}
-                          <div className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${chat.accuracy >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : chat.accuracy >= 60 ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-red-50 text-red-600 border-red-100'} border`}>
-                            {chat.accuracy}%
-                          </div>
-                        </div>
+                      {/* Live Indicator - Blinking */}
+                      <div className="absolute top-2 right-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                        </span>
                       </div>
 
-                      <div className="relative z-10">
-                        <div className="font-black text-gray-900 text-sm mb-1 truncate group-hover:text-emerald-700 transition-colors uppercase tracking-tight">
-                          {chat.title}
-                        </div>
-                        <div className="text-[11px] text-gray-500 line-clamp-2 min-h-[32px] leading-relaxed mb-3">
-                          {chat.lastMessage}
-                        </div>
+                      {/* Avatar */}
+                      <div className="text-2xl mb-1">{liveUser.avatar || '👤'}</div>
 
-                        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                          <div className="flex items-center gap-1.5 text-gray-400 font-bold uppercase text-[9px]">
-                            <Clock size={10} strokeWidth={3} />
-                            <span>
-                              {chat.timestamp instanceof Date ? chat.timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
-                            </span>
-                          </div>
+                      {/* Name */}
+                      <div className="font-bold text-gray-800 text-xs truncate">{liveUser.name}</div>
 
-                          {chat.points && (
-                            <div className="flex items-center gap-0.5 text-indigo-600 font-black text-[11px]">
-                              <Zap size={10} fill="currentColor" />
-                              <span>{chat.points}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Hover Overlay */}
-                      <div className="absolute inset-0 bg-emerald-600/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                      {/* Level */}
+                      <div className="text-[9px] text-emerald-600 font-semibold uppercase">{liveUser.level}</div>
                     </motion.button>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )
+            ) : (
+              // RECENT SESSIONS TAB
+              recentChats.length === 0 ? (
+                <div className="bg-gray-50 rounded-2xl p-6 text-center">
+                  <div className="text-3xl mb-2">📝</div>
+                  <div className="font-semibold text-gray-600">No sessions yet</div>
+                  <div className="text-xs text-gray-400 mt-1">Start a simulation to see your history here</div>
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
+                  {recentChats.map(chat => {
+                    const sim = SIMULATIONS.find(s => s.id === chat.simId);
+                    const isBattle = chat.type === 'battle';
+                    const isLive = liveUsers.some(u => u.name === chat.title);
+
+                    return (
+                      <motion.button
+                        key={chat.id}
+                        whileHover={{ y: -4, scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          triggerWarmup();
+                          if (isLive) {
+                            const liveUser = liveUsers.find(u => u.name === chat.title);
+                            if (liveUser) requestBattle(liveUser);
+                          } else if (chat.type === 'simulation' && chat.simId) {
+                            const s = SIMULATIONS.find(simul => simul.id === chat.simId);
+                            if (s) startSimulation(s);
+                          } else if (chat.type === 'battle') {
+                            console.log('[RECENT CLICK] Clicked:', chat.title);
+                            // Check if known bot
+                            const botId = KNOWN_BOTS[chat.title] || (chat.opponentId && chat.opponentId.startsWith('bot_') ? chat.opponentId : null);
+                            console.log('[RECENT CLICK] Detected botId:', botId);
+
+                            if (botId) {
+                              startBotMatch(botId, chat.title);
+                            } else {
+                              // Human: check if online
+                              const liveUser = liveUsers.find(u => u.name === chat.title);
+                              if (liveUser) {
+                                requestBattle(liveUser);
+                              } else {
+                                // Offline
+                                setOfflineUserTarget(chat);
+                              }
+                            }
+                          }
+                        }}
+                        className="flex-shrink-0 w-20 bg-white rounded-2xl p-3 text-center border border-gray-100 shadow-sm hover:shadow-lg hover:border-emerald-300 transition-all group relative"
+                      >
+                        {/* Live Indicator (if online) */}
+                        {isLive && (
+                          <div className="absolute top-2 right-2">
+                            <span className="relative flex h-2.5 w-2.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Win/Loss Badge */}
+                        {isBattle && chat.won !== undefined && (
+                          <div className="absolute top-1 left-1">
+                            <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-full ${chat.won ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
+                              {chat.won ? 'W' : 'L'}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Avatar */}
+                        <div className="text-2xl mb-1">
+                          {isBattle && chat.opponentAvatar ? chat.opponentAvatar : (sim?.icon ? '🤖' : '👤')}
+                        </div>
+
+                        {/* Name */}
+                        <div className="font-bold text-gray-800 text-xs truncate">{chat.title}</div>
+
+                        {/* Score */}
+                        <div className={`text-[9px] font-semibold ${chat.accuracy >= 80 ? 'text-emerald-600' : chat.accuracy >= 60 ? 'text-amber-600' : 'text-red-500'}`}>
+                          {chat.accuracy}%
+                        </div>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              )
             )}
           </div>
 
@@ -2277,8 +2888,25 @@ const App = () => {
                 ) : (
                   // Regular messages (user and opponent)
                   m.sender === 'me' ? (
-                    <div className="max-w-[85%] px-4 py-3 rounded-2xl text-sm bg-emerald-600 text-white rounded-br-sm">
-                      {m.text}
+                    <div className="flex flex-col items-end max-w-[85%]">
+                      <div className="px-4 py-2.5 rounded-2xl text-sm bg-emerald-600 text-white rounded-br-sm">
+                        {m.text}
+                      </div>
+                      {/* WhatsApp-style: Time + Ticks BELOW bubble */}
+                      <div className="flex items-center gap-1 mt-0.5 mr-1">
+                        <span className="text-[10px] text-gray-400">
+                          {new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {m.status === 'sending' && (
+                          <Loader2 size={10} className="text-gray-400 animate-spin" />
+                        )}
+                        {m.status === 'sent' && (
+                          <span className="text-gray-400 text-[10px]">✓</span>
+                        )}
+                        {(m.status === 'delivered' || m.status === 'seen' || !m.status) && (
+                          <span className="text-blue-500 text-[10px]">✓✓</span>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     // Opponent message with simulation emoji

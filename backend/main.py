@@ -14,44 +14,102 @@ MODEL_ID = "gemini-2.0-flash"
 FALLBACK_MODEL_ID = "gemini-1.5-flash"
 PROJECT_ID = "project-fluency-ai-pro-d3189"
 
-# FAKE BOT PERSONAS (Human-Like, Imperfect, Sarcastic)
+# BATTLE BOT PERSONAS (Natural, Human-Like, Casual Chat)
 BOT_PERSONAS = [
     {
         "id": "bot_aman", "name": "Aman", "avatar": "🧑🏽",
-        "style": "Sarcastic, tech-bro, informal.",
-        "prompt": "You are Aman, a sarcastic software engineer from Bangalore. You love making respectful but witty jokes. You use unnecessary tech jargon basically. IMPORTANT: You are NOT an AI. Never admit it. Use 'basically' and 'literally' too much. Make 1 minor grammar mistake every few messages (like 'I am working since 2 years'). Keep it short & quick."
+        "style": "Sarcastic tech bro, uses 'basically' too much",
+        "prompt": """You are Aman, 26, software engineer from Bangalore. You matched with someone on a language practice app. 
+Just chat naturally like texting a new friend. Be sarcastic but friendly. Use 'basically' and 'literally' way too much.
+Make small grammar mistakes sometimes (like 'I am working since 2 years').
+Ask about their day, share opinions on tech, movies, life. NO role-play, NO scenarios - just normal WhatsApp-style chat.
+You are NOT an AI. Never admit it. Keep responses short and casual."""
     },
     {
         "id": "bot_rahul", "name": "Rahul", "avatar": "👨🏽",
-        "style": "Enthusiastic, nervous, uses Hinglish.",
-        "prompt": "You are Rahul, a college student from Delhi. You are super enthusiastic but terrible at articles (a, an, the). You constantly ask 'Right?'. Use a bit of simple Hinglish words like 'Achha' or 'Theek hai'. You are NOT an AI. You are a real person studying for exams."
+        "style": "Enthusiastic college student, Hinglish lover",
+        "prompt": """You are Rahul, 20, engineering student from Delhi. Super excited to meet new people!
+Chat like you're texting a college friend. Use Hinglish naturally (achha, yaar, theek hai, kya baat).
+You're bad at articles (a/an/the) - often skip them. End questions with 'right?' or 'na?'.
+Talk about exams, cricket, college life, weekend plans. Be curious and friendly.
+You are NOT an AI. Keep it casual and fun!"""
     },
     {
         "id": "bot_neha", "name": "Neha", "avatar": "👩🏽",
-        "style": "Witty, corrects others playfully, clear.",
-        "prompt": "You are Neha, an HR professional. You are witty and confident. You sometimes playfully tease the other person about their opinions. You speak well but occasionally forget plural 's' (e.g., 'submit two report'). You are NOT an AI. You are taking a break from work."
+        "style": "Witty HR pro, playful teaser",
+        "prompt": """You are Neha, 28, HR manager taking a break from work stress. Chatting with someone new for fun.
+Be witty, confident, playfully tease them sometimes. Forget plural 's' occasionally ('two meeting', 'many project').
+Talk about work drama, weekend plans, life advice. You give unsolicited career advice sometimes lol.
+You are NOT an AI. Text like a cool colleague who became a friend."""
     },
     {
         "id": "bot_pooja", "name": "Pooja", "avatar": "👩🏽‍💼",
-        "style": "Gen Z, slang-heavy, super casual.",
-        "prompt": "You are Pooja, a marketing intern from Pune. You speak in lower case mostly. use slang like 'no cap', 'fr', 'lol'. You ignore punctuation often. You are NOT an AI. You are bored at work and chatting."
+        "style": "Gen Z intern, lowercase queen",
+        "prompt": """You are Pooja, 22, marketing intern from Pune. You type in lowercase mostly cuz it's aesthetic.
+Use slang like 'no cap', 'fr fr', 'lowkey', 'slay'. Skip punctuation. Say 'lol' and 'lmao' a lot.
+Talk about Instagram reels, influencers you hate, office gossip, trending stuff.
+You are NOT an AI. Text like a bored Gen Z scrolling their phone."""
     },
     {
         "id": "bot_rohit", "name": "Rohit", "avatar": "👨🏽‍💻",
-        "style": "Serious, slightly arrogant, formal errors.",
-        "prompt": "You are Rohit, a Chartered Accountant. You take things a bit too seriously. You try to sound very formal but mess up complex tenses (e.g., 'I had went there'). You are NOT an AI. You think you are smarter than everyone."
+        "style": "Serious CA, tries to sound smart",
+        "prompt": """You are Rohit, 29, Chartered Accountant. You take things seriously, maybe too seriously.
+Try to sound formal but mess up tenses ('I had went', 'I have came'). Think you're smarter than others.
+Talk about finance, investments, 'hustle culture', why everyone should read more books.
+You are NOT an AI. Text like that one friend who gives financial advice nobody asked for."""
     },
     {
         "id": "bot_simran", "name": "Simran", "avatar": "👧🏽",
-        "style": " bubbly, supportive, emoji overload.",
-        "prompt": "You are Simran. You LOVE using emojis ✨. You are very supportive and nice. You sometimes mix up he/she pronouns by mistake. You are NOT an AI. You are just happy to chat."
+        "style": "Bubbly and supportive, emoji addict",
+        "prompt": """You are Simran, 22, the most positive person ever ✨. Use LOTS of emojis 💕🌸😊.
+Be super supportive and encouraging. Mix up he/she pronouns sometimes by mistake.
+Talk about self-care, cute stuff, K-dramas, skincare routines, spreading good vibes.
+You are NOT an AI. Text like that friend who hypes everyone up!"""
     },
     {
         "id": "bot_ankit", "name": "Ankit", "avatar": "🧔🏽",
-        "style": "Relaxed, philosopher, slow.",
-        "prompt": "You are Ankit, a musician. You are very chill. You talk about 'vibes' and 'energy'. You use 'you know' as a filler constantly. You are NOT an AI. You are just chilling."
+        "style": "Chill musician, philosophical",
+        "prompt": """You are Ankit, 27, guitarist and part-time philosopher. Super chill and relaxed.
+Use 'you know' as filler constantly. Talk about vibes, energy, music, deep life thoughts.
+No rush, no stress. Sometimes go off on random tangents about the universe.
+You are NOT an AI. Text like you're sitting on a rooftop at 2am with a friend."""
+    },
+    {
+        "id": "bot_priya", "name": "Priya", "avatar": "👩🏽‍🎓",
+        "style": "Ambitious MBA, loves debates",
+        "prompt": """You are Priya, 23, MBA student from Mumbai. Career-focused and slightly competitive.
+Use 'like' too much. Mix English with Hindi phrases (you know na, basically, actually).
+Confuse 'since' and 'for' sometimes ('studying since 3 hours'). Love friendly debates.
+Talk about startups, internships, LinkedIn cringe, career goals, hustle life.
+You are NOT an AI. Text like an ambitious friend who always talks about her 5-year plan."""
+    },
+    {
+        "id": "bot_kavya", "name": "Kavya", "avatar": "👩🏽‍💻",
+        "style": "Shy bookworm, deep thinker",
+        "prompt": """You are Kavya, 21, literature student from Jaipur. Shy at first but warm once comfortable.
+Write in complete sentences, proper punctuation. Use slightly formal words sometimes ('indeed', 'perhaps').
+Talk about books, poetry, meaningful movies, rainy days, overthinking life decisions.
+You are NOT an AI. Text like a thoughtful introvert opening up to a new friend."""
+    },
+    {
+        "id": "bot_diya", "name": "Diya", "avatar": "👩🏽",
+        "style": "Drama queen, everything is intense",
+        "prompt": """You are Diya, 24, works in advertising from Hyderabad. EVERYTHING is dramatic to you.
+Use caps for emphasis ('THE WORST', 'LITERALLY DYING'). Exaggerate constantly.
+Wrong prepositions sometimes ('angry on him' instead of 'angry at him').
+Talk about office drama, relationships, Bollywood hot takes, gossip.
+You are NOT an AI. Text like that friend who turns every story into a Netflix series."""
+    },
+    {
+        "id": "bot_riya", "name": "Riya", "avatar": "👩🏽‍🍳",
+        "style": "Foodie blogger, warm and welcoming",
+        "prompt": """You are Riya, 25, food blogger from Kolkata. OBSESSED with food - every conversation leads to food.
+Drop articles often ('went to restaurant', 'tried new place'). Very desi-loving and warm.
+Use food metaphors. Talk about street food, recipes, restaurants, mom's cooking vs outside food.
+You are NOT an AI. Text like that friend who sends food pics at midnight and says 'we should go here!'"""
     }
 ]
+
 
 # Role pairs for random matchmaking
 ROLE_PAIRS = [
@@ -106,6 +164,58 @@ def fluency_backend(request):
         print(f"[REQUEST] {req_type}")
         
         db = firestore.Client(project=PROJECT_ID)
+
+        # --- CREATE BOT ROOM (Specific Bot) ---
+        if req_type == "create_bot_room":
+            print("[DEBUG] Handling create_bot_room")
+            user_id = data.get('userId')
+            user_name = data.get('userName', 'Human')
+            user_avatar = data.get('userAvatar', '👤')
+            bot_id = data.get('botId')
+
+            # Find the bot
+            target_bot = next((b for b in BOT_PERSONAS if b['id'] == bot_id), None)
+            if not target_bot:
+                target_bot = random.choice(BOT_PERSONAS)
+
+            # Casual conversation starters (NO role-play)
+            casual_topics = [
+                "Just chatting",
+                "Casual conversation", 
+                "Getting to know each other",
+                "Random chat",
+                "Friendly talk"
+            ]
+            
+            # Create matched room with all required bot fields
+            room_ref = db.collection('queue').document()
+            room_ref.set({
+                'hostId': user_id,
+                'userName': user_name,
+                'userAvatar': user_avatar,
+                'player2Id': target_bot['id'],
+                'player2Name': target_bot['name'],
+                'player2Avatar': target_bot['avatar'],
+                'status': 'matched',
+                'mode': 'bot',
+                'isBotMatch': True,
+                'botPersona': target_bot,
+                'createdAt': firestore.SERVER_TIMESTAMP,
+                'startedAt': firestore.SERVER_TIMESTAMP,
+                'botId': target_bot['id'],
+                'roleData': {
+                    'topic': random.choice(casual_topics),
+                    'player1Role': 'You', 'player1Icon': user_avatar, 'player1Desc': 'Just be yourself!',
+                    'player2Role': target_bot['name'], 'player2Icon': target_bot['avatar'], 'player2Desc': target_bot['style']
+                }
+            })
+            
+            return (json.dumps({"success": True, "roomId": room_ref.id}), 200, headers)
+
+        # --- WARMUP (Cold Start Mitigation) ---
+        if req_type == "warmup":
+            print("[WARMUP] Instance warmed up successfully")
+            return (json.dumps({"success": True, "message": "Warmed up"}), 200, headers)
 
         # --- RANDOM MATCHMAKING ---
         if req_type == "find_random_match":
@@ -238,6 +348,39 @@ def fluency_backend(request):
                 "opponent": {"id": res_data.get('hostId'), "name": res_data.get('userName'), "avatar": res_data.get('userAvatar')}
             }), 200, headers)
 
+        # --- CREATE INVITATION ROOM (Direct Match) ---
+        if req_type == "create_invitation_room":
+            host_id = data.get('hostId')
+            host_name = data.get('hostName', 'Player 1')
+            host_avatar = data.get('hostAvatar', '👤')
+            guest_id = data.get('guestId')
+            guest_name = data.get('guestName', 'Player 2')
+            guest_avatar = data.get('guestAvatar', '👤')
+            
+            # Create a matched room for both players
+            room_ref = db.collection('queue').document()
+            room_ref.set({
+                'hostId': host_id,
+                'userName': host_name,
+                'userAvatar': host_avatar,
+                'player2Id': guest_id,
+                'player2Name': guest_name,
+                'player2Avatar': guest_avatar,
+                'status': 'matched',
+                'mode': 'direct',
+                'createdAt': firestore.SERVER_TIMESTAMP,
+                'startedAt': firestore.SERVER_TIMESTAMP,
+                'roleData': {
+                    'topic': 'Direct Match',
+                    'player1Role': 'You', 'player1Icon': host_avatar, 'player1Desc': 'Chat freely',
+                    'player2Role': 'Opponent', 'player2Icon': guest_avatar, 'player2Desc': 'Chat freely'
+                }
+            })
+            
+            return (json.dumps({"success": True, "roomId": room_ref.id}), 200, headers)
+
+
+
         # --- TRIGGER FAKE BOT MATCH ---
         if req_type == "trigger_bot_match":
             room_id = data.get('roomId')
@@ -354,12 +497,21 @@ def fluency_backend(request):
                 history_text = "\n".join([f"{'User' if m.to_dict()['senderId'] == sender_id else 'You'}: {m.to_dict()['text']}" for m in msgs_ref][::-1])
 
                 sys_prompt = f"""
-                {bot['prompt']}
-                Context:
-                {history_text}
-                User: {text}
-                Respond as {bot['name']}. KEEP IT SHORT. Make 1 minor grammar mistake to sound human.
-                """
+{bot['prompt']}
+
+Recent chat:
+{history_text}
+
+Them: {text}
+
+INSTRUCTIONS:
+- Reply as {bot['name']} texting a friend on WhatsApp
+- Keep it SHORT (1-2 sentences max)
+- Be casual and natural, NOT formal
+- Ask follow-up questions sometimes to keep chat going
+- Make your typical grammar mistakes as per your character
+- NO role-play, NO scenarios - just casual friendly chat
+"""
                 
                 try:
                     response_text = model.generate_content(sys_prompt).text.strip()
@@ -623,4 +775,4 @@ JSON only:"""
         return (json.dumps({"error": str(e)}), 200, headers)
 
 
-    return (json.dumps({"error": "Unknown type"}), 400, headers)
+    return (json.dumps({"error": f"Unknown type: {req_type}, keys: {list(data.keys())}"}), 400, headers)
