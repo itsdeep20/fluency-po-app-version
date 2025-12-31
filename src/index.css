@@ -110,3 +110,13 @@ button {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Blinking Alert Animation */
+@keyframes blink-red {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.blinking-alert {
+  animation: blink-red 2s infinite;
+}

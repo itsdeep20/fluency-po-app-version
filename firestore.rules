@@ -8,6 +8,14 @@ service cloud.firestore {
       // This prevents "Permission Denied" resets during rapid transitions
       allow read: if request.auth != null;
       
+      // Allow participants to update room (for typing status, etc.)
+      allow update: if request.auth != null && (
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.hostId == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+      
       // Messages subcollection
       match /messages/{messageId} {
         // Allow participants to read and write messages

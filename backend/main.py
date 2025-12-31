@@ -14,48 +14,42 @@ MODEL_ID = "gemini-2.0-flash"
 FALLBACK_MODEL_ID = "gemini-1.5-flash"
 PROJECT_ID = "project-fluency-ai-pro-d3189"
 
-# FAKE BOT PERSONAS (For "Human-Like" Bot Matches)
-# Indian names, specific imperfections, realistic behaviors.
+# FAKE BOT PERSONAS (Human-Like, Imperfect, Sarcastic)
 BOT_PERSONAS = [
     {
         "id": "bot_aman", "name": "Aman", "avatar": "🧑🏽",
-        "style": "Friendly, slightly informal, uses 'actually' a lot.",
-        "prompt": "You are Aman, a software engineer from Bangalore. You are friendly and slightly informal. You use words like 'actually' and 'basically' often. Keep messages short (10-20 words). You make minor grammar mistakes (e.g. 'I am working since 2 years'). Never admit you are AI."
+        "style": "Sarcastic, tech-bro, informal.",
+        "prompt": "You are Aman, a sarcastic software engineer from Bangalore. You love making respectful but witty jokes. You use unnecessary tech jargon basically. IMPORTANT: You are NOT an AI. Never admit it. Use 'basically' and 'literally' too much. Make 1 minor grammar mistake every few messages (like 'I am working since 2 years'). Keep it short & quick."
     },
     {
         "id": "bot_rahul", "name": "Rahul", "avatar": "👨🏽",
-        "style": "Enthusiastic, asks questions, slightly nervous.",
-        "prompt": "You are Rahul, a college student from Delhi. You are enthusiastic but slightly nervous about your English. You ask simple questions to keep conversation going. Keep messages concise. Make small article mistakes (e.g. miss 'the'). Never admit you are AI."
+        "style": "Enthusiastic, nervous, uses Hinglish.",
+        "prompt": "You are Rahul, a college student from Delhi. You are super enthusiastic but terrible at articles (a, an, the). You constantly ask 'Right?'. Use a bit of simple Hinglish words like 'Achha' or 'Theek hai'. You are NOT an AI. You are a real person studying for exams."
     },
     {
         "id": "bot_neha", "name": "Neha", "avatar": "👩🏽",
-        "style": "Polite, diligent, clear speaker.",
-        "prompt": "You are Neha, an HR professional from Mumbai. You are polite and clear. You speak well but sometimes use Indian idioms. Keep messages short. Never admit you are AI."
+        "style": "Witty, corrects others playfully, clear.",
+        "prompt": "You are Neha, an HR professional. You are witty and confident. You sometimes playfully tease the other person about their opinions. You speak well but occasionally forget plural 's' (e.g., 'submit two report'). You are NOT an AI. You are taking a break from work."
     },
     {
         "id": "bot_pooja", "name": "Pooja", "avatar": "👩🏽‍💼",
-        "style": "Casual, uses slang, brief.",
-        "prompt": "You are Pooja, a marketing intern from Pune. You are very casual and use slang like 'ya' or 'cool'. Keep messages very short and punchy. You make sentence structure mistakes sometimes. Never admit you are AI."
+        "style": "Gen Z, slang-heavy, super casual.",
+        "prompt": "You are Pooja, a marketing intern from Pune. You speak in lower case mostly. use slang like 'no cap', 'fr', 'lol'. You ignore punctuation often. You are NOT an AI. You are bored at work and chatting."
     },
     {
         "id": "bot_rohit", "name": "Rohit", "avatar": "👨🏽‍💻",
-        "style": "Serious, focused, slightly formal.",
-        "prompt": "You are Rohit, an accountant from Chennai. You are serious and focused on the topic. You speak formally but make tense errors (e.g., 'I will done this'). Keep messages concise. Never admit you are AI."
-    },
-    {
-        "id": "bot_kunal", "name": "Kunal", "avatar": "👦🏽",
-        "style": "Curious, asks 'why' a lot, friendly.",
-        "prompt": "You are Kunal, a young student. You are curious and ask 'why' a lot. You are friendly but have limited vocabulary. Keep messages simple. Never admit you are AI."
+        "style": "Serious, slightly arrogant, formal errors.",
+        "prompt": "You are Rohit, a Chartered Accountant. You take things a bit too seriously. You try to sound very formal but mess up complex tenses (e.g., 'I had went there'). You are NOT an AI. You think you are smarter than everyone."
     },
     {
         "id": "bot_simran", "name": "Simran", "avatar": "👧🏽",
-        "style": "Cheerful, uses emojis occasionally, supportive.",
-        "prompt": "You are Simran, a graphic designer. You are cheerful and supportive. You sometimes use a smiley :) in text. Keep messages short. You make subject-verb agreement mistakes. Never admit you are AI."
+        "style": " bubbly, supportive, emoji overload.",
+        "prompt": "You are Simran. You LOVE using emojis ✨. You are very supportive and nice. You sometimes mix up he/she pronouns by mistake. You are NOT an AI. You are just happy to chat."
     },
     {
         "id": "bot_ankit", "name": "Ankit", "avatar": "🧔🏽",
-        "style": "Relaxed, slow pace, uses 'you know'.",
-        "prompt": "You are Ankit, a musician. You are relaxed and use filler words like 'you know'. You speak in a slow, casual flow. Keep messages short. Never admit you are AI."
+        "style": "Relaxed, philosopher, slow.",
+        "prompt": "You are Ankit, a musician. You are very chill. You talk about 'vibes' and 'energy'. You use 'you know' as a filler constantly. You are NOT an AI. You are just chilling."
     }
 ]
 
@@ -285,25 +279,23 @@ def fluency_backend(request):
                 else:
                     transaction.set(user_ref, {'uid': user_id, 'lastBots': new_last_bots}, merge=True)
                 
-                role_pair = random.choice(ROLE_PAIRS)
-                role_idx = random.randint(0, 1)
-                
                 transaction.update(ref, {
                     'status': 'matched',
                     'player2Id': bot['id'], 'player2Name': bot['name'], 'player2Avatar': bot['avatar'],
                     'isBotMatch': True, 'botPersona': bot,
                     'startedAt': firestore.SERVER_TIMESTAMP,
                     'roleData': {
-                        'pairId': role_pair['id'], 'topic': role_pair['topic'],
-                        'player1Role': role_pair['roles'][0], 'player1Icon': role_pair['icons'][0], 'player1Desc': role_pair['descriptions'][0],
-                        'player2Role': role_pair['roles'][1], 'player2Icon': role_pair['icons'][1], 'player2Desc': role_pair['descriptions'][1]
+                        'topic': 'Random Chat',
+                        'player1Role': 'Themselves', 'player1Icon': '👤', 'player1Desc': 'Just be yourself',
+                        'player2Role': bot['name'], 'player2Icon': bot['avatar'], 'player2Desc': bot['style']
                     }
                 })
                 
                 return {
                     "matched": True, "roomId": room_id,
                     "opponent": {"id": bot['id'], "name": bot['name'], "avatar": bot['avatar']},
-                    "myRole": role_pair['roles'][0], "myIcon": role_pair['icons'][0], "myDesc": role_pair['descriptions'][0], "topic": role_pair['topic']
+                    "topic": "Casual Chat",
+                    "isBotMatch": True
                 }
 
             try:
@@ -363,7 +355,6 @@ def fluency_backend(request):
 
                 sys_prompt = f"""
                 {bot['prompt']}
-                Current Role: {bot_role} in a '{topic}' scenario.
                 Context:
                 {history_text}
                 User: {text}
@@ -396,28 +387,71 @@ def fluency_backend(request):
 
         # --- ANALYSIS (UNCHANGED) ---
         if req_type == "analyze":
-            # (Keeping existing analysis logic - simplified for brevity of this update, ensuring it works)
             model = get_model()
             p1_hist = data.get('player1History')
             p2_hist = data.get('player2History')
+            room_id = data.get('roomId')
             
+            # Check if results already exist (Single Source of Truth)
+            if room_id:
+                room_doc = db.collection('queue').document(room_id).get()
+                if room_doc.exists:
+                    existing_results = room_doc.to_dict().get('results')
+                    if existing_results:
+                        print(f"[ANALYZE] Returning existing results for {room_id}")
+                        return (json.dumps(existing_results), 200, headers)
+
             if p1_hist and p2_hist:
                 prompt = (
-                    "Analyze competitive conversation.\n"
-                    f"P1: {p1_hist}\nP2: {p2_hist}\n"
-                    "Score vocabulary, grammar, fluency, sentence_making (0-100).\n"
-                    "Return JSON: { 'player1': {vocabulary, grammar, fluency, sentence_making, overall, feedback}, 'player2': {...} }"
+                    "ACT AS A STRICT ENGLISH EXAMINER. Analyze the conversation history below.\n"
+                    f"Player 1 (Human): {p1_hist}\n"
+                    f"Player 2 (Opponent): {p2_hist}\n\n"
+                    "Calculate 4 scores (0-100) for EACH player based on these rules:\n"
+                    "1. VOCABULARY: Range of words used. Deduct for repetition or basic words.\n"
+                    "2. GRAMMAR: Deduct 5 points per error (tense, articles, prepositions).\n"
+                    "3. FLUENCY: Smoothness and natural flow. Deduct for awkward phrasing.\n"
+                    "4. SENTENCE: Sentence structure variety and complexity. Deduct for short/fragmented sentences.\n\n"
+                    "Determine the WINNER based on the higher TOTAL score.\n\n"
+                    "IMPORTANT: Provide SPECIFIC feedback for EACH player mentioning their actual strengths and weaknesses from their messages.\n\n"
+                    "Return strict JSON only:\n"
+                    "{\n"
+                    "  \"player1\": { \"vocab\": 75, \"grammar\": 80, \"fluency\": 70, \"sentence\": 75, \"total\": 300, \"feedback\": \"You used good vocabulary like 'consultation' but made a grammar error with articles.\" },\n"
+                    "  \"player2\": { \"vocab\": 80, \"grammar\": 85, \"fluency\": 90, \"sentence\": 85, \"total\": 340, \"feedback\": \"Your sentences were well-structured and natural. Watch for tense consistency.\" },\n"
+                    "  \"winner\": \"player2\"\n"
+                    "}"
                 )
                 try:
                     res = model.generate_content(prompt).text
-                    json_str = res[res.find('{'):res.rfind('}')+1]
-                    return (json_str, 200, headers)
-                except:
+                    # Clean JSON
+                    start = res.find('{')
+                    end = res.rfind('}') + 1
+                    json_str = res[start:end]
+                    
+                    final_results = json.loads(json_str)
+                    
+                    # SINGLE SOURCE OF TRUTH: Save to Firestore
+                    if room_id:
+                        analyzed_by = data.get('analyzedBy')
+                        final_results['analyzedBy'] = analyzed_by
+                        db.collection('queue').document(room_id).update({
+                            'results': final_results,
+                            'status': 'ended',
+                            'endedAt': firestore.SERVER_TIMESTAMP
+                        })
+                        print(f"[ANALYZE] Saved results to {room_id} by {analyzed_by}")
+
+                    return (json.dumps(final_results), 200, headers)
+                except Exception as e:
+                    print(f"[ANALYZE_ERROR] {e}")
                     # Fallback JSON
                     fallback = {
-                        "player1": {"vocabulary": 75, "grammar": 70, "fluency": 80, "sentence_making": 75, "overall": 75, "feedback": "Good job!"},
-                        "player2": {"vocabulary": 70, "grammar": 75, "fluency": 75, "sentence_making": 70, "overall": 72, "feedback": "Nice effort!"}
+                        "player1": {"vocab": 75, "grammar": 70, "fluency": 75, "sentence": 70, "total": 290},
+                        "player2": {"vocab": 80, "grammar": 75, "fluency": 80, "sentence": 75, "total": 310},
+                        "winner": "player2",
+                        "feedback": "Analysis failed, using estimates."
                     }
+                    if room_id:
+                        db.collection('queue').document(room_id).update({'results': fallback, 'status': 'ended'})
                     return (json.dumps(fallback), 200, headers)
 
         # --- OTHER HANDLERS (Sims, etc) ---

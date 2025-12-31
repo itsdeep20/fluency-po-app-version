@@ -117,10 +117,111 @@ const App = () => {
   const isEndingRef = useRef(false);
   const isJoiningRef = useRef(false);
   const isAlertingRef = useRef(false);
-  const isBotTypingRef = useRef(false); // To prevent state races
+
+  // Typing & Visibility Logic for Battle/Bot Mode
+  const [isOpponentTyping, setIsOpponentTyping] = useState(false);
+  const [visibleMessageIds, setVisibleMessageIds] = useState(new Set());
+  const processedMessageIds = useRef(new Set());
+  const typingQueue = useRef([]);
+  const isSyncingQueue = useRef(false);
+  const isSyncingInitialRef = useRef(true);
   const [isEnding, setIsEnding] = useState(false);
   const [showExitWarning, setShowExitWarning] = useState(false);
   const messagesEndRef = useRef(null);
+
+  const adjustedTimestamps = useRef({}); // New ref to track visual display time
+
+  const resetChatStates = () => {
+    isSyncingQueue.current = false;
+    typingQueue.current = [];
+    processedMessageIds.current.clear();
+    adjustedTimestamps.current = {}; // Reset timestamps
+    isSyncingInitialRef.current = true;
+    setVisibleMessageIds(new Set());
+    setIsOpponentTyping(false);
+    setMessages([]); // CRITICAL: Purge old messages
+  };
+
+  const typingListener = useRef(null);
+  const typingTimeoutRef = useRef(null);
+
+  const handleTyping = async (isTyping) => {
+    if (!activeSession || !activeSession.id || activeSession.type !== 'human') return;
+
+    // update my typing status in the match doc
+    // Debounce to prevent spam
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    typingTimeoutRef.current = setTimeout(async () => {
+      try {
+        const docRef = doc(db, 'queue', activeSession.id);
+        console.log('[TYPING] Updating typing status:', isTyping, 'for user:', user.uid);
+        await setDoc(docRef, {
+          typing: { [user.uid]: isTyping }
+        }, { merge: true });
+      } catch (e) { console.error("Typing update error", e); }
+    }, 50); // Very short delay for instant feel
+  };
+
+  const processTypingQueue = async () => {
+    if (isSyncingQueue.current || typingQueue.current.length === 0) return;
+    isSyncingQueue.current = true;
+    console.log('TYPING_QUEUE: Start processing', typingQueue.current.length);
+
+    try {
+      while (typingQueue.current.length > 0) {
+        const m = typingQueue.current.shift();
+        console.log('TYPING_QUEUE: Typing', m.id);
+
+        // Ensure message is in the list AND sorted
+        setMessages(prev => {
+          if (prev.find(ex => ex.id === m.id)) return prev;
+          const updated = [...prev, m];
+          return updated.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        });
+
+        setIsOpponentTyping(true);
+        const delay = Math.min(Math.max(m.text.length * 45, 2000), 5000);
+        await new Promise(r => setTimeout(r, delay));
+
+        // VISUAL APPEND: Update timestamp to NOW so it jumps to bottom
+        const now = Date.now();
+        adjustedTimestamps.current[m.id] = now;
+
+        console.log('TYPING_QUEUE: Reveal', m.id, 'at', now);
+        setVisibleMessageIds(prev => new Set([...prev, m.id]));
+
+        // Re-sort messages with new timestamp
+        setMessages(prev => {
+          const updated = [...prev];
+          return updated.sort((a, b) => {
+            const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
+            const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
+            return tA - tB;
+          });
+        });
+
+        // Hide dots immediately if nothing else is in the queue
+        if (typingQueue.current.length === 0) {
+          setIsOpponentTyping(false);
+        }
+
+        // Tiny gap between consecutive messages
+        await new Promise(r => setTimeout(r, 400));
+      }
+    } catch (e) {
+      console.error("Typing queue error:", e);
+    } finally {
+      setIsOpponentTyping(false);
+      isSyncingQueue.current = false;
+      console.log('TYPING_QUEUE: Cycle complete');
+      // TAIL CHECK: If something arrived during our loop, restart it
+      if (typingQueue.current.length > 0) {
+        console.log('TYPING_QUEUE: Tail check triggered');
+        processTypingQueue();
+      }
+    }
+  };
 
 
 
@@ -187,12 +288,22 @@ const App = () => {
     };
   }, [user]);
 
+  // Aggressive Warmup on Dashboard Mount
+  useEffect(() => {
+    if (view === 'dashboard' && user) {
+      fetch(`${BACKEND_URL}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'warmup' })
+      }).catch(() => { });
+    }
+  }, [view, user]);
+
 
   useEffect(() => {
     if (timerActive && timeRemaining > 0) {
       timerRef.current = setInterval(() => {
         setTimeRemaining(prev => {
-          if (prev <= 1) { clearInterval(timerRef.current); setTimerActive(false); endSession(); return 0; }
+          if (prev <= 1) { clearInterval(timerRef.current); setTimerActive(false); endSession(true); return 0; }
           return prev - 1;
         });
       }, 1000);
@@ -200,7 +311,18 @@ const App = () => {
     }
   }, [timerActive]);
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  // Clean up typing listener
+  useEffect(() => {
+    return () => {
+      if (typingListener.current) typingListener.current();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Scroll to bottom whenever messages list changes OR typing state changes
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isOpponentTyping]);
 
   const formatTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
   const getLocalDateStr = (date = new Date()) => {
@@ -217,6 +339,14 @@ const App = () => {
   };
 
   const selectAvatar = (av) => { setUserAvatar(av); saveUserData(null, av); setShowProfile(false); };
+
+  // Backend Warmup Helper
+  const triggerWarmup = () => {
+    fetch(`${BACKEND_URL}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'warmup' })
+    }).catch(() => { });
+  };
 
   // Matchmaking
   const createPrivateRoom = async () => {
@@ -266,45 +396,47 @@ const App = () => {
       body: JSON.stringify({ type: 'warmup' })
     }).catch(() => { });
 
-    setTimeout(async () => {
-      try {
-        const res = await fetch(`${BACKEND_URL}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar })
-        });
-        const data = await res.json();
-        console.log('MATCH_DEBUG: find_random_match response:', data);
-        if (data.success) {
-          if (data.matched) {
-            if (isJoiningRef.current) return;
-            joinMatch(data.roomId, data.opponent, 'human', data.topic);
-          } else {
-            setSearchStatusText("Waiting for opponent...");
-            searchTimeoutRef.current = setTimeout(() => {
-              if (!isJoiningRef.current) {
-                setSearchStatusText("Connecting you with a partner...");
-                triggerBot(data.roomId);
-              }
-            }, 3000); // Reduced to 3s for faster entry
-
-            randomSearchListener.current = onSnapshot(doc(db, 'queue', data.roomId), (snap) => {
-              if (snap.exists() && snap.data().status === 'matched' && !snap.data().isBotMatch) {
-                if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-                const r = snap.data(); const amI = r.hostId === user.uid;
-                joinMatch(data.roomId, { id: amI ? r.player2Id : r.hostId, name: amI ? r.player2Name : r.userName, avatar: amI ? r.player2Avatar : r.userAvatar }, 'human', r.roleData?.topic);
-              }
-            }, (error) => {
-              console.error("Match listener (queue) error:", error);
-              setIsSearching(false);
-            });
-          }
+    try {
+      const res = await fetch(`${BACKEND_URL}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar })
+      });
+      const data = await res.json();
+      console.log('MATCH_DEBUG: find_random_match response:', data);
+      if (data.success) {
+        if (data.matched) {
+          if (isJoiningRef.current) return;
+          joinMatch(data.roomId, data.opponent, 'human', data.topic);
         } else {
-          const err = data.error || "Error finding match";
-          alert(err);
-          setIsSearching(false);
+          setSearchStatusText("Waiting for opponent...");
+          searchTimeoutRef.current = setTimeout(() => {
+            if (!isJoiningRef.current) {
+              setSearchStatusText("Connecting you with a partner...");
+              triggerBot(data.roomId);
+            }
+          }, 3000); // Reduced to 3s for faster entry
+
+          randomSearchListener.current = onSnapshot(doc(db, 'queue', data.roomId), (snap) => {
+            if (snap.exists() && snap.data().status === 'matched' && !snap.data().isBotMatch) {
+              if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+              const r = snap.data(); const amI = r.hostId === user.uid;
+              joinMatch(data.roomId, { id: amI ? r.player2Id : r.hostId, name: amI ? r.player2Name : r.userName, avatar: amI ? r.player2Avatar : r.userAvatar }, 'human', r.roleData?.topic);
+            }
+          }, (error) => {
+            console.error("Match listener (queue) error:", error);
+            setIsSearching(false);
+          });
         }
-      } catch (e) { console.error(e); setIsSearching(false); }
-    }, 1000);
+      } else {
+        const err = data.error || "Error finding match";
+        setIsSearching(false); // Alert removed per user preference? Or keep alert
+        alert(err);
+        setIsSearching(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setIsSearching(false);
+    }
   };
 
   const triggerBot = async (roomId) => {
@@ -316,11 +448,17 @@ const App = () => {
       const data = await res.json();
       // Ensure we haven't canceled or already matched with a human
       if (data.success && data.matched && !isJoiningRef.current) {
-        joinMatch(data.roomId, data.opponent, 'human', data.topic);
+        joinMatch(data.roomId, data.opponent, data.isBotMatch ? 'battle-bot' : 'human', data.topic);
         // Inject first message immediately for Bot Match
         if (data.isBotMatch) {
+          const greetingId = 'bot_init_' + Date.now();
           const greeting = "Hi! I'm " + data.opponent.name + ". Let's practice. " + (data.topic || "");
-          setMessages([{ id: 'init_bot', sender: 'opponent', text: greeting }]);
+
+          console.log('BOT_MATCH: Queuing greeting', greetingId);
+          const greetingMsg = { id: greetingId, sender: 'opponent', text: greeting, createdAt: Date.now() };
+          processedMessageIds.current.add(greetingId);
+          typingQueue.current.push(greetingMsg);
+          processTypingQueue();
         }
       }
     } catch (e) {
@@ -353,8 +491,12 @@ const App = () => {
     setLoadingAction(null);
 
     // Initialize session
+    resetChatStates();
     setActiveSession({ id: roomId, opponent, type, topic });
-    setMessages([{ id: 'sys' + Date.now(), sender: 'system', text: `Connected with ${opponent.name}` }]);
+    setMessages([{ id: 'sys' + Date.now(), sender: 'system', text: `Connected with ${opponent.name}`, createdAt: Date.now() }]);
+    setVisibleMessageIds(new Set(['sys' + Date.now()])); // Show initial system msg
+    isSyncingInitialRef.current = true;
+
     setTimeRemaining(420);
     setTimerActive(true);
     setSessionPoints(0);
@@ -362,15 +504,116 @@ const App = () => {
 
     // Chat listener with error handling
     const q = query(collection(db, 'queue', roomId, 'messages'), orderBy('createdAt'));
+
+    if (matchListener.current) matchListener.current();
+    matchListener.current = onSnapshot(doc(db, 'queue', roomId), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+
+        // 1. TYPING INDICATOR (Real-time)
+        if (data.typing) {
+          console.log('[TYPING LISTENER] Received typing data:', data.typing, 'My UID:', user.uid);
+          const opponentId = Object.keys(data.typing).find(id => id !== user.uid);
+          if (opponentId) {
+            console.log('[TYPING LISTENER] Opponent typing:', data.typing[opponentId]);
+            setIsOpponentTyping(data.typing[opponentId]);
+          }
+        }
+
+        // 2. SYNC END SESSION (Listen for opponent ending it)
+        if (data.status === 'ended' && data.endedBy && data.endedBy !== user.uid) {
+          // If opponent ended it, we act as if we just finished.
+          // But we need the results! They should be in data.results
+          if (data.results) {
+            setDualAnalysis(data.results);
+            setShowWinnerReveal(true);
+            setView('dashboard');
+            setActiveSession(null);
+            setTimerActive(false);
+          }
+        }
+      }
+    });
+
+
     chatListener.current = onSnapshot(q,
       (snap) => {
         const msgs = [];
-        snap.forEach(d => msgs.push({
-          id: d.id,
-          sender: d.data().senderId === user.uid ? 'me' : 'opponent',
-          text: d.data().text
-        }));
-        setMessages(prev => [...prev.filter(m => m.sender === 'system' || m.sender === 'correction'), ...msgs]);
+        let latestOpponentMsg = null;
+
+        snap.forEach(d => {
+          const m = {
+            id: d.id,
+            sender: d.data().senderId === user.uid ? 'me' : 'opponent',
+            text: d.data().text,
+            createdAt: d.data().createdAt?.toMillis() || Date.now()
+          };
+          msgs.push(m);
+        });
+
+        // Identification of opponent messages
+        const opponentMsgs = msgs.filter(m => m.sender === 'opponent');
+
+        if (isSyncingInitialRef.current) {
+          // ON FIRST LOAD: Only skip animation if it looks like history (more than 2 messages)
+          // Otherwise, we want to animate even the first message of a fresh match
+          if (opponentMsgs.length > 2) {
+            opponentMsgs.forEach(m => {
+              processedMessageIds.current.add(m.id);
+              setVisibleMessageIds(prev => new Set([...prev, m.id]));
+            });
+          }
+          isSyncingInitialRef.current = false;
+        }
+
+        // ONGOING: Queue NEW messages for animation
+        const newMsgs = opponentMsgs.filter(m => !processedMessageIds.current.has(m.id));
+        if (newMsgs.length > 0) {
+          console.log('[CHAT_LISTENER] New messages:', newMsgs.length, 'Match type:', type);
+          // HUMAN MATCH: Fast-path (Instant Delivery)
+          if (type === 'human') {
+            console.log('[CHAT_LISTENER] Using HUMAN fast-path');
+            newMsgs.forEach(m => {
+              processedMessageIds.current.add(m.id);
+              setVisibleMessageIds(prev => new Set([...prev, m.id]));
+            });
+          }
+          // BOT MATCH or BATTLE-BOT: Use simulated Typing Queue
+          else {
+            console.log('[CHAT_LISTENER] Using BOT/BATTLE-BOT typing queue');
+            newMsgs.forEach(m => {
+              processedMessageIds.current.add(m.id);
+              typingQueue.current.push(m);
+            });
+            processTypingQueue();
+          }
+        }
+
+        setMessages(prev => {
+          // Keep system/correction messages and any local optimistic messages
+          const nonFirestoreMsgs = prev.filter(m =>
+            m.sender === 'system' ||
+            m.sender === 'correction' ||
+            (m.id && typeof m.id === 'string' && (
+              m.id.startsWith('loc_') ||
+              m.id.startsWith('bot_') ||
+              m.id.startsWith('ai_')
+            ))
+          );
+
+          // Filter out optimistic messages that are now confirmed in Firestore
+          const firestoreTexts = new Set(msgs.filter(m => m.sender === 'me').map(m => m.text));
+          const filteredNonFirestore = nonFirestoreMsgs.filter(m =>
+            m.id.startsWith('loc_') ? !firestoreTexts.has(m.text) : true
+          );
+
+          const combined = [...filteredNonFirestore, ...msgs];
+          return combined.sort((a, b) => {
+            const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
+            const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
+            return tA - tB;
+          });
+        });
       },
       (error) => {
         console.error("Chat listener error:", error);
@@ -385,25 +628,6 @@ const App = () => {
       }
     );
 
-    // Match status listener with error handling
-    matchListener.current = onSnapshot(doc(db, 'queue', roomId),
-      (snap) => {
-        if (snap.exists() && snap.data().status === 'ended' && snap.data().endedBy !== user.uid) {
-          endSession(false);
-        }
-      },
-      (error) => {
-        console.error("Match listener error:", error);
-        if (!isAlertingRef.current) {
-          isAlertingRef.current = true;
-          alert("Match connection error. Returning to dashboard.");
-          setTimeout(() => { isAlertingRef.current = false; }, 2000);
-          setView('dashboard');
-          setActiveSession(null);
-          isJoiningRef.current = false;
-        }
-      }
-    );
   };
 
   const startSimulation = async (sim) => {
@@ -425,6 +649,7 @@ const App = () => {
     // AI speaks first!
     setPreparingSim(null);
     const sessionId = 'sim_' + Date.now() + Math.random().toString(36).substring(2, 7);
+    resetChatStates();
     setActiveSession({
       id: sim.id,
       sessionId,
@@ -432,7 +657,16 @@ const App = () => {
       type: 'bot',
       topic: sim.desc
     });
-    setMessages([{ id: 'ai_greeting', sender: 'opponent', text: sim.greeting }]);
+    // Reset typing status for bots
+    setIsOpponentTyping(false);
+
+    // Instead of instant reveal, trigger typing
+    const greetingId = 'ai_init_' + Date.now();
+    console.log('SIM_CHAT: Queuing AI greeting', greetingId);
+    processedMessageIds.current.add(greetingId);
+    typingQueue.current.push({ id: greetingId, sender: 'opponent', text: sim.greeting, createdAt: Date.now() });
+    setTimeout(processTypingQueue, 600); // Wait for the 'chat' view to mount
+
     setCurrentStage(sim.stages[0]);
     setSessionPoints(0);
     setView('chat');
@@ -444,9 +678,14 @@ const App = () => {
   const sendMessage = async () => {
     if (!inputText.trim() || !activeSession) return;
     const text = inputText; setInputText("");
-    if (activeSession.type === 'bot') {
-      setMessages(prev => [...prev, { id: 'loc' + Date.now(), sender: 'me', text }]);
-      setIsBotTyping(true);
+    if (activeSession.type === 'bot') {  // Simulations only - NOT battle-bot
+      const now = Date.now();
+      setMessages(prev => [...prev, { id: 'loc' + now, sender: 'me', text, createdAt: now }].sort((a, b) => {
+        const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
+        const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
+        return tA - tB;
+      }));
+      setIsOpponentTyping(true); // Single typing state
       try {
         const history = messages.filter(m => m.sender !== 'system' && m.sender !== 'correction').map(m => `${m.sender === 'me' ? 'User' : 'AI'}: ${m.text}`);
         const res = await fetch(`${BACKEND_URL}`, {
@@ -455,71 +694,60 @@ const App = () => {
           body: JSON.stringify({ type: 'chat', message: text, personaId: activeSession.id, context: activeSession.topic, history, stage: currentStage })
         });
         const data = await res.json();
-        console.log('Backend response:', data);
-
-        // Note: Don't immediately set typing to false - let the delayed response flow handle it
 
         if (data.reply) {
-          // Handle points
           const earnedPoints = data.points || 5;
           setSessionPoints(prev => prev + earnedPoints);
           setShowPointsAnimation({ points: earnedPoints, id: Date.now() });
           setTimeout(() => setShowPointsAnimation(null), 1500);
 
-          // Handle grammar correction if present - show FIRST before response
           if (data.hasCorrection && data.correction) {
-            // 1. Stop typing indicator, then show the correction card immediately
-            setIsBotTyping(false);
             const correctionId = 'correction' + Date.now();
-            setMessages(prev => [...prev, {
-              id: correctionId,
-              sender: 'correction',
-              correction: data.correction,
-              originalText: text
-            }]);
-            // Play correction sound
+            const now = Date.now();
+
+            // FORCE VISUAL APPEND: Track in adjustedTimestamps like bot messages
+            adjustedTimestamps.current[correctionId] = now;
+
+            setMessages(prev => [...prev, { id: correctionId, sender: 'correction', correction: data.correction, originalText: text, createdAt: now }]);
             try { new Audio('/sounds/correction.mp3').play().catch(() => { }); } catch { }
-
-            // 2. Auto-minimize the correction after 8 seconds (more time to read)
-            setTimeout(() => {
-              setMinimizedCorrections(prev => ({ ...prev, [correctionId]: true }));
-            }, 8000);
-
-            // 3. Show typing indicator after a brief pause
-            setTimeout(() => {
-              setIsBotTyping(true);
-            }, 800);
-
-            // 4. Then show AI response after typing delay
-            setTimeout(() => {
-              setIsBotTyping(false);
-              setMessages(prev => [...prev, { id: 'bot' + Date.now(), sender: 'opponent', text: data.reply }]);
-            }, 2500);
+            setTimeout(() => setMinimizedCorrections(prev => ({ ...prev, [correctionId]: true })), 8000);
           } else {
-            // No correction - show natural typing delay then response
             try { new Audio('/sounds/success.mp3').play().catch(() => { }); } catch { }
-
-            // Keep typing indicator for a natural feel (already set before fetch)
-            setTimeout(() => {
-              setIsBotTyping(false);
-              setMessages(prev => [...prev, { id: 'bot' + Date.now(), sender: 'opponent', text: data.reply }]);
-            }, 1200 + Math.random() * 800);  // 1.2-2s natural delay
           }
-        } else if (data.error) {
-          setIsBotTyping(false);
-          console.error('Backend error:', data.error);
-          setMessages(prev => [...prev, { id: 'err' + Date.now(), sender: 'opponent', text: 'Sorry, I didn\'t catch that.' }]);
+
+          // UNIFIED: Add bot reply to typing queue for sequential reveal
+          const botMsgId = 'bot_' + Date.now();
+          processedMessageIds.current.add(botMsgId);
+          typingQueue.current.push({ id: botMsgId, sender: 'opponent', text: data.reply, createdAt: Date.now() });
+          processTypingQueue();
         } else {
-          // No reply and no error - just stop typing
-          setIsBotTyping(false);
+          setIsOpponentTyping(false);
+          if (data.error) setMessages(prev => [...prev, { id: 'err_' + Date.now(), sender: 'opponent', text: 'Sorry, I didn\'t catch that.' }]);
         }
       } catch (e) {
-        console.error('Chat fetch error:', e);
-        setIsBotTyping(false);
-        setMessages(prev => [...prev, { id: 'err' + Date.now(), sender: 'opponent', text: 'Connection issue. Try again.' }]);
+        setIsOpponentTyping(false);
+        setMessages(prev => [...prev, { id: 'err_' + Date.now(), sender: 'opponent', text: 'Connection issue. Try again.' }]);
       }
-    } else {
-      try { await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid }) }); } catch (e) { console.error('Send message error:', e); }
+    } else {  // Human or Battle-Bot - use send_message
+      // Optimistic Update for Human Match
+      const now = Date.now();
+      const optimisticMsg = { id: 'loc_' + now, sender: 'me', text, createdAt: now };
+      setMessages(prev => [...prev, optimisticMsg].sort((a, b) => {
+        const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
+        const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
+        return tA - tB;
+      }));
+
+      try {
+        await fetch(`${BACKEND_URL}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid })
+        });
+      } catch (e) {
+        console.error('Send message error:', e);
+        // Optional: show error message or remove optimistic msg
+      }
     }
   };
 
@@ -561,6 +789,7 @@ const App = () => {
   const endSession = async (initiatedByMe = true) => {
     if (!activeSession || isEndingRef.current) return;
     isEndingRef.current = true;
+    resetChatStates();
 
     // Prepare for feedback
     setFeedbackSessionId(activeSession.sessionId || activeSession.id);
@@ -663,10 +892,10 @@ const App = () => {
       try {
         const myMsgs = myMessages.map(m => m.text);
         const oppMsgs = messages.filter(m => m.sender === 'opponent').map(m => m.text);
-        const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'analyze', player1History: myMsgs, player2History: oppMsgs }) });
+        const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'analyze', roomId: activeSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
         setDualAnalysis(data);
-        const myScore = data?.player1?.overall || 70;
+        const myScore = data?.player1?.total || 70;
 
         // Store competitive session
         try {
@@ -729,9 +958,16 @@ const App = () => {
   };
 
   const handleEndClick = () => {
-    const myMessagesCount = messages.filter(m => m.sender === 'me').length;
-    // Warn if less than 3 messages (Early Exit)
-    if (myMessagesCount < 3) {
+    const myMsgCount = messages.filter(m => m.sender === 'me').length;
+    const oppMsgCount = messages.filter(m => m.sender === 'opponent').length;
+
+    // For human matches: warn if EITHER player has < 3 messages
+    // For bot matches: warn if MY messages < 3
+    const minMsgs = activeSession?.type === 'human'
+      ? Math.min(myMsgCount, oppMsgCount)
+      : myMsgCount;
+
+    if (minMsgs < 3) {
       setShowExitWarning(true);
     } else {
       endSession(true);
@@ -1015,7 +1251,7 @@ const App = () => {
 
           {/* MAIN ACTION - Free Practice */}
           <button
-            onClick={() => { setLoadingAction('practice'); setTimeout(() => { setView('simlab'); setLoadingAction(null); }, 300); }}
+            onClick={() => { triggerWarmup(); setLoadingAction('practice'); setTimeout(() => { setView('simlab'); setLoadingAction(null); }, 300); }}
             disabled={loadingAction === 'practice'}
             className="w-full py-6 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 rounded-3xl shadow-xl shadow-emerald-200 text-white group relative overflow-hidden hover:shadow-2xl hover:shadow-emerald-300 transition-all transform hover:scale-[1.01] active:scale-[0.99]"
           >
@@ -1040,7 +1276,7 @@ const App = () => {
           {/* SECONDARY ACTIONS */}
           <div className="grid grid-cols-2 gap-3">
             <button
-              onClick={() => { setLoadingAction('compete'); startRandomMatch(); }}
+              onClick={() => { triggerWarmup(); setLoadingAction('compete'); startRandomMatch(); }}
               disabled={isSearching || loadingAction === 'compete'}
               className="p-5 bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl text-white text-left hover:from-black hover:to-gray-900 transition-all relative overflow-hidden group transform hover:scale-[1.02] active:scale-[0.98]"
             >
@@ -1055,7 +1291,7 @@ const App = () => {
               <div className="text-gray-400 text-xs">Challenge global players</div>
             </button>
             <button
-              onClick={() => { setLoadingAction('friend'); setShowRoomInput(true); setTimeout(() => setLoadingAction(null), 300); }}
+              onClick={() => { triggerWarmup(); setLoadingAction('friend'); setShowRoomInput(true); setTimeout(() => setLoadingAction(null), 300); }}
               disabled={loadingAction === 'friend'}
               className="p-5 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-2xl text-white text-left hover:from-indigo-700 hover:to-violet-700 transition-all relative overflow-hidden group transform hover:scale-[1.02] active:scale-[0.98]"
             >
@@ -1143,6 +1379,7 @@ const App = () => {
                       whileHover={{ y: -4, scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => {
+                        triggerWarmup();
                         if (chat.type === 'simulation' && chat.simId) {
                           const s = SIMULATIONS.find(simul => simul.id === chat.simId);
                           if (s) startSimulation(s);
@@ -1935,122 +2172,130 @@ const App = () => {
 
         {/* Scrollable Messages */}
         <main className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : m.sender === 'system' ? 'justify-center' : m.sender === 'correction' ? 'justify-center' : 'justify-start'}`}>
-              {m.sender === 'system' ? (
-                <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-200 px-3 py-1 rounded-full">{m.text}</span>
-              ) : m.sender === 'correction' ? (
-                // Check if this correction is minimized
-                minimizedCorrections[m.id] ? (
-                  // Minimized compact pill with RED indicator - clickable to expand
-                  <motion.button
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: false }))}
-                    className="flex items-center gap-2 bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-300 rounded-full px-4 py-2 shadow-md hover:shadow-lg transition-all cursor-pointer group"
-                  >
-                    <div className="relative">
-                      <AlertTriangle size={16} className="text-red-500" />
-                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                    </div>
-                    <span className="text-red-700 font-bold text-sm">Mistake Found</span>
-                    <span className="text-red-500 text-xs">tap to view</span>
-                    <ChevronDown size={14} className="text-red-500 group-hover:translate-y-0.5 transition-transform" />
-                  </motion.button>
-                ) : (
-                  // Full expanded correction card
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    className="w-full max-w-md bg-gradient-to-br from-red-50 via-orange-50 to-amber-50 border-2 border-red-200 rounded-2xl p-4 shadow-lg"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-rose-500 rounded-xl flex items-center justify-center shadow-md">
-                          <AlertTriangle size={20} className="text-white" />
-                        </div>
-                        <div>
-                          <div className="font-black text-red-700 text-base">Your Mistake</div>
-                          <div className="text-[10px] text-red-500 uppercase font-bold tracking-wide">{m.correction?.type || 'Needs Improvement'}</div>
-                        </div>
-                      </div>
-                      {/* Minimize button */}
-                      <button
-                        onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: true }))}
-                        className="p-2 text-red-400 hover:text-red-600 hover:bg-red-100 rounded-lg transition-colors"
-                        title="Minimize"
-                      >
-                        <ChevronUp size={18} />
-                      </button>
-                    </div>
-
-                    <div className="space-y-3 text-sm">
-                      {/* What you said - with strikethrough */}
-                      <div className="bg-red-100/80 border border-red-200 rounded-xl p-3">
-                        <div className="text-[10px] text-red-600 font-black uppercase mb-1 tracking-wide flex items-center gap-1">
-                          <X size={12} /> What you said:
-                        </div>
-                        <div className="text-red-800 line-through font-medium">{m.originalText}</div>
-                      </div>
-
-                      {/* Correct way - highlighted */}
-                      <div className="bg-emerald-100/80 border border-emerald-300 rounded-xl p-3">
-                        <div className="text-[10px] text-emerald-700 font-black uppercase mb-1 tracking-wide flex items-center gap-1">
-                          ✓ Correct way:
-                        </div>
-                        <div className="text-emerald-800 font-bold text-base">{m.correction?.corrected}</div>
-                      </div>
-
-                      {/* Explanation */}
-                      <div className="bg-white/80 border border-gray-200 rounded-xl p-3">
-                        <div className="text-[10px] text-gray-600 font-black uppercase mb-1 tracking-wide">💡 Why this matters:</div>
-                        <div className="text-gray-800">{m.correction?.reason}</div>
-                        {m.correction?.example && (
-                          <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg p-2 text-blue-700 text-xs">
-                            <span className="font-semibold">Example:</span> "{m.correction.example}"
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Detailed Explanation Button */}
-                    <button
-                      onClick={() => getDetailedExplanation(m.correction)}
-                      className="mt-4 w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 hover:from-indigo-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg"
+          {messages.map((m, i) => {
+            // Visibility Filter: 
+            // - Show if sender is 'me', 'system', or 'correction'
+            // - Show if sender is 'opponent' AND has finished typing (exists in visibleMessageIds)
+            const isVisible = m.sender !== 'opponent' || visibleMessageIds.has(m.id);
+            if (!isVisible) return null;
+            return (
+              <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : m.sender === 'system' ? 'justify-center' : m.sender === 'correction' ? 'justify-center' : 'justify-start'}`}>
+                {m.sender === 'system' ? (
+                  <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-200 px-3 py-1 rounded-full">{m.text}</span>
+                ) : m.sender === 'correction' ? (
+                  // Check if this correction is minimized
+                  minimizedCorrections[m.id] ? (
+                    // Minimized compact pill with RED indicator - clickable to expand
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: false }))}
+                      className="flex items-center gap-2 bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-300 rounded-full px-4 py-2 shadow-md hover:shadow-lg transition-all cursor-pointer group blinking-alert"
                     >
-                      <MessageCircle size={16} /> Learn More from Professor
-                    </button>
-                  </motion.div>
-                )
+                      <div className="relative">
+                        <AlertTriangle size={16} className="text-red-500" />
+                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                      </div>
+                      <span className="text-red-700 font-bold text-sm">Mistake Found</span>
+                      <span className="text-red-500 text-xs">tap to view</span>
+                      <ChevronDown size={14} className="text-red-500 group-hover:translate-y-0.5 transition-transform" />
+                    </motion.button>
+                  ) : (
+                    // Full expanded correction card
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      className="w-full max-w-md bg-gradient-to-br from-red-50 via-orange-50 to-amber-50 border-2 border-red-200 rounded-2xl p-4 shadow-lg"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-rose-500 rounded-xl flex items-center justify-center shadow-md">
+                            <AlertTriangle size={20} className="text-white" />
+                          </div>
+                          <div>
+                            <div className="font-black text-red-700 text-base">Your Mistake</div>
+                            <div className="text-[10px] text-red-500 uppercase font-bold tracking-wide">{m.correction?.type || 'Needs Improvement'}</div>
+                          </div>
+                        </div>
+                        {/* Minimize button */}
+                        <button
+                          onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: true }))}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                          title="Minimize"
+                        >
+                          <ChevronUp size={18} />
+                        </button>
+                      </div>
 
-              ) : (
-                // Regular messages (user and opponent)
-                m.sender === 'me' ? (
-                  <div className="max-w-[85%] px-4 py-3 rounded-2xl text-sm bg-emerald-600 text-white rounded-br-sm">
-                    {m.text}
-                  </div>
+                      <div className="space-y-3 text-sm">
+                        {/* What you said - with strikethrough */}
+                        <div className="bg-red-100/80 border border-red-200 rounded-xl p-3">
+                          <div className="text-[10px] text-red-600 font-black uppercase mb-1 tracking-wide flex items-center gap-1">
+                            <X size={12} /> What you said:
+                          </div>
+                          <div className="text-red-800 line-through font-medium">{m.originalText}</div>
+                        </div>
+
+                        {/* Correct way - highlighted */}
+                        <div className="bg-emerald-100/80 border border-emerald-300 rounded-xl p-3">
+                          <div className="text-[10px] text-emerald-700 font-black uppercase mb-1 tracking-wide flex items-center gap-1">
+                            ✓ Correct way:
+                          </div>
+                          <div className="text-emerald-800 font-bold text-base">{m.correction?.corrected}</div>
+                        </div>
+
+                        {/* Explanation */}
+                        <div className="bg-white/80 border border-gray-200 rounded-xl p-3">
+                          <div className="text-[10px] text-gray-600 font-black uppercase mb-1 tracking-wide">💡 Why this matters:</div>
+                          <div className="text-gray-800">{m.correction?.reason}</div>
+                          {m.correction?.example && (
+                            <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg p-2 text-blue-700 text-xs">
+                              <span className="font-semibold">Example:</span> "{m.correction.example}"
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Detailed Explanation Button */}
+                      <button
+                        onClick={() => getDetailedExplanation(m.correction)}
+                        className="mt-4 w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 hover:from-indigo-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg"
+                      >
+                        <MessageCircle size={16} /> Learn More from Professor
+                      </button>
+                    </motion.div>
+                  )
+
                 ) : (
-                  // Opponent message with simulation emoji
-                  <div className="flex items-end gap-2 max-w-[85%]">
-                    <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm shrink-0 mb-1">
-                      {activeSession?.opponent?.avatar || '🤖'}
-                    </div>
-                    <div className="px-4 py-3 rounded-2xl text-sm bg-white border border-gray-100 text-gray-800 rounded-bl-sm shadow-sm">
+                  // Regular messages (user and opponent)
+                  m.sender === 'me' ? (
+                    <div className="max-w-[85%] px-4 py-3 rounded-2xl text-sm bg-emerald-600 text-white rounded-br-sm">
                       {m.text}
                     </div>
-                  </div>
-                )
-              )}
-            </div>
-          ))}
+                  ) : (
+                    // Opponent message with simulation emoji
+                    <div className="flex items-end gap-2 max-w-[85%]">
+                      <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm shrink-0 mb-1">
+                        {activeSession?.opponent?.avatar || '🤖'}
+                      </div>
+                      <div className="px-4 py-3 rounded-2xl text-sm bg-white border border-gray-100 text-gray-800 rounded-bl-sm shadow-sm">
+                        {m.text}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            );
+          })}
 
-          {/* Typing Indicator */}
-          {isBotTyping && (
+          {/* Opponent Typing Indicator */}
+          {isOpponentTyping && (
             <div className="flex justify-start">
-              <div className="bg-white border border-gray-100 rounded-2xl rounded-bl-sm shadow-sm px-4 py-3 flex items-center gap-1">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              <div className="bg-white px-4 py-3 rounded-2xl rounded-tl-none shadow-sm border border-gray-100 flex gap-1 items-center">
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <span className="text-xs text-gray-400 ml-2 font-medium">Typing...</span>
               </div>
             </div>
           )}
@@ -2061,9 +2306,25 @@ const App = () => {
         {/* Fixed Input */}
         <div className="p-4 bg-white border-t border-gray-100 shrink-0">
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-full border border-gray-100">
-            <input autoFocus value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Type your message..." className="flex-1 bg-transparent px-3 py-2 text-sm focus:outline-none" />
-            <button onClick={sendMessage} disabled={!inputText.trim() || isBotTyping} className="p-2.5 bg-emerald-600 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300">
-              {isBotTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            <input
+              autoFocus
+              value={inputText}
+              onChange={e => {
+                setInputText(e.target.value);
+                // Real-time typing for human matches
+                if (activeSession?.type === 'human' && activeSession?.id) {
+                  handleTyping(true);
+                }
+              }}
+              onBlur={() => {
+                if (activeSession?.type === 'human') handleTyping(false);
+              }}
+              onKeyDown={e => e.key === 'Enter' && sendMessage()}
+              placeholder="Type your message..."
+              className="flex-1 bg-transparent px-3 py-2 text-sm focus:outline-none"
+            />
+            <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 bg-emerald-600 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300">
+              {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
           </div>
         </div>
