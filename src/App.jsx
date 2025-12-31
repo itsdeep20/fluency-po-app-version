@@ -892,6 +892,7 @@ const App = () => {
       try {
         const myMsgs = myMessages.map(m => m.text);
         const oppMsgs = messages.filter(m => m.sender === 'opponent').map(m => m.text);
+        console.log('[ANALYZE DEBUG] Sending:', { roomId: activeSession.id, analyzedBy: user.uid, myMsgs, oppMsgs });
         const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'analyze', roomId: activeSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
         setDualAnalysis(data);
@@ -899,16 +900,23 @@ const App = () => {
 
         // Store competitive session
         try {
+          // Determine win correctly based on perspective (same logic as WinnerReveal)
+          const analyzedBy = data?.analyzedBy;
+          const amIPlayer1 = !analyzedBy || analyzedBy === user.uid;
+          const myData = amIPlayer1 ? data?.player1 : data?.player2;
+          const oppData = amIPlayer1 ? data?.player2 : data?.player1;
+          const didIWin = amIPlayer1 ? (data?.winner === 'player1') : (data?.winner === 'player2');
+
           const sessionsRef = collection(db, 'users', user.uid, 'sessions');
           await addDoc(sessionsRef, {
             type: '1v1',
-            score: myScore,
+            score: myData?.total || 0,
             opponentName: activeSession.opponent?.name || 'Opponent',
             opponentAvatar: activeSession.opponent?.avatar || '👤',
-            won: myScore > (data?.player2?.overall || 0),
+            won: didIWin,
             timestamp: serverTimestamp()
           });
-        } catch (e) { }
+        } catch (e) { console.error('Session save error:', e); }
 
 
         const todayStr = getLocalDateStr();

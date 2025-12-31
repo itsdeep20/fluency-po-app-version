@@ -401,7 +401,12 @@ def fluency_backend(request):
                         print(f"[ANALYZE] Returning existing results for {room_id}")
                         return (json.dumps(existing_results), 200, headers)
 
-            if p1_hist and p2_hist:
+            # Handle empty arrays - use explicit None check instead of truthiness
+            p1_hist = p1_hist if p1_hist is not None else []
+            p2_hist = p2_hist if p2_hist is not None else []
+            
+            # If both players have at least some messages, analyze
+            if len(p1_hist) > 0 or len(p2_hist) > 0:
                 prompt = (
                     "ACT AS A STRICT ENGLISH EXAMINER. Analyze the conversation history below.\n"
                     f"Player 1 (Human): {p1_hist}\n"
@@ -453,6 +458,18 @@ def fluency_backend(request):
                     if room_id:
                         db.collection('queue').document(room_id).update({'results': fallback, 'status': 'ended'})
                     return (json.dumps(fallback), 200, headers)
+            else:
+                # No messages from either player - return a draw
+                draw_result = {
+                    "player1": {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No messages sent."},
+                    "player2": {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No messages sent."},
+                    "winner": "draw"
+                }
+                if room_id:
+                    analyzed_by = data.get('analyzedBy')
+                    draw_result['analyzedBy'] = analyzed_by
+                    db.collection('queue').document(room_id).update({'results': draw_result, 'status': 'ended'})
+                return (json.dumps(draw_result), 200, headers)
 
         # --- OTHER HANDLERS (Sims, etc) ---
         # Basic chat support for sims handled by 'send_message' + client-side for sims? 
