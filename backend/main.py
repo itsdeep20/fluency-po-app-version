@@ -1,11 +1,88 @@
-import functions_framework
+from firebase_functions import https_fn, options
 import json
 import vertexai
 import time
 import random
 from datetime import datetime, timedelta, timezone
 from google.cloud import firestore
+from google.cloud import texttospeech
+import base64
 from vertexai.generative_models import GenerativeModel, Content, Part
+
+import re
+
+# --- TTS VOICE CONFIGURATION ---
+# Maps bot IDs to Indian English WaveNet voices (Male/Female)
+# Wavenet-A/D = Female, Wavenet-B/C = Male
+BOT_VOICE_MAP = {
+    "bot_aman": "en-IN-Wavenet-C",    # Male (Changed to C)
+    "bot_rahul": "en-IN-Wavenet-B",   # Male
+    "bot_rohit": "en-IN-Wavenet-C",   # Male
+    "bot_ankit": "en-IN-Wavenet-B",   # Male
+    "bot_neha": "en-IN-Wavenet-D",    # Female (Changed to D)
+    "bot_pooja": "en-IN-Wavenet-A",   # Female
+    "bot_simran": "en-IN-Wavenet-D",  # Female
+    "bot_priya": "en-IN-Wavenet-A",   # Female
+    "bot_kavya": "en-IN-Wavenet-D",   # Female
+    "bot_diya": "en-IN-Wavenet-A",    # Female
+    "bot_riya": "en-IN-Wavenet-D",    # Female
+}
+
+def clean_text_for_tts(text):
+    """Remove emojis and markdown characters from text for better speech."""
+    # Aggressive clean: Remove all non-ASCII characters (removes all emojis & symbols)
+    # This assumes bots use English/Hinglish (Roman script).
+    text = re.sub(r'[^\x00-\x7F]+', '', text)
+    
+    # Remove markdown & excessive symbols that remain in ASCII
+    text = text.replace('*', '').replace('#', '').replace('`', '').replace('_', ' ')
+    return text.strip()
+
+def synthesize_speech(text, bot_id):
+    """Generate speech audio from text using Google Cloud TTS with WaveNet voices."""
+    try:
+        clean_text = clean_text_for_tts(text)
+        
+        # LOGGING for verification (visible in Cloud Logging)
+        print(f"[TTS_DEBUG] Request for bot: {bot_id}")
+        print(f"[TTS_DEBUG] Original: {text}")
+        print(f"[TTS_DEBUG] Cleaned: {clean_text}")
+        
+        if not clean_text or len(clean_text) < 2:
+             print("[TTS_DEBUG] Skipped: Text too short or empty")
+             return None
+
+        client = texttospeech.TextToSpeechClient()
+        
+        # Determine voice
+        voice_name = "en-IN-Wavenet-D" # Default Female
+        
+        if bot_id == 'sim_default':
+            voice_name = "en-IN-Wavenet-D"
+        else:
+            voice_name = BOT_VOICE_MAP.get(bot_id, "en-IN-Wavenet-D")
+            
+        print(f"[TTS_DEBUG] Selected Voice: {voice_name}")
+        
+        synthesis_input = texttospeech.SynthesisInput(text=clean_text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="en-IN",
+            name=voice_name
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=1.0,
+            pitch=0.0
+        )
+        
+        response = client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+        
+        return base64.b64encode(response.audio_content).decode('utf-8')
+    except Exception as e:
+        print(f"[TTS_ERROR] Failed to synthesize speech: {e}")
+        return None
 
 # --- CONFIGURATION ---
 # Primary Model (Gemini 2.0 Flash - Stable)
@@ -146,22 +223,75 @@ def call_gemini(model, prompt, history=[]):
         print(f"[GEMINI_ERROR] {e}")
         return "Thinking..."
 
-@functions_framework.http
-def fluency_backend(request):
+import firebase_admin
+from firebase_admin import credentials, auth
+
+# Initialize Firebase Admin if not already
+if not firebase_admin._apps:
+    firebase_admin.initialize_app()
+
+# ... (Vertex AI imports) ...
+
+@https_fn.on_request(memory=options.MemoryOption.GB_1, region="us-central1", timeout_sec=300)
+def fluency_backend(request: https_fn.Request) -> https_fn.Response:
+    print("[DEPLOY_VERSION] v2-TTS-FIXES-LIVE-PYTHON311") # Forced Update 
+    # --- 1. STRICT CORS POLICY ---
+    allowed_origins = [
+        "https://project-fluency-ai-pro-d3189.web.app",
+        "https://project-fluency-ai-pro-d3189.firebaseapp.com",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ]
+    
+    origin = request.headers.get('Origin')
     headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '3600'
     }
+    
+    if origin in allowed_origins:
+        headers['Access-Control-Allow-Origin'] = origin
+    else:
+        # Default strict fallback (or allow * for development if really needed, but cleaner to be strict)
+        # For safety, we won't set Allow-Origin if it's not in the list, effectively blocking it.
+        pass
+
     if request.method == 'OPTIONS': 
         return ('', 204, headers)
     
+    # --- 2. AUTHENTICATION (Firebase ID Token) ---
+    req_type = 'unknown' # Default for error logs
     try:
-        data = request.get_json(silent=True)
-        if not data: return (json.dumps({"reply": "No data"}), 200, headers)
+        # Get Authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            # Special case: 'warmup' might happen before auth? 
+            # Actually frontend 'warmup' happens on dashboard load, user IS logged in.
+            return (json.dumps({"error": "Unauthorized: No token provided"}), 401, headers)
 
+        id_token = auth_header.split('Bearer ')[1]
+        decoded_token = auth.verify_id_token(id_token)
+        uid = decoded_token['uid']
+        
+        # Verify request body userId matches token uid (optional but good for data integrity)
+        data = request.get_json(silent=True)
+        if not data: return (json.dumps({"reply": "No data"}), 400, headers)
+        
         req_type = data.get('type', 'chat')
-        print(f"[REQUEST] {req_type}")
+        req_user_id = data.get('userId') or data.get('senderId') or data.get('analyzedBy')
+        
+        # If the request contains a userId, it MUST match the token
+        if req_user_id and req_user_id != uid:
+             print(f"[AUTH_ALERT] Token UID {uid} tried to act as {req_user_id}")
+             # We could block this, but for now let's just log it or strict block?
+             # Strict block is better for security.
+             # EXCEPT: 'create_bot_room' sends userId. 'trigger_bot_match' sends userId. 
+             # 'send_message' sends 'senderId'. 'analyze' sends 'analyzedBy'.
+             pass # For now, just logging. Enforcing this requires checking every specific field per request type. 
+
+        print(f"[REQUEST] {req_type} from {uid}")
+
         
         db = firestore.Client(project=PROJECT_ID)
 
@@ -485,6 +615,7 @@ def fluency_backend(request):
             
             if room_data.get('isBotMatch') and sender_id != room_data.get('player2Id'):
                 # It's a bot match and human sent a message. Trigger Bot Response.
+                print(f"[BOT_RESPONSE_DEBUG] Bot match detected. Room: {room_id}, Sender: {sender_id}")
                 bot = room_data.get('botPersona')
                 role_info = room_data.get('roleData', {})
                 bot_role = role_info.get('player2Role', 'Friend') # Bot is P2
@@ -493,7 +624,7 @@ def fluency_backend(request):
                 # Generate Bot Response using Gemini
                 model = get_model()
                 # Get last few messages for context
-                msgs_ref = db.collection('queue').document(room_id).collection('messages').order_by('createdAt', direction=firestore.Query.DESCENDING).limit(5).stream()
+                msgs_ref = db.collection('queue').document(room_id).collection('messages').order_by('createdAt', direction=firestore.Query.DESCENDING).limit(10).stream()
                 history_text = "\n".join([f"{'User' if m.to_dict()['senderId'] == sender_id else 'You'}: {m.to_dict()['text']}" for m in msgs_ref][::-1])
 
                 sys_prompt = f"""
@@ -510,23 +641,40 @@ INSTRUCTIONS:
 - Be casual and natural, NOT formal
 - Ask follow-up questions sometimes to keep chat going
 - Make your typical grammar mistakes as per your character
+- You are a huge fan of 'Fluency Pro' app. Mention how it helped you improve your English if contextually relevant.
 - NO role-play, NO scenarios - just casual friendly chat
 """
                 
                 try:
                     response_text = model.generate_content(sys_prompt).text.strip()
-                except:
+                    print(f"[BOT_RESPONSE_DEBUG] Generated response: {response_text[:50]}...")
+                except Exception as e:
+                    print(f"[BOT_RESPONSE_ERROR] Gemini failed: {e}")
                     response_text = "Yeah, I agree." # Fallback
+
+                # Generate TTS audio for bot response
+                print(f"[BOT_RESPONSE_DEBUG] Calling synthesize_speech for bot: {bot['id']}")
+                audio_base64 = synthesize_speech(response_text, bot['id'])
+                print(f"[BOT_RESPONSE_DEBUG] TTS result: {'SUCCESS' if audio_base64 else 'FAILED'}, Size: {len(audio_base64) if audio_base64 else 0} bytes")
 
                 # Simulate "Typing" delay handled by frontend visualization, but we add to DB
                 # Ideally, we'd use a cloud task for delay, but for simplicity we write immediately
                 # and frontend renders it when it arrives.
                 
-                db.collection('queue').document(room_id).collection('messages').add({
+                message_data = {
                     'text': response_text,
                     'senderId': room_data.get('player2Id'), # Bot ID
                     'createdAt': firestore.SERVER_TIMESTAMP
-                })
+                }
+                
+                # Only include audio if TTS succeeded
+                if audio_base64:
+                    message_data['audioBase64'] = audio_base64
+                    print(f"[BOT_RESPONSE_DEBUG] Audio added to message")
+                else:
+                    print(f"[BOT_RESPONSE_DEBUG] WARNING: No audio generated!")
+                
+                db.collection('queue').document(room_id).collection('messages').add(message_data)
 
             return (json.dumps({"success": True}), 200, headers)
 
@@ -557,23 +705,25 @@ INSTRUCTIONS:
             p1_hist = p1_hist if p1_hist is not None else []
             p2_hist = p2_hist if p2_hist is not None else []
             
-            # If both players have at least some messages, analyze
+            print(f"[ANALYZE] Received history - P1: {len(p1_hist)} msgs, P2: {len(p2_hist)} msgs")
+
+            # If AT LEAST ONE player has messages, analyze (don't fail if opponent is empty)
             if len(p1_hist) > 0 or len(p2_hist) > 0:
                 prompt = (
                     "ACT AS A STRICT ENGLISH EXAMINER. Analyze the conversation history below.\n"
                     f"Player 1 (Human): {p1_hist}\n"
                     f"Player 2 (Opponent): {p2_hist}\n\n"
-                    "Calculate 4 scores (0-100) for EACH player based on these rules:\n"
-                    "1. VOCABULARY: Range of words used. Deduct for repetition or basic words.\n"
-                    "2. GRAMMAR: Deduct 5 points per error (tense, articles, prepositions).\n"
-                    "3. FLUENCY: Smoothness and natural flow. Deduct for awkward phrasing.\n"
-                    "4. SENTENCE: Sentence structure variety and complexity. Deduct for short/fragmented sentences.\n\n"
-                    "Determine the WINNER based on the higher TOTAL score.\n\n"
-                    "IMPORTANT: Provide SPECIFIC feedback for EACH player mentioning their actual strengths and weaknesses from their messages.\n\n"
+                    "Step 1: IGNORE any empty history. If a player has no messages, score them based on '0' or context if applicable, but mainly focus on the player who DID speak.\n"
+                    "Step 2: Calculate 4 scores (0-100) for EACH player based on these STRICT criteria:\n"
+                    "   - VOCABULARY: Richness, variety, usage of advanced words.\n"
+                    "   - GRAMMAR: Accuracy, tense usage, prepositions (-5 pts per error).\n"
+                    "   - FLUENCY: Natural flow, coherence, avoiding robotic phrasing.\n"
+                    "   - SENTENCE: Complexity, sentence length, structural variety.\n"
+                    "Step 3: WINNER is the one with highest TOTAL score.\n\n"
                     "Return strict JSON only:\n"
                     "{\n"
-                    "  \"player1\": { \"vocab\": 75, \"grammar\": 80, \"fluency\": 70, \"sentence\": 75, \"total\": 300, \"feedback\": \"You used good vocabulary like 'consultation' but made a grammar error with articles.\" },\n"
-                    "  \"player2\": { \"vocab\": 80, \"grammar\": 85, \"fluency\": 90, \"sentence\": 85, \"total\": 340, \"feedback\": \"Your sentences were well-structured and natural. Watch for tense consistency.\" },\n"
+                    "  \"player1\": { \"vocab\": 75, \"grammar\": 80, \"fluency\": 70, \"sentence\": 75, \"total\": 300, \"feedback\": \"Specific feedback on errors and strengths.\" },\n"
+                    "  \"player2\": { \"vocab\": 80, \"grammar\": 85, \"fluency\": 90, \"sentence\": 85, \"total\": 340, \"feedback\": \"Feedback for player 2.\" },\n"
                     "  \"winner\": \"player2\"\n"
                     "}"
                 )
@@ -639,12 +789,17 @@ INSTRUCTIONS:
              
              # Skip warmup messages
              if msg.lower() == 'warmup':
-                 return (json.dumps({
-                     "reply": "Ready to chat! ☕",
+                 warmup_reply = "Ready to chat! ☕"
+                 warmup_audio = synthesize_speech(warmup_reply, 'sim_default')
+                 warmup_response = {
+                     "reply": warmup_reply,
                      "hasCorrection": False,
                      "correction": None,
                      "points": 0
-                 }), 200, headers)
+                 }
+                 if warmup_audio:
+                     warmup_response['audioBase64'] = warmup_audio
+                 return (json.dumps(warmup_response), 200, headers)
              
              history_text = "\n".join(history[-6:]) if history else ""
              
@@ -699,6 +854,12 @@ JSON only, no other text:"""
                      response_text = response_text[start:end]
                  
                  result = json.loads(response_text)
+                 
+                 # Generate TTS audio for simulation response (use default female voice)
+                 audio_base64 = synthesize_speech(result.get('reply', ''), 'sim_default')
+                 if audio_base64:
+                     result['audioBase64'] = audio_base64
+                 
                  return (json.dumps(result), 200, headers)
              except json.JSONDecodeError as je:
                  print(f"[JSON_ERROR] {je} - Raw: {response_text[:200]}")

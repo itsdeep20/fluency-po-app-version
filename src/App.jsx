@@ -13,7 +13,7 @@ import {
   Send, Zap, Swords, Sword, MessageSquare, Trophy, Briefcase, Coffee, Stethoscope,
   Train, Plane, Loader2, LogOut, MessageCircle, Target,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
-  ChevronUp, ChevronDown, AlertTriangle
+  ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -128,6 +128,11 @@ const App = () => {
   const [isOpponentTyping, setIsOpponentTyping] = useState(false);
   const [visibleMessageIds, setVisibleMessageIds] = useState(new Set());
   const processedMessageIds = useRef(new Set());
+
+  // Voice-to-Text & Text-to-Speech
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true); // TTS enabled by default
+  const recognitionRef = useRef(null);
   const typingQueue = useRef([]);
   const isSyncingQueue = useRef(false);
   const isSyncingInitialRef = useRef(true);
@@ -142,10 +147,13 @@ const App = () => {
   const [liveUsers, setLiveUsers] = useState([]);
   const [incomingInvitation, setIncomingInvitation] = useState(null);
   const [invitationCountdown, setInvitationCountdown] = useState(16);
+  const [senderCountdown, setSenderCountdown] = useState(16); // Timer for sender while waiting
+  const [toastNotification, setToastNotification] = useState(null); // {type: 'success'|'error'|'info', message: string, avatar?: string}
   const [pendingInviteTarget, setPendingInviteTarget] = useState(null); // For confirmation popup
   const [sentInviteTarget, setSentInviteTarget] = useState(null); // Track who we sent to
   const [offlineUserTarget, setOfflineUserTarget] = useState(null); // For offline user popup
   const invitationTimerRef = useRef(null);
+  const senderTimerRef = useRef(null); // Timer ref for sender countdown
   const sentInviteTargetRef = useRef(null); // Ref for cleaning up on unmount
   const presenceRef = useRef(null);
   const presenceListenerRef = useRef(null);
@@ -211,6 +219,9 @@ const App = () => {
 
         console.log('TYPING_QUEUE: Reveal', m.id, 'at', now);
         setVisibleMessageIds(prev => new Set([...prev, m.id]));
+
+        // Text-to-Speech for opponent message (uses WaveNet audio if available)
+        speakText(m.text, m.audioBase64);
 
         // Re-sort messages with new timestamp
         setMessages(prev => {
@@ -312,34 +323,66 @@ const App = () => {
   // Aggressive Warmup on Dashboard Mount
   useEffect(() => {
     if (view === 'dashboard' && user) {
-      fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'warmup' })
-      }).catch(() => { });
+      user.getIdToken().then(token => {
+        fetch(`${BACKEND_URL}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ type: 'warmup' })
+        }).catch(() => { });
+      });
     }
   }, [view, user]);
 
-  // Presence Tracking System
+  // Presence Tracking System with Tab Visibility Detection
   useEffect(() => {
     if (!user || !db) return;
 
     // Only track presence when on dashboard (not in session)
     if (view === 'dashboard') {
-      // Set online status
       const presenceDocRef = doc(db, 'presence', user.uid);
-      setDoc(presenceDocRef, {
-        name: user.displayName || 'Player',
-        avatar: userAvatar,
-        level: stats.level || 'Rookie',
-        lastSeen: serverTimestamp(),
-        isOnline: true,
-        view: 'dashboard'
-      }, { merge: true }).catch(e => console.error('Presence set error:', e));
 
-      // Heartbeat every 30 seconds
+      // Function to update presence based on visibility
+      const updatePresence = (isVisible) => {
+        console.log('[PRESENCE] Tab visibility changed. Visible:', isVisible);
+        setDoc(presenceDocRef, {
+          name: user.displayName || 'Player',
+          avatar: userAvatar,
+          level: stats.level || 'Rookie',
+          lastSeen: serverTimestamp(),
+          isOnline: isVisible, // Only online if tab is visible
+          view: 'dashboard'
+        }, { merge: true }).catch(e => console.error('Presence set error:', e));
+      };
+
+      // Initial set - only online if tab is visible
+      const isTabVisible = document.visibilityState === 'visible';
+      console.log('[PRESENCE] Initial tab visibility:', isTabVisible);
+      updatePresence(isTabVisible);
+
+      // Listen for visibility changes (tab switching, minimize, etc.)
+      const handleVisibilityChange = () => {
+        const isVisible = document.visibilityState === 'visible';
+        updatePresence(isVisible);
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      // Also handle window focus/blur for more accuracy
+      const handleFocus = () => {
+        console.log('[PRESENCE] Window focused');
+        updatePresence(true);
+      };
+      const handleBlur = () => {
+        console.log('[PRESENCE] Window blurred');
+        updatePresence(false);
+      };
+      window.addEventListener('focus', handleFocus);
+      window.addEventListener('blur', handleBlur);
+
+      // Heartbeat every 30 seconds (only if tab is visible)
       heartbeatRef.current = setInterval(() => {
-        setDoc(presenceDocRef, { lastSeen: serverTimestamp() }, { merge: true })
-          .catch(e => console.error('Heartbeat error:', e));
+        if (document.visibilityState === 'visible') {
+          setDoc(presenceDocRef, { lastSeen: serverTimestamp(), isOnline: true }, { merge: true })
+            .catch(e => console.error('Heartbeat error:', e));
+        }
       }, 30000);
 
       // Listen for all live users (excluding self)
@@ -348,35 +391,35 @@ const App = () => {
         where('isOnline', '==', true)
       );
       presenceListenerRef.current = onSnapshot(liveQuery, (snap) => {
+        const now = Date.now();
+        const staleThreshold = 2 * 60 * 1000; // 2 minutes in milliseconds
+
         const live = snap.docs
           .filter(d => d.id !== user.uid)
-          .map(d => ({ id: d.id, ...d.data() }));
+          .map(d => ({ id: d.id, ...d.data() }))
+          // Filter out stale users (lastSeen more than 2 minutes ago)
+          .filter(u => {
+            if (!u.lastSeen) return false; // No lastSeen means stale
+            const lastSeenMs = u.lastSeen.toMillis ? u.lastSeen.toMillis() : u.lastSeen;
+            const isRecent = (now - lastSeenMs) < staleThreshold;
+            if (!isRecent) {
+              console.log('[PRESENCE] Filtering out stale user:', u.name, 'Last seen:', Math.round((now - lastSeenMs) / 1000), 'seconds ago');
+            }
+            return isRecent;
+          });
+        console.log('[PRESENCE] My UID:', user.uid, '| Live users:', live.map(u => ({ name: u.name, id: u.id })));
         setLiveUsers(live);
       }, e => console.error('Live users listener error:', e));
-
-      // Listen for incoming invitations
-      const invitationDocRef = doc(db, 'invitations', user.uid);
-      invitationListenerRef.current = onSnapshot(invitationDocRef, (snap) => {
-        if (snap.exists()) {
-          const inv = snap.data();
-          if (inv.status === 'pending') {
-            setIncomingInvitation({ id: snap.id, ...inv });
-          } else if (inv.status === 'cancelled') {
-            setIncomingInvitation(null);
-            alert('Request cancelled - sender left dashboard');
-          } else {
-            setIncomingInvitation(null);
-          }
-        } else {
-          setIncomingInvitation(null);
-        }
-      }, e => console.error('Invitation listener error:', e));
 
       // Cleanup
       return () => {
         if (heartbeatRef.current) clearInterval(heartbeatRef.current);
         if (presenceListenerRef.current) presenceListenerRef.current();
-        if (invitationListenerRef.current) invitationListenerRef.current();
+
+        // Remove visibility event listeners
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('focus', handleFocus);
+        window.removeEventListener('blur', handleBlur);
 
         // Cancel pending invitation if we leave dashboard
         if (sentInviteTargetRef.current) {
@@ -389,7 +432,7 @@ const App = () => {
           setTimeout(() => deleteDoc(invRef).catch(e => console.error('Delete error:', e)), 500);
         }
 
-        // Set offline
+        // Set offline when leaving dashboard
         setDoc(presenceDocRef, { isOnline: false, lastSeen: serverTimestamp() }, { merge: true })
           .catch(e => console.error('Presence cleanup error:', e));
       };
@@ -400,6 +443,43 @@ const App = () => {
         .catch(e => console.error('Away status error:', e));
     }
   }, [view, user, userAvatar, stats.level]);
+
+  // DEDICATED Invitation Listener (Split from Presence to be more stable)
+  useEffect(() => {
+    if (!user || !db || view !== 'dashboard') return;
+
+    const invitationDocRef = doc(db, 'invitations', user.uid);
+
+    // SELF-HEALING: Clear any stale invitation doc at my ID when I load dashboard
+    deleteDoc(invitationDocRef).catch(e => console.warn('Self-cleanup skip:', e.message));
+
+    const unsub = onSnapshot(invitationDocRef, (snap) => {
+      if (snap.exists()) {
+        const inv = snap.data();
+        if (inv.status === 'pending') {
+          setIncomingInvitation({ id: snap.id, ...inv });
+        } else if (inv.status === 'cancelled') {
+          setIncomingInvitation(null);
+          setToastNotification({ type: 'info', message: 'cancelled the request', name: inv.fromName, avatar: inv.fromAvatar });
+          setTimeout(() => setToastNotification(null), 3000);
+        } else {
+          setIncomingInvitation(null);
+        }
+      } else {
+        setIncomingInvitation(null);
+      }
+    }, e => {
+      console.error('[INVITE_LISTEN] ERROR:', e);
+    });
+
+    invitationListenerRef.current = unsub;
+    return () => {
+      if (invitationListenerRef.current) {
+        invitationListenerRef.current();
+        invitationListenerRef.current = null;
+      }
+    };
+  }, [view, user]);
 
   useEffect(() => {
     if (timerActive && timeRemaining > 0) {
@@ -494,11 +574,88 @@ const App = () => {
   const selectAvatar = (av) => { setUserAvatar(av); saveUserData(null, av); setShowProfile(false); };
 
   // Backend Warmup Helper
-  const triggerWarmup = () => {
-    fetch(`${BACKEND_URL}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'warmup' })
-    }).catch(() => { });
+  const triggerWarmup = async () => {
+    try {
+      if (!user) return; // Need user for token
+      const token = await user.getIdToken();
+      fetch(`${BACKEND_URL}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ type: 'warmup' })
+      }).catch(err => console.log('Warmup partial fail', err));
+    } catch (e) { }
+  };
+
+  // Voice-to-Text Toggle using Web Speech API
+  const toggleVoiceInput = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+
+    if (isListening) {
+      // Stop listening
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+    } else {
+      // Start listening
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setInputText(prev => prev ? prev + ' ' + transcript : transcript);
+        setIsListening(false);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    }
+  };
+
+  // Text-to-Speech for Bot Responses (WaveNet Audio from Backend)
+  const speakText = (text, audioBase64) => {
+    if (!isSpeakerOn) return;
+
+    // If we have audio from backend (WaveNet), use it
+    if (audioBase64) {
+      console.log(`[TTS] Playing WaveNet Audio (${Math.round(audioBase64.length / 1024)} KB)`);
+      try {
+        const audio = new Audio(`data:audio/mp3;base64,${audioBase64}`);
+        audio.play().catch(err => console.log('[TTS] Audio play blocked:', err));
+      } catch (e) {
+        console.error('[TTS] Failed to play audio:', e);
+      }
+      return;
+    }
+
+    // Fallback to browser TTS if no audio provided
+    console.log('[TTS] Fallback to Browser Speech');
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-IN';
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    }
   };
 
   // Invitation System Functions
@@ -506,10 +663,11 @@ const App = () => {
 
   const sendInvitation = async (targetUser) => {
     if (!user || !targetUser) return;
-    try {
-      const invitationRef = doc(db, 'invitations', targetUser.id);
-      console.log('[INVITE DEBUG] Creating invitation for:', targetUser.id, 'from:', user.uid);
+    const invitationRef = doc(db, 'invitations', targetUser.id);
+    console.log('[INVITE_SEND] Attempting to create invitation at path:', invitationRef.path);
+    console.log('[INVITE_SEND] Target ID:', targetUser.id, 'My UID:', user.uid);
 
+    try {
       await setDoc(invitationRef, {
         fromUserId: user.uid,
         fromName: user.displayName || 'Player',
@@ -520,8 +678,24 @@ const App = () => {
       });
       console.log('[INVITE DEBUG] Invitation created successfully');
 
-      // Show waiting state
+      // Track who we sent to (for the waiting modal)
+      setSentInviteTarget(targetUser);
+
+      // Show waiting state with timer
       setLoadingAction('waiting-invite');
+      setSenderCountdown(16);
+
+      // Start sender countdown timer
+      if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+      senderTimerRef.current = setInterval(() => {
+        setSenderCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(senderTimerRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
 
       // Listen for the invitation to be accepted/declined
       if (sentInvitationListenerRef.current) {
@@ -537,6 +711,7 @@ const App = () => {
           console.log('[INVITE DEBUG] Document deleted - invitation declined or cleaned up');
           // Invitation was deleted (declined)
           setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
           if (sentInvitationListenerRef.current) {
             sentInvitationListenerRef.current();
             sentInvitationListenerRef.current = null;
@@ -551,6 +726,7 @@ const App = () => {
           console.log('[INVITE DEBUG] ACCEPTED! Room:', data.roomId);
           // Invitation accepted! Join the room
           setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
           if (sentInvitationListenerRef.current) {
             sentInvitationListenerRef.current();
             sentInvitationListenerRef.current = null;
@@ -568,37 +744,43 @@ const App = () => {
         } else if (data.status === 'declined') {
           console.log('[INVITE DEBUG] DECLINED by recipient');
           setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
           if (sentInvitationListenerRef.current) {
             sentInvitationListenerRef.current();
             sentInvitationListenerRef.current = null;
           }
           // Clean up the invitation
           deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-          // Notify sender that invitation was declined
-          alert('Invitation declined by ' + targetUser.name);
+          // Beautiful toast notification instead of ugly alert
+          setToastNotification({ type: 'declined', message: 'declined your invitation', name: targetUser.name, avatar: targetUser.avatar });
+          setTimeout(() => setToastNotification(null), 4000);
         } else if (data.status === 'timeout') {
           console.log('[INVITE DEBUG] TIMEOUT - no response');
           setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
           if (sentInvitationListenerRef.current) {
             sentInvitationListenerRef.current();
             sentInvitationListenerRef.current = null;
           }
           // Clean up the invitation
           deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-          // Notify sender that invitation timed out
-          alert('Invitation timed out - no response from ' + targetUser.name);
+          // Beautiful toast notification instead of ugly alert
+          setToastNotification({ type: 'timeout', message: 'did not respond', name: targetUser.name, avatar: targetUser.avatar });
+          setTimeout(() => setToastNotification(null), 4000);
         } else {
           console.log('[INVITE DEBUG] Status is:', data.status, '- waiting for change...');
         }
       }, (error) => {
         console.error('[INVITE DEBUG] Listener error:', error);
         setLoadingAction(null);
+        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
       });
 
       console.log('[INVITE DEBUG] Invitation sent and listener active');
     } catch (e) {
       console.error('[INVITE DEBUG] Send invitation error:', e);
       setLoadingAction(null);
+      if (senderTimerRef.current) clearInterval(senderTimerRef.current);
     }
   };
 
@@ -606,8 +788,13 @@ const App = () => {
     if (!incomingInvitation) return;
     try {
       // Create a room for both players
+      const token = await user.getIdToken();
       const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           type: 'create_invitation_room',
           hostId: incomingInvitation.fromUserId,
@@ -704,8 +891,9 @@ const App = () => {
     setLoadingAction('compete');
     try {
       console.log('[BOT MATCH] Sending create_bot_room request...');
+      const token = await user.getIdToken();
       const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ type: 'create_bot_room', userId: user.uid, userName: user.displayName || 'Player', userAvatar, botId })
       });
       const data = await res.json();
@@ -730,8 +918,9 @@ const App = () => {
     if (isCreatingRoom) return;
     setIsCreatingRoom(true);
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ type: 'create_room', userId: user.uid, userName: user.displayName || 'Host', userAvatar })
       });
       const data = await res.json();
@@ -751,8 +940,9 @@ const App = () => {
   const joinRoom = async (code) => {
     if (!code || code.length < 4) return;
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ type: 'join_room', roomCode: code, userId: user.uid, userName: user.displayName || 'Friend', userAvatar })
       });
       const data = await res.json();
@@ -768,14 +958,19 @@ const App = () => {
     setIsSearching(true); setSearchStatusText("Finding a partner...");
 
     // Warmup backend for faster bot response
-    fetch(`${BACKEND_URL}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'warmup' })
-    }).catch(() => { });
+    if (user) {
+      user.getIdToken().then(token => {
+        fetch(`${BACKEND_URL}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ type: 'warmup' })
+        }).catch(() => { });
+      });
+    }
 
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar })
       });
       const data = await res.json();
@@ -821,7 +1016,8 @@ const App = () => {
     // Check if we are still searching before triggering bot
     try {
       if (isJoiningRef.current) return;
-      const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'trigger_bot_match', roomId, userId: user.uid }) });
+      const token = await user.getIdToken();
+      const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'trigger_bot_match', roomId, userId: user.uid }) });
       const data = await res.json();
       // Ensure we haven't canceled or already matched with a human
       if (data.success && data.matched && !isJoiningRef.current) {
@@ -923,7 +1119,8 @@ const App = () => {
             id: d.id,
             sender: d.data().senderId === user.uid ? 'me' : 'opponent',
             text: d.data().text,
-            createdAt: d.data().createdAt?.toMillis() || Date.now()
+            createdAt: d.data().createdAt?.toMillis() || Date.now(),
+            audioBase64: d.data().audioBase64 || null  // Include TTS audio from backend
           };
           msgs.push(m);
         });
@@ -1013,9 +1210,10 @@ const App = () => {
 
     try {
       // Warm up backend in background
+      const token = await user.getIdToken();
       fetch(`${BACKEND_URL}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ type: 'chat', message: 'warmup', personaId: sim.id, context: sim.desc, history: [], stage: sim.stages[0] })
       }).catch(e => { });
     } catch (e) { }
@@ -1067,10 +1265,11 @@ const App = () => {
       }));
 
       try {
+        const token = await user.getIdToken();
         const history = messages.filter(m => m.sender !== 'system' && m.sender !== 'correction').map(m => `${m.sender === 'me' ? 'User' : 'AI'}: ${m.text}`);
         const res = await fetch(`${BACKEND_URL}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ type: 'chat', message: text, personaId: activeSession.id, context: activeSession.topic, history, stage: currentStage })
         });
 
@@ -1111,7 +1310,13 @@ const App = () => {
           // UNIFIED: Add bot reply to typing queue for sequential reveal
           const botMsgId = 'bot_' + Date.now();
           processedMessageIds.current.add(botMsgId);
-          typingQueue.current.push({ id: botMsgId, sender: 'opponent', text: data.reply, createdAt: Date.now() });
+          typingQueue.current.push({
+            id: botMsgId,
+            sender: 'opponent',
+            text: data.reply,
+            audioBase64: data.audioBase64, // WaveNet audio from backend
+            createdAt: Date.now()
+          });
           processTypingQueue();
         } else {
           setIsOpponentTyping(false);
@@ -1133,9 +1338,10 @@ const App = () => {
       }));
 
       try {
+        const token = await user.getIdToken();
         await fetch(`${BACKEND_URL}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid })
         });
 
@@ -1170,9 +1376,10 @@ const App = () => {
   const getDetailedExplanation = async (correction) => {
     setIsLoadingExplanation(true);
     try {
+      const token = await user.getIdToken();
       const res = await fetch(`${BACKEND_URL}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           type: 'detailed_explanation',
           original: correction.original,
@@ -1223,7 +1430,10 @@ const App = () => {
 
     setTimerActive(false);
     if (initiatedByMe && isCompetitive) {
-      try { await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'end_session', roomId: capturedSession.id, endedBy: user.uid }) }); } catch (e) { }
+      try {
+        const token = await user.getIdToken();
+        await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'end_session', roomId: capturedSession.id, endedBy: user.uid }) });
+      } catch (e) { }
     }
     if (chatListener.current) { chatListener.current(); chatListener.current = null; }
     if (matchListener.current) { matchListener.current(); matchListener.current = null; }
@@ -1317,7 +1527,8 @@ const App = () => {
         const myMsgs = myMessages.map(m => m.text);
         const oppMsgs = capturedMessages.filter(m => m.sender === 'opponent').map(m => m.text);
         console.log('[ANALYZE DEBUG] Sending:', { roomId: capturedSession.id, analyzedBy: user.uid, myMsgs, oppMsgs });
-        const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
+        const token = await user.getIdToken();
+        const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
         setDualAnalysis(data);
         const myScore = data?.player1?.total || 70;
@@ -1541,6 +1752,103 @@ const App = () => {
                     Accept ✓
                   </button>
                 </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toast Notification (Beautiful replacement for ugly browser alerts) */}
+        <AnimatePresence>
+          {toastNotification && (
+            <motion.div
+              initial={{ opacity: 0, y: -50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -50, scale: 0.9 }}
+              className="fixed top-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none"
+            >
+              <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl w-full max-w-sm pointer-events-auto ${toastNotification.type === 'declined' ? 'bg-gradient-to-r from-red-500 to-pink-500' :
+                toastNotification.type === 'timeout' ? 'bg-gradient-to-r from-amber-500 to-orange-500' :
+                  'bg-gradient-to-r from-emerald-500 to-teal-500'
+                } text-white`}>
+                <span className="text-3xl flex-shrink-0">{toastNotification.avatar || '😔'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-lg truncate">{toastNotification.name}</p>
+                  <p className="text-sm opacity-90 leading-tight">{toastNotification.message}</p>
+                </div>
+                <button
+                  onClick={() => setToastNotification(null)}
+                  className="p-1 hover:bg-white/20 rounded-full transition-colors flex-shrink-0"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Sender Waiting for Response Modal (with countdown timer) */}
+        <AnimatePresence>
+          {loadingAction === 'waiting-invite' && sentInviteTarget && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.8, y: 50 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.8, y: 50 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl"
+              >
+                {/* Countdown Timer Bar */}
+                <div className="mb-4">
+                  <div className={`text-sm font-bold ${senderCountdown <= 5 ? 'text-red-500' : 'text-gray-500'}`}>
+                    ⏱️ {senderCountdown}s remaining
+                  </div>
+                  <div className="w-full h-2 bg-gray-200 rounded-full mt-2 overflow-hidden">
+                    <motion.div
+                      initial={{ width: '100%' }}
+                      animate={{ width: `${(senderCountdown / 16) * 100}%` }}
+                      transition={{ duration: 0.5 }}
+                      className={`h-full rounded-full ${senderCountdown <= 5 ? 'bg-red-500' : senderCountdown <= 10 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Pulsing Avatar */}
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                  className="text-5xl mb-4"
+                >
+                  {sentInviteTarget.avatar || '👤'}
+                </motion.div>
+
+                <h3 className="text-xl font-bold text-gray-800 mb-1">{sentInviteTarget.name}</h3>
+                <p className="text-gray-500 text-sm mb-4">Waiting for response...</p>
+
+                {/* Loading Spinner */}
+                <div className="flex justify-center mb-4">
+                  <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                </div>
+
+                <button
+                  onClick={() => {
+                    setLoadingAction(null);
+                    if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+                    if (sentInvitationListenerRef.current) {
+                      sentInvitationListenerRef.current();
+                      sentInvitationListenerRef.current = null;
+                    }
+                    // Cancel the invitation in Firestore
+                    deleteDoc(doc(db, 'invitations', sentInviteTarget.id)).catch(e => console.error('Cancel error:', e));
+                    setSentInviteTarget(null);
+                  }}
+                  className="py-2 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                >
+                  Cancel Request
+                </button>
               </motion.div>
             </motion.div>
           )}
@@ -2959,6 +3267,40 @@ const App = () => {
               placeholder="Type your message..."
               className="flex-1 bg-transparent px-3 py-2 text-sm focus:outline-none"
             />
+            {/* Voice Input Button with Enhanced Styling */}
+            <div className="relative">
+              <button
+                onClick={toggleVoiceInput}
+                className={`p-2.5 rounded-full transition-all duration-300 ${isListening
+                  ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/40 scale-110'
+                  : 'bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 hover:scale-105'
+                  }`}
+                title={isListening ? 'Stop listening' : 'Speak to type'}
+              >
+                {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+              </button>
+              {/* Listening Indicator */}
+              {isListening && (
+                <motion.div
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute -top-8 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full whitespace-nowrap font-semibold shadow-lg"
+                >
+                  <span className="animate-pulse">🎙️ Listening...</span>
+                </motion.div>
+              )}
+            </div>
+            {/* Speaker Toggle Button */}
+            <button
+              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+              className={`p-2.5 rounded-full transition-all duration-200 ${isSpeakerOn
+                ? 'bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100'
+                : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                }`}
+              title={isSpeakerOn ? 'Turn off voice replies' : 'Turn on voice replies'}
+            >
+              {isSpeakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            </button>
             <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 bg-emerald-600 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300">
               {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>

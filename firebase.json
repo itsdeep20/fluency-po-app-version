@@ -4,6 +4,7 @@
     },
     "functions": {
         "source": "backend",
+        "runtime": "python311",
         "codebase": "default",
         "ignore": [
             "venv",

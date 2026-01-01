@@ -55,18 +55,19 @@ service cloud.firestore {
     
     // Invitations collection (match invitations)
     match /invitations/{recipientId} {
-      // Recipient can read their invitations
-      // Sender can also read (to listen for acceptance) - check if fromUserId matches
+      // Access only for the recipient or the sender
       allow read: if request.auth != null && (
-        request.auth.uid == recipientId ||
+        request.auth.uid == recipientId || 
         resource.data.fromUserId == request.auth.uid
       );
-      // Anyone authenticated can create an invitation for someone
-      allow create: if request.auth != null;
-      // Recipient can update (accept/decline) or delete their invitations
-      // Sender can also update/delete (for cleanup)
+      
+      // Create: Must be authenticated and must set fromUserId to their own UID
+      allow create: if request.auth != null && 
+        request.resource.data.fromUserId == request.auth.uid;
+        
+      // Update/Delete: Must be the recipient or the original sender
       allow update, delete: if request.auth != null && (
-        request.auth.uid == recipientId ||
+        request.auth.uid == recipientId || 
         resource.data.fromUserId == request.auth.uid
       );
     }
