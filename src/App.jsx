@@ -13,7 +13,7 @@ import {
   Send, Zap, Swords, Sword, MessageSquare, Trophy, Briefcase, Coffee, Stethoscope,
   Train, Plane, Loader2, LogOut, MessageCircle, Target,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
-  ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb
+  ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb, Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -356,7 +356,20 @@ const App = () => {
   const [showExitWarning, setShowExitWarning] = useState(false);
   const messagesEndRef = useRef(null);
 
+  // AI Assist & Translation Feature States
+  const [showChatSettings, setShowChatSettings] = useState(false);
+  const [isAiAssistOn, setIsAiAssistOn] = useState(true); // ON by default
+  const [isTranslationOn, setIsTranslationOn] = useState(true); // ON by default
+  const [showAiAssistPopup, setShowAiAssistPopup] = useState(null); // { messageId, message, context }
+  const [showTranslationPopup, setShowTranslationPopup] = useState(null); // { messageId, translation }
+  const [isLoadingAssist, setIsLoadingAssist] = useState(false);
+  const [isLoadingTranslation, setIsLoadingTranslation] = useState(false);
+  const longPressTimer = useRef(null);
+  const [shouldShakeButtons, setShouldShakeButtons] = useState(false);
+  const shakeTimer = useRef(null);
+
   const adjustedTimestamps = useRef({}); // New ref to track visual display time
+
 
   // Live Users & Presence System
   const [activeUsersTab, setActiveUsersTab] = useState('live'); // 'live' or 'recent'
@@ -886,6 +899,103 @@ const App = () => {
 
   // Invitation System Functions
   const sentInvitationListenerRef = useRef(null);
+
+  // AI Assist - Generate reply suggestions with native language context
+  const getAiAssist = async (message, conversationContext) => {
+    if (!user) return null;
+    setIsLoadingAssist(true);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`${BACKEND_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          type: 'ai_assist',
+          message: message,
+          context: conversationContext,
+          nativeLanguage: motherTongue || 'Hindi'
+        })
+      });
+      const data = await response.json();
+      return data;
+    } catch (e) {
+      console.error('[AI_ASSIST_ERROR]', e);
+      return null;
+    } finally {
+      setIsLoadingAssist(false);
+    }
+  };
+
+  // Translation - Get native language translation
+  const getTranslation = async (message) => {
+    if (!user) return null;
+    setIsLoadingTranslation(true);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`${BACKEND_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          type: 'translate',
+          message: message,
+          targetLanguage: motherTongue || 'Hindi'
+        })
+      });
+      const data = await response.json();
+      return data.translation;
+    } catch (e) {
+      console.error('[TRANSLATION_ERROR]', e);
+      return null;
+    } finally {
+      setIsLoadingTranslation(false);
+    }
+  };
+
+  // Handle AI Assist button click
+  const handleAiAssistClick = async (messageId, messageText) => {
+    const context = messages.filter(m => m.sender !== 'correction' && m.sender !== 'suggestion').slice(-5).map(m => `${m.sender === 'me' ? 'User' : 'Bot'}: ${m.text}`).join('\n');
+    setShowAiAssistPopup({ messageId, message: messageText, loading: true });
+    const assistData = await getAiAssist(messageText, context);
+    if (assistData) {
+      setShowAiAssistPopup({ messageId, message: messageText, ...assistData, loading: false });
+    } else {
+      setShowAiAssistPopup(null);
+    }
+  };
+
+  // Handle Translation long press
+  const handleTranslationPress = async (messageId, messageText) => {
+    setShowTranslationPopup({ messageId, message: messageText, loading: true });
+    const translation = await getTranslation(messageText);
+    if (translation) {
+      setShowTranslationPopup({ messageId, message: messageText, translation, loading: false });
+    } else {
+      setShowTranslationPopup(null);
+    }
+  };
+
+  // Shake animation timer - shake buttons after 10 seconds of no user response
+  useEffect(() => {
+    if (view === 'chat' && messages.length > 0) {
+      // Clear existing timer
+      if (shakeTimer.current) clearTimeout(shakeTimer.current);
+      setShouldShakeButtons(false);
+
+      // Check if the last message is from opponent (not from user)
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage && lastMessage.sender !== 'me' && lastMessage.sender !== 'system' && lastMessage.sender !== 'correction' && lastMessage.sender !== 'suggestion') {
+        // Start 10-second timer to shake buttons
+        shakeTimer.current = setTimeout(() => {
+          setShouldShakeButtons(true);
+          // Stop shaking after 3 seconds
+          setTimeout(() => setShouldShakeButtons(false), 3000);
+        }, 10000);
+      }
+    }
+    return () => {
+      if (shakeTimer.current) clearTimeout(shakeTimer.current);
+    };
+  }, [messages, view]);
 
   const sendInvitation = async (targetUser) => {
     if (!user || !targetUser) return;
@@ -3383,16 +3493,14 @@ const App = () => {
                     onChange={(e) => setMotherTongue(e.target.value)}
                     className="w-full p-3 bg-white rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none"
                   >
-                    <option>Hindi</option>
-                    <option>Tamil</option>
-                    <option>Telugu</option>
-                    <option>Bengali</option>
-                    <option>Marathi</option>
-                    <option>Kannada</option>
-                    <option>Malayalam</option>
-                    <option>Punjabi</option>
-                    <option>Gujarati</option>
-                    <option>Other</option>
+                    <option value="Hindi">हिंदी (Hindi)</option>
+                    <option value="Tamil">தமிழ் (Tamil)</option>
+                    <option value="Telugu">తెలుగు (Telugu)</option>
+                    <option value="Bengali">বাংলা (Bengali)</option>
+                    <option value="Marathi">मराठी (Marathi)</option>
+                    <option value="Gujarati">ગુજરાતી (Gujarati)</option>
+                    <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
+                    <option value="Malayalam">മലയാളം (Malayalam)</option>
                   </select>
                 </div>
 
@@ -3538,6 +3646,268 @@ const App = () => {
             >
               <Sparkles size={16} /> +{showPointsAnimation.points} points!
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Settings Slit - Left Side Expandable Panel */}
+        <AnimatePresence>
+          {showChatSettings && (
+            <>
+              {/* Overlay for click-outside-to-close */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowChatSettings(false)}
+                className="absolute inset-0 bg-black/20 z-35"
+              />
+              <motion.div
+                initial={{ x: -300, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -300, opacity: 0 }}
+                className="absolute left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-emerald-50 to-white border-r border-emerald-200 shadow-xl z-40 p-4"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Settings size={18} className="text-emerald-600" />
+                    <span className="font-bold text-gray-800">Chat Settings</span>
+                  </div>
+                  <button onClick={() => setShowChatSettings(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                    <X size={18} className="text-gray-500" />
+                  </button>
+                </div>
+
+                {/* Speaker Toggle */}
+                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Volume2 size={16} className="text-gray-500" />
+                    <span className="text-sm text-gray-700">Speaker</span>
+                  </div>
+                  <button
+                    onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+                    className={`w-10 h-5 rounded-full transition-all ${isSpeakerOn ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isSpeakerOn ? 'ml-5' : 'ml-0.5'}`} />
+                  </button>
+                </div>
+
+                {/* AI Assist Toggle */}
+                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Lightbulb size={16} className="text-emerald-500" />
+                    <span className="text-sm text-gray-700">AI Assist</span>
+                    <div className="group relative">
+                      <Info size={12} className="text-gray-400 cursor-help" />
+                      <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        Click "Assist" button on any message to get reply suggestions in your language.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsAiAssistOn(!isAiAssistOn)}
+                    className={`w-10 h-5 rounded-full transition-all ${isAiAssistOn ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isAiAssistOn ? 'ml-5' : 'ml-0.5'}`} />
+                  </button>
+                </div>
+
+                {/* Translation Toggle */}
+                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Globe size={16} className="text-orange-500" />
+                    <span className="text-sm text-gray-700">Translation</span>
+                    <div className="group relative">
+                      <Info size={12} className="text-gray-400 cursor-help" />
+                      <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        Click translation button on any message to see it in your native language.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsTranslationOn(!isTranslationOn)}
+                    className={`w-10 h-5 rounded-full transition-all ${isTranslationOn ? 'bg-orange-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isTranslationOn ? 'ml-5' : 'ml-0.5'}`} />
+                  </button>
+                </div>
+
+                {/* Language Selector */}
+                <div className="py-3">
+                  <div className="text-xs text-gray-500 mb-2">Native Language</div>
+                  <select
+                    value={motherTongue}
+                    onChange={(e) => setMotherTongue(e.target.value)}
+                    className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="Hindi">हिंदी (Hindi)</option>
+                    <option value="Tamil">தமிழ் (Tamil)</option>
+                    <option value="Telugu">తెలుగు (Telugu)</option>
+                    <option value="Bengali">বাংলা (Bengali)</option>
+                    <option value="Marathi">मराठी (Marathi)</option>
+                    <option value="Gujarati">ગુજરાતી (Gujarati)</option>
+                    <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
+                    <option value="Malayalam">മലയാളം (Malayalam)</option>
+                  </select>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Settings Toggle Button - Left Edge */}
+        <button
+          onClick={() => setShowChatSettings(!showChatSettings)}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-r-xl p-2 shadow-lg hover:shadow-xl transition-all hover:scale-105"
+        >
+          <Settings size={14} className={`transition-transform ${showChatSettings ? 'rotate-90' : ''} text-white`} />
+        </button>
+
+        {/* AI Assist Popup */}
+        <AnimatePresence>
+          {showAiAssistPopup && (
+            <>
+              {/* Overlay for click-outside-to-close */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowAiAssistPopup(null)}
+                className="absolute inset-0 bg-black/40 z-45"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="absolute inset-4 z-50 bg-white rounded-3xl shadow-2xl border border-emerald-200 overflow-hidden flex flex-col"
+              >
+                <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-white">
+                    <Lightbulb size={20} />
+                    <span className="font-bold">AI Assist</span>
+                  </div>
+                  <button onClick={() => setShowAiAssistPopup(null)} className="text-white/80 hover:text-white">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4">
+                  {showAiAssistPopup.loading ? (
+                    <div className="flex flex-col items-center justify-center h-full gap-4">
+                      <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </div>
+                      <span className="text-gray-500 text-sm">Generating suggestions...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Context in Native Language */}
+                      <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-lg">📝</span>
+                          <span className="text-sm font-bold text-amber-700">What they're saying ({motherTongue})</span>
+                        </div>
+                        <p className="text-amber-800 text-sm leading-relaxed">{showAiAssistPopup.contextExplanation}</p>
+                      </div>
+
+                      {/* Suggestions */}
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-lg">💬</span>
+                          <span className="text-sm font-bold text-gray-700">You can reply like this:</span>
+                        </div>
+                        <div className="space-y-2">
+                          {showAiAssistPopup.suggestions?.map((suggestion, i) => (
+                            <div key={i} className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-emerald-800 text-sm">
+                              {i + 1}. "{suggestion}"
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Tip */}
+                      {showAiAssistPopup.tip && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                          <div className="flex items-center gap-2">
+                            <span>💡</span>
+                            <span className="text-xs text-blue-600">{showAiAssistPopup.tip}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="text-center text-gray-400 text-xs pt-2">
+                        ⬆️ Now try typing your own reply!
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Translation Popup */}
+        <AnimatePresence>
+          {showTranslationPopup && (
+            <>
+              {/* Overlay for click-outside-to-close */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowTranslationPopup(null)}
+                className="absolute inset-0 bg-black/30 z-45"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="absolute left-4 right-4 top-1/3 z-50"
+              >
+                <div className="bg-white rounded-2xl shadow-2xl border border-orange-200 p-4 max-w-sm mx-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Globe size={16} className="text-orange-500" />
+                      <span className="font-bold text-sm text-gray-700">{motherTongue} Translation</span>
+                    </div>
+                    <button onClick={() => setShowTranslationPopup(null)} className="text-gray-400 hover:text-gray-600">
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  {showTranslationPopup.loading ? (
+                    <div className="flex items-center justify-center py-4 gap-2">
+                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-3">
+                        <p className="text-orange-800 text-sm leading-relaxed">{showTranslationPopup.translation}</p>
+                      </div>
+                      {/* Speaker button to hear translation */}
+                      <button
+                        onClick={() => {
+                          if ('speechSynthesis' in window) {
+                            window.speechSynthesis.cancel();
+                            const utterance = new SpeechSynthesisUtterance(showTranslationPopup.translation);
+                            utterance.lang = motherTongue === 'Hindi' ? 'hi-IN' : motherTongue === 'Tamil' ? 'ta-IN' : motherTongue === 'Telugu' ? 'te-IN' : motherTongue === 'Bengali' ? 'bn-IN' : 'hi-IN';
+                            utterance.rate = 0.9;
+                            window.speechSynthesis.speak(utterance);
+                          }
+                        }}
+                        className="w-full py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <Volume2 size={14} />
+                        <span>Listen in {motherTongue}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </>
           )}
         </AnimatePresence>
 
@@ -3698,14 +4068,48 @@ const App = () => {
                       </div>
                     </div>
                   ) : (
-                    // Opponent message with simulation emoji
-                    <div className="flex items-end gap-2 max-w-[85%]">
-                      <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm shrink-0 mb-1">
-                        {activeSession?.opponent?.avatar || '🤖'}
+                    // Opponent message with AI Assist & Translation buttons
+                    <div className="flex flex-col items-start max-w-[85%]">
+                      <div className="flex items-end gap-2">
+                        <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm shrink-0 mb-1">
+                          {activeSession?.opponent?.avatar || '🤖'}
+                        </div>
+                        <div className="px-4 py-3 rounded-2xl text-sm bg-white border border-gray-100 text-gray-800 rounded-bl-sm shadow-sm">
+                          {m.text}
+                        </div>
                       </div>
-                      <div className="px-4 py-3 rounded-2xl text-sm bg-white border border-gray-100 text-gray-800 rounded-bl-sm shadow-sm">
-                        {m.text}
-                      </div>
+                      {/* AI Assist & Translation Buttons with Shake Animation - Only last message shakes */}
+                      {(isAiAssistOn || isTranslationOn) && (
+                        <motion.div
+                          className="flex items-center gap-2 ml-9 mt-1"
+                          animate={shouldShakeButtons && i === messages.length - 1 ? { x: [0, -3, 3, -3, 3, 0] } : {}}
+                          transition={{ duration: 0.5, repeat: shouldShakeButtons && i === messages.length - 1 ? 2 : 0 }}
+                        >
+                          {isAiAssistOn && (
+                            <button
+                              onClick={() => handleAiAssistClick(m.id, m.text)}
+                              className={`flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full transition-all ${shouldShakeButtons && i === messages.length - 1 ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
+                            >
+                              <Lightbulb size={10} />
+                              <span>Assist</span>
+                            </button>
+                          )}
+                          {isTranslationOn && (
+                            <button
+                              onMouseDown={() => { longPressTimer.current = setTimeout(() => handleTranslationPress(m.id, m.text), 500); }}
+                              onMouseUp={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                              onMouseLeave={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                              onTouchStart={() => { longPressTimer.current = setTimeout(() => handleTranslationPress(m.id, m.text), 500); }}
+                              onTouchEnd={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                              onClick={() => handleTranslationPress(m.id, m.text)}
+                              className={`flex items-center gap-1 text-[10px] text-orange-600 bg-orange-50 hover:bg-orange-100 border border-orange-200 px-2 py-0.5 rounded-full transition-all ${shouldShakeButtons && i === messages.length - 1 ? 'ring-2 ring-orange-400 ring-offset-1' : ''}`}
+                            >
+                              <Globe size={10} />
+                              <span>{motherTongue === 'Hindi' ? 'हिंदी' : motherTongue}</span>
+                            </button>
+                          )}
+                        </motion.div>
+                      )}
                     </div>
                   )
                 )}
@@ -3741,6 +4145,11 @@ const App = () => {
                   handleTyping(true);
                 }
               }}
+              onFocus={() => {
+                // Close popups when user focuses on input
+                setShowAiAssistPopup(null);
+                setShowTranslationPopup(null);
+              }}
               onBlur={() => {
                 if (activeSession?.type === 'human') handleTyping(false);
               }}
@@ -3748,6 +4157,19 @@ const App = () => {
               placeholder="Type your message..."
               className="flex-1 bg-transparent px-3 py-2 text-sm focus:outline-none"
             />
+            {/* Quick Assist Button - Opens AI Assist for last bot message */}
+            {isAiAssistOn && messages.length > 0 && (() => {
+              const lastBotMsg = [...messages].reverse().find(m => m.sender !== 'me' && m.sender !== 'system' && m.sender !== 'correction' && m.sender !== 'suggestion');
+              return lastBotMsg ? (
+                <button
+                  onClick={() => handleAiAssistClick(lastBotMsg.id, lastBotMsg.text)}
+                  className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all"
+                  title="Need help replying?"
+                >
+                  <Lightbulb size={16} />
+                </button>
+              ) : null;
+            })()}
             {/* Voice Input Button with Enhanced Styling */}
             <div className="relative">
               <button

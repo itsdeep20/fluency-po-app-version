@@ -424,6 +424,81 @@ Write the personalized feedback now:"""
                     "feedback": f"Great effort today! You achieved {accuracy}% accuracy. Keep practicing daily to improve your fluency!"
                 }), 200, headers)
 
+        # --- AI ASSIST - Generate reply suggestions with native context ---
+        if req_type == "ai_assist":
+            message = data.get('message', '')
+            context = data.get('context', '')
+            native_language = data.get('nativeLanguage', 'Hindi')
+            
+            assist_prompt = f"""You are helping an English learner reply to a message.
+
+MESSAGE TO REPLY TO: "{message}"
+
+CONVERSATION CONTEXT:
+{context}
+
+Generate a helpful response in this EXACT JSON format:
+{{
+  "contextExplanation": "[Explain in {native_language} what the message is asking - 1 sentence]",
+  "suggestions": [
+    "First English reply option",
+    "Second English reply option", 
+    "Third English reply option"
+  ],
+  "tip": "[One simple tip in English about how to reply]"
+}}
+
+RULES:
+1. contextExplanation MUST be in {native_language} script
+2. suggestions MUST be in proper English (beginner-friendly)
+3. Each suggestion should be a complete, natural sentence
+4. tip should help them understand how to construct their own reply
+
+Return ONLY valid JSON, no other text."""
+
+            try:
+                model = GenerativeModel(MODEL_ID)
+                response = model.generate_content(assist_prompt)
+                response_text = response.text.strip()
+                
+                # Clean up response
+                if response_text.startswith('```json'):
+                    response_text = response_text[7:]
+                if response_text.startswith('```'):
+                    response_text = response_text[3:]
+                if response_text.endswith('```'):
+                    response_text = response_text[:-3]
+                
+                assist_data = json.loads(response_text.strip())
+                return (json.dumps(assist_data), 200, headers)
+            except Exception as e:
+                print(f"[AI_ASSIST_ERROR] {e}")
+                return (json.dumps({
+                    "contextExplanation": "यह संदेश आपसे कुछ पूछ रहा है।",
+                    "suggestions": ["I understand", "Can you help me?", "Thank you"],
+                    "tip": "Try to answer the question directly."
+                }), 200, headers)
+
+        # --- TRANSLATION - Translate message to native language ---
+        if req_type == "translate":
+            message = data.get('message', '')
+            target_language = data.get('targetLanguage', 'Hindi')
+            
+            translate_prompt = f"""Translate this English message to {target_language}:
+
+"{message}"
+
+Return ONLY the translation in {target_language} script. No explanations."""
+
+            try:
+                model = GenerativeModel(MODEL_ID)
+                response = model.generate_content(translate_prompt)
+                translation = response.text.strip()
+                return (json.dumps({"translation": translation}), 200, headers)
+            except Exception as e:
+                print(f"[TRANSLATION_ERROR] {e}")
+                return (json.dumps({"translation": "अनुवाद उपलब्ध नहीं है"}), 200, headers)
+
         # --- RANDOM MATCHMAKING ---
         if req_type == "find_random_match":
             user_id = data.get('userId')
