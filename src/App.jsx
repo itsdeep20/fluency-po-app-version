@@ -4135,6 +4135,18 @@ const App = () => {
         {/* Fixed Input */}
         <div className="p-4 bg-white border-t border-gray-100 shrink-0">
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-full border border-gray-100">
+            {/* Speaker Toggle Button - Moved to left side */}
+            <button
+              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+              className={`p-2.5 rounded-full transition-all duration-200 ${isSpeakerOn
+                ? 'bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100'
+                : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                }`}
+              title={isSpeakerOn ? 'Turn off voice replies' : 'Turn on voice replies'}
+            >
+              {isSpeakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            </button>
+
             <input
               autoFocus
               value={inputText}
@@ -4157,19 +4169,23 @@ const App = () => {
               placeholder="Type your message..."
               className="flex-1 bg-transparent px-3 py-2 text-sm focus:outline-none"
             />
-            {/* Quick Assist Button - Opens AI Assist for last bot message */}
+
+            {/* Quick Assist Button - Opens AI Assist for last bot message - with Shake */}
             {isAiAssistOn && messages.length > 0 && (() => {
               const lastBotMsg = [...messages].reverse().find(m => m.sender !== 'me' && m.sender !== 'system' && m.sender !== 'correction' && m.sender !== 'suggestion');
               return lastBotMsg ? (
-                <button
+                <motion.button
                   onClick={() => handleAiAssistClick(lastBotMsg.id, lastBotMsg.text)}
-                  className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all"
+                  animate={shouldShakeButtons ? { x: [0, -3, 3, -3, 3, 0] } : {}}
+                  transition={{ duration: 0.5, repeat: shouldShakeButtons ? 2 : 0 }}
+                  className={`p-2 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all ${shouldShakeButtons ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
                   title="Need help replying?"
                 >
                   <Lightbulb size={16} />
-                </button>
+                </motion.button>
               ) : null;
             })()}
+
             {/* Voice Input Button with Enhanced Styling */}
             <div className="relative">
               <button
@@ -4193,17 +4209,7 @@ const App = () => {
                 </motion.div>
               )}
             </div>
-            {/* Speaker Toggle Button */}
-            <button
-              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-              className={`p-2.5 rounded-full transition-all duration-200 ${isSpeakerOn
-                ? 'bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100'
-                : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                }`}
-              title={isSpeakerOn ? 'Turn off voice replies' : 'Turn on voice replies'}
-            >
-              {isSpeakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
-            </button>
+
             <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
               {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
             </button>
