@@ -3762,18 +3762,6 @@ const App = () => {
           <Settings size={14} className={`transition-transform ${showChatSettings ? 'rotate-90' : ''} text-white`} />
         </button>
 
-        {/* Speaker Toggle - Floating below settings on left edge */}
-        <button
-          onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-          className={`absolute left-0 top-1/2 translate-y-6 z-30 rounded-r-xl p-2 shadow-lg hover:shadow-xl transition-all hover:scale-105 ${isSpeakerOn
-            ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
-            : 'bg-gray-400'
-            }`}
-          title={isSpeakerOn ? 'Voice replies ON' : 'Voice replies OFF'}
-        >
-          {isSpeakerOn ? <Volume2 size={14} className="text-white" /> : <VolumeX size={14} className="text-white" />}
-        </button>
-
         {/* AI Assist Popup */}
         <AnimatePresence>
           {showAiAssistPopup && (
