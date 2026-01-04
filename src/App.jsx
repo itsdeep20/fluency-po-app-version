@@ -3762,6 +3762,18 @@ const App = () => {
           <Settings size={14} className={`transition-transform ${showChatSettings ? 'rotate-90' : ''} text-white`} />
         </button>
 
+        {/* Speaker Toggle - Floating below settings on left edge */}
+        <button
+          onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+          className={`absolute left-0 top-1/2 translate-y-6 z-30 rounded-r-xl p-2 shadow-lg hover:shadow-xl transition-all hover:scale-105 ${isSpeakerOn
+            ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+            : 'bg-gray-400'
+            }`}
+          title={isSpeakerOn ? 'Voice replies ON' : 'Voice replies OFF'}
+        >
+          {isSpeakerOn ? <Volume2 size={14} className="text-white" /> : <VolumeX size={14} className="text-white" />}
+        </button>
+
         {/* AI Assist Popup */}
         <AnimatePresence>
           {showAiAssistPopup && (
@@ -4135,18 +4147,6 @@ const App = () => {
         {/* Fixed Input */}
         <div className="p-4 bg-white border-t border-gray-100 shrink-0">
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-full border border-gray-100">
-            {/* Speaker Toggle Button - Moved to left side */}
-            <button
-              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-              className={`p-2.5 rounded-full transition-all duration-200 ${isSpeakerOn
-                ? 'bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100'
-                : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                }`}
-              title={isSpeakerOn ? 'Turn off voice replies' : 'Turn on voice replies'}
-            >
-              {isSpeakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
-            </button>
-
             <input
               autoFocus
               value={inputText}
