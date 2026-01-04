@@ -283,7 +283,7 @@ const App = () => {
   const [inputText, setInputText] = useState("");
   const [currentStage, setCurrentStage] = useState("");
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
-  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0, lastPracticeDate: null });
+  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null });
   const [userAvatar, setUserAvatar] = useState('🦁');
   const [sessionPoints, setSessionPoints] = useState(0);
   const [isBotTyping, setIsBotTyping] = useState(false);
@@ -508,7 +508,7 @@ const App = () => {
 
   useEffect(() => {
     if (!user) {
-      setStats({ streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0, lastPracticeDate: null });
+      setStats({ streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null });
       setRecentChats([]);
       return;
     }
@@ -523,7 +523,7 @@ const App = () => {
         if (data.userAvatar) setUserAvatar(data.userAvatar);
       } else {
         // Initial setup if doc doesn't exist
-        await setDoc(docRef, { uid: user.uid, stats: { streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0, lastPracticeDate: null }, userAvatar, lastBots: [] });
+        await setDoc(docRef, { uid: user.uid, stats: { streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null }, userAvatar, lastBots: [] });
       }
     }, (err) => console.error("Stats listener error:", err));
 
@@ -583,7 +583,7 @@ const App = () => {
         setDoc(presenceDocRef, {
           name: user.displayName || 'Player',
           avatar: userAvatar,
-          level: stats.level || 'Rookie',
+          level: stats.level || 'Beginner',
           lastSeen: serverTimestamp(),
           isOnline: isVisible, // Only online if tab is visible
           view: 'dashboard'
@@ -1008,7 +1008,7 @@ const App = () => {
         fromUserId: user.uid,
         fromName: user.displayName || 'Player',
         fromAvatar: userAvatar,
-        fromLevel: stats.level || 'Rookie',
+        fromLevel: stats.level || 'Beginner',
         createdAt: serverTimestamp(),
         status: 'pending'
       });
@@ -1927,8 +1927,10 @@ const App = () => {
 
         const newTotalSessions = prev.sessions + 1;
         const newTotalPoints = prev.points + sessionPoints;
-        const newAvgScore = Math.round(((prev.avgScore || 0) * prev.sessions + sessionAccuracy) / newTotalSessions);
-        const newLevel = newTotalPoints >= 1000 ? 'Master' : newTotalPoints >= 500 ? 'Expert' : newTotalPoints >= 200 ? 'Advanced' : newTotalPoints >= 50 ? 'Intermediate' : 'Rookie';
+        // EMA formula with n=9 (each session has ~10% weight, older sessions fade but never fully forgotten)
+        const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + sessionAccuracy) / 10);
+        // Level based on ACCURACY (not points) - renamed Rookie to Beginner
+        const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
 
         const n = {
           ...prev,
@@ -2049,12 +2051,16 @@ const App = () => {
           const newTotalSessions = prev.sessions + 1;
           // FIX: Use rawScore which is defined in outer scope (line 1657), not myData which is in inner try
           const normalizedMyScore = Math.min(100, Math.round(rawScore / 4));
-          const newAvgScore = Math.round((prev.avgScore * prev.sessions + normalizedMyScore) / newTotalSessions);
+          // EMA formula with n=9 (each session has ~10% weight)
+          const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + normalizedMyScore) / 10);
+          // Level based on ACCURACY (not points)
+          const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
           const n = {
             ...prev,
             sessions: newTotalSessions,
             points: prev.points + myScore,
             avgScore: newAvgScore,
+            level: newLevel,
             streak: newStreak,
             lastPracticeDate: todayStr
           };
@@ -2668,7 +2674,16 @@ const App = () => {
             </div>
             <div className="flex-1">
               <div className="font-bold text-gray-900">{user.isAnonymous ? 'Guest Player' : user.displayName || 'Player'}</div>
-              <div className="text-xs text-gray-500">Level: <span className="text-emerald-600 font-semibold">{stats.level}</span></div>
+              <div className="text-sm font-bold">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-white shadow-sm ${stats.level === 'Master' ? 'bg-gradient-to-r from-yellow-500 to-amber-500' :
+                    stats.level === 'Expert' ? 'bg-gradient-to-r from-purple-500 to-indigo-500' :
+                      stats.level === 'Advanced' ? 'bg-gradient-to-r from-blue-500 to-cyan-500' :
+                        stats.level === 'Intermediate' ? 'bg-gradient-to-r from-emerald-500 to-teal-500' :
+                          'bg-gradient-to-r from-gray-400 to-gray-500'
+                  }`}>
+                  {stats.level === 'Master' ? '👑' : stats.level === 'Expert' ? '⭐' : stats.level === 'Advanced' ? '🎯' : stats.level === 'Intermediate' ? '📈' : '🌱'} {stats.level}
+                </span>
+              </div>
             </div>
             <button onClick={() => setShowStatInfo('level')} className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold hover:bg-emerald-200 transition-colors">
               View Stats
@@ -2890,7 +2905,12 @@ const App = () => {
                     <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm">{userAvatar}</div>
                     <div className="text-left flex-1">
                       <div className="font-bold text-gray-900">{user.isAnonymous ? 'Guest' : user.displayName?.split(' ')[0]}</div>
-                      <div className="text-xs text-emerald-600 font-medium">{stats.level}</div>
+                      <div className={`text-xs font-bold px-2 py-0.5 rounded-full text-white ${stats.level === 'Master' ? 'bg-gradient-to-r from-yellow-500 to-amber-500' :
+                          stats.level === 'Expert' ? 'bg-gradient-to-r from-purple-500 to-indigo-500' :
+                            stats.level === 'Advanced' ? 'bg-gradient-to-r from-blue-500 to-cyan-500' :
+                              stats.level === 'Intermediate' ? 'bg-gradient-to-r from-emerald-500 to-teal-500' :
+                                'bg-gradient-to-r from-gray-400 to-gray-500'
+                        }`}>{stats.level}</div>
                     </div>
                     <div className="text-gray-400">›</div>
                   </button>
