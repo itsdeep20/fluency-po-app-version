@@ -347,6 +347,83 @@ def fluency_backend(request: https_fn.Request) -> https_fn.Response:
             print("[WARMUP] Instance warmed up successfully")
             return (json.dumps({"success": True, "message": "Warmed up"}), 200, headers)
 
+        # --- SESSION FEEDBACK (AI-Powered Personalized Analysis) ---
+        if req_type == "session_feedback":
+            messages = data.get('messages', [])
+            corrections = data.get('corrections', [])
+            accuracy = data.get('accuracy', 0)
+            sim_name = data.get('simName', 'Practice Session')
+            
+            # Build conversation context for AI
+            conversation = ""
+            for msg in messages[-20:]:  # Last 20 messages for context
+                sender = msg.get('sender', 'unknown')
+                text = msg.get('text', '')
+                if sender == 'me':
+                    conversation += f"Student: {text}\n"
+                elif sender == 'bot':
+                    conversation += f"Teacher: {text}\n"
+            
+            # Build corrections summary
+            corrections_text = ""
+            for c in corrections[:10]:
+                if c:
+                    corrections_text += f"- '{c.get('original','')}' → '{c.get('corrected','')}' ({c.get('type','grammar')})\n"
+            
+            feedback_prompt = f"""You are an English teacher. Analyze this learner's ACTUAL mistakes and give PERSONALIZED feedback.
+
+ACCURACY SCORE: {accuracy}%
+
+ACTUAL MISTAKES THIS LEARNER MADE:
+{corrections_text if corrections_text else "No mistakes found - learner did perfectly!"}
+
+CONVERSATION CONTEXT:
+{conversation}
+
+YOUR TASK: Write UNIQUE feedback based on the ACTUAL mistakes above.
+
+FORMAT TO FOLLOW:
+"Hey learner! 📝 I reviewed your chat.
+
+[Rate their skills based on ACTUAL mistakes found - be specific:]
+- Vocabulary: [good/okay/needs work - based on actual vocab errors if any]
+- Sentence Structure: [good/okay/needs work - based on grammar errors if any]  
+- Spelling: [good/okay/needs work - based on spelling errors if any]
+- Articles (a/an/the): [good/okay/needs work - if article errors found]
+
+What to focus on: [mention the ACTUAL weak areas from their mistakes]
+
+Simple tip: [give ONE practical tip for their biggest weakness]
+
+[Encouraging ending] 🌟"
+
+CRITICAL RULES:
+1. ONLY mention skill areas that had actual errors
+2. If no spelling errors → say "Spelling: good"
+3. If grammar errors found → say "Sentence Structure: needs work"
+4. The feedback MUST be different for each learner based on their actual mistakes
+5. Keep language simple for beginners
+6. Call them "learner" not by name
+
+Write the personalized feedback now:"""
+
+            try:
+                model = GenerativeModel(MODEL_ID)
+                response = model.generate_content(feedback_prompt)
+                feedback_text = response.text.strip()
+                
+                return (json.dumps({
+                    "success": True,
+                    "feedback": feedback_text
+                }), 200, headers)
+            except Exception as e:
+                print(f"[SESSION_FEEDBACK_ERROR] {e}")
+                # Fallback generic feedback
+                return (json.dumps({
+                    "success": True,
+                    "feedback": f"Great effort today! You achieved {accuracy}% accuracy. Keep practicing daily to improve your fluency!"
+                }), 200, headers)
+
         # --- RANDOM MATCHMAKING ---
         if req_type == "find_random_match":
             user_id = data.get('userId')
@@ -786,6 +863,7 @@ INSTRUCTIONS:
              msg = data.get('message', '')
              history = data.get('history', [])
              stage = data.get('stage', '')
+             stage_info = data.get('stageInfo', {})  # Full stage context for transitions
              
              # Skip warmup messages
              if msg.lower() == 'warmup':
@@ -803,34 +881,119 @@ INSTRUCTIONS:
              
              history_text = "\n".join(history[-6:]) if history else ""
              
-             # Strict grammar checking prompt
-             prompt = f"""You are a friendly AI in a "{context}" roleplay scenario AND a strict English grammar teacher.
-Stage: {stage}
+             # Build stage progression context
+             all_stages = stage_info.get('allStages', [])
+             current_idx = stage_info.get('currentIndex', 0)
+             next_stage = all_stages[current_idx + 1] if current_idx + 1 < len(all_stages) else None
+             sim_title = stage_info.get('simTitle', 'Simulation')
+             is_casual_chat = 'casual' in sim_title.lower() or 'friend' in sim_title.lower()
+             
+             # DUAL ACCURACY SYSTEM: 3-Level Classification
+             # perfect = green checkmark (no issues)
+             # suggestion = yellow indicator (minor improvement, optional)
+             # mistake = red correction card (clear error, needs fixing)
+             
+             # Build stage transition instruction
+             stage_transition_instruction = ""
+             if not is_casual_chat and next_stage and len(all_stages) > 1:
+                 stage_list = " → ".join(all_stages)
+                 exchange_count = len(history) // 2  # Each exchange = 1 user + 1 AI message
+                 min_exchanges = 5  # Require at least 5 exchanges per stage
+                 
+                 if exchange_count < min_exchanges:
+                     stage_transition_instruction = f"""
+=== STAGE: {stage} (Stage {current_idx + 1} of {len(all_stages)}) ===
+⚠️ DO NOT TRANSITION YET - Only {exchange_count} exchanges so far. Need at least {min_exchanges}.
+Keep asking questions and engaging with user at this stage.
+"""
+                 else:
+                     stage_transition_instruction = f"""
+=== STAGE PROGRESSION ===
+Current: {stage} (Stage {current_idx + 1} of {len(all_stages)})
+Next: {next_stage}
+Exchanges at this stage: {exchange_count} ✓ (minimum {min_exchanges} reached)
 
-Conversation so far:
+👉 TIME TO MOVE! Announce transition naturally and set stageTransition: "{next_stage}"
+Example: "Perfect! Let's proceed to {next_stage}. Follow me please! 🚶"
+"""
+             
+             prompt = f"""You have TWO jobs. Do them in order.
+
+=== JOB 1: ROLEPLAY RESPONSE ===
+You are in a "{context}" scenario at stage: "{stage}"
+Chat history:
 {history_text}
-User: {msg}
 
-FIRST: Respond naturally in 1-2 sentences with a relevant emoji. Stay in character.
+User said: "{msg}"
+{stage_transition_instruction}
+RULES:
+1. Reply in 1-2 sentences with an emoji
+2. ALWAYS end with a question/prompt to keep conversation going
+3. After 3-5 exchanges, MOVE to next stage and set stageTransition
+4. INDIAN CONTEXT (IMPORTANT):
+   - Use ₹ (Rupees) for all prices (e.g., ₹500, ₹2000)
+   - Use Indian cities (Delhi, Mumbai, Chennai, Kolkata, Bangalore, Jaipur)
+   - Use Indian airlines (IndiGo, Air India, SpiceJet)
+   - Use Indian trains (Rajdhani, Shatabdi, Duronto)
+   - Mention UPI/Paytm/PhonePe for digital payments
+   - Do NOT explicitly say "we are in India" - just use Indian context naturally
+5. SIMULATION CONTEXT AWARENESS (CRITICAL):
+   - Train Station: ONLY discuss trains, never suggest bus/flight alternatives
+   - Airport: ONLY discuss flights, never suggest train alternatives
+   - Doctor: Stay focused on medical consultation
+   - Coffee Shop: Focus on ordering drinks/snacks
+   - Interview: Focus only on the job interview process
 
-SECOND: STRICTLY check the user's English for ANY errors including:
-- Wrong word order (e.g., "how much take its time" should be "how much time does it take")
-- Missing articles (a, an, the)
-- Wrong prepositions
-- Subject-verb disagreement
-- Incorrect tense usage
-- Spelling mistakes
-- Wrong word choice
+=== JOB 2: ULTRA-STRICT GRAMMAR CHECK ===
+Check the user's message: "{msg}"
 
-BE STRICT! Indian English learners often make word order mistakes. If the sentence doesn't sound like a native speaker would say it, MARK IT AS A MISTAKE.
+🚨 CRITICAL: YOU MUST FLAG EVERY SINGLE ERROR 🚨
 
-Reply in this exact JSON format only:
-{{"reply": "your response with emoji", "hasCorrection": false, "correction": null, "points": 5}}
+COMMON ERRORS TO CATCH:
+1. MISSPELLINGS: speacial→special, mor→more, wey→way, undersytndt→understand
+2. GRAMMAR: "I go yesterday", "She have", "me help", "it about"
+3. ARTICLES: missing a/an/the
+4. INCOMPLETE SENTENCES: "ohh, more it about", "hmm mor tell about"
+5. ANY non-standard English phrasing
 
-If there IS ANY grammar/spelling issue (BE STRICT!), use:
-{{"reply": "your response", "hasCorrection": true, "correction": {{"original": "the exact wrong phrase", "corrected": "the correct way to say it", "reason": "clear explanation why", "example": "another example sentence using correct form", "type": "grammar"}}, "points": 5}}
+STRICT RULES:
+- If message has ANY spelling/grammar issue → errorLevel = "suggestion"
+- If message sounds broken or unclear → errorLevel = "suggestion"
+- ONLY pure perfect English → errorLevel = "perfect"
 
-JSON only, no other text:"""
+⚠️ MUST FLAG THESE AS SUGGESTION:
+"speacial" = spelling error → FLAG
+"undersytndt" = spelling error → FLAG  
+"mor tell about" = incomplete/broken → FLAG
+"can understand me in better simple wey" = grammar issues → FLAG
+"powered by you are?" = word order → FLAG
+
+ACCURACY (ULTRA STRICT):
+Accuracy = 100 - (errors × 75 / wordCount)
+Short messages (<4 words): multiply by 0.25
+Medium (4-6 words): multiply by 0.5
+
+=== OUTPUT (JSON only) ===
+{{
+  "reply": "your response with a question",
+  "stageTransition": null,
+  "accuracy": 85,
+  "errorLevel": "perfect",
+  "correction": null,
+  "points": 5
+}}
+
+WITH errors:
+{{
+  "reply": "your response",
+  "stageTransition": null,
+  "accuracy": 40,
+  "errorLevel": "suggestion",
+  "correction": {{"original": "speacial", "corrected": "special", "reason": "spelling error", "type": "spelling"}},
+  "points": 5
+}}
+
+JSON only:"""
              
              try:
                  response = model.generate_content(prompt)

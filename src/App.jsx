@@ -13,11 +13,153 @@ import {
   Send, Zap, Swords, Sword, MessageSquare, Trophy, Briefcase, Coffee, Stethoscope,
   Train, Plane, Loader2, LogOut, MessageCircle, Target,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
-  ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX
+  ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import WinnerReveal from './WinnerReveal';
+
+// ===== PROFESSIONAL SOUND UTILITIES =====
+const createAudioContext = () => {
+  return new (window.AudioContext || window.webkitAudioContext)();
+};
+
+// Celebration sound - triumphant, joyful chord progression
+const playCelebrationSound = () => {
+  try {
+    const ctx = createAudioContext();
+    const now = ctx.currentTime;
+
+    // Create a triumphant chord (C major with octave)
+    const frequencies = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+
+    frequencies.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.15, now + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + i * 0.08);
+      osc.stop(now + 1.5);
+    });
+  } catch (e) { console.log('Sound error:', e); }
+};
+
+// Message send sound - quick, subtle pop
+const playSendSound = () => {
+  try {
+    const ctx = createAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) { console.log('Sound error:', e); }
+};
+
+// Message receive sound - gentle, warm notification
+const playReceiveSound = () => {
+  try {
+    const ctx = createAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(660, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
+
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  } catch (e) { console.log('Sound error:', e); }
+};
+
+// Invitation received sound - attention-grabbing but pleasant
+const playInviteReceivedSound = () => {
+  try {
+    const ctx = createAudioContext();
+    const now = ctx.currentTime;
+
+    // Two-tone chime (like a doorbell)
+    [523.25, 659.25].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+
+      gain.gain.setValueAtTime(0.12, now + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.4);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + i * 0.15);
+      osc.stop(now + i * 0.15 + 0.5);
+    });
+  } catch (e) { console.log('Sound error:', e); }
+};
+
+// Invitation declined sound - soft, understanding tone
+const playDeclinedSound = () => {
+  try {
+    const ctx = createAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(330, ctx.currentTime + 0.3);
+
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (e) { console.log('Sound error:', e); }
+};
+
+// Fire confetti with celebration
+const fireCelebrationConfetti = (withSound = true) => {
+  if (withSound) playCelebrationSound();
+
+  // First burst
+  confetti({
+    particleCount: 100,
+    spread: 70,
+    origin: { y: 0.6 },
+    colors: ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
+  });
+
+  // Side bursts
+  setTimeout(() => {
+    confetti({ particleCount: 50, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#FFD700', '#FF6B6B', '#4ECDC4'] });
+    confetti({ particleCount: 50, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#45B7D1', '#96CEB4', '#FFEAA7'] });
+  }, 200);
+};
+// ===== END SOUND UTILITIES =====
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -42,12 +184,80 @@ try {
 const AVATARS = ['🦁', '🐯', '🦊', '🐼', '🐨', '🐸', '🦄', '🐲', '🦅', '🐬', '🦋', '🌸'];
 
 const SIMULATIONS = [
-  { id: 'sim_interview', cat: 'Career', title: 'Job Interview', icon: Briefcase, color: 'bg-blue-500', desc: 'Nail your next interview.', stages: ['Reception', 'Interview', 'Exit'], greeting: "Welcome! Have a seat. Why should we hire you? 💼" },
-  { id: 'sim_cafe', cat: 'Social', title: 'Coffee Shop', icon: Coffee, color: 'bg-amber-500', desc: 'Order complex drinks.', stages: ['Counter', 'Table', 'Exit'], greeting: "Hi! What can I get you today? ☕" },
-  { id: 'sim_doctor', cat: 'Health', title: 'Doctor Visit', icon: Stethoscope, color: 'bg-red-500', desc: 'Describe symptoms clearly.', stages: ['Waiting', 'Consultation', 'Pharmacy'], greeting: "Come in. What's the problem? 🏥" },
-  { id: 'sim_station', cat: 'Travel', title: 'Train Station', icon: Train, color: 'bg-green-500', desc: 'Buy tickets confidently.', stages: ['Counter', 'Platform', 'Train'], greeting: "Ticket for which train? 🚉" },
-  { id: 'sim_travel', cat: 'Travel', title: 'Travel Agency', icon: Plane, color: 'bg-indigo-500', desc: 'Plan your trip.', stages: ['Meeting', 'Planning', 'Booking'], greeting: "Hey! Where would you like to go? 🗺️" },
-  { id: 'sim_friend', cat: 'Social', title: 'Casual Chat', icon: Users, color: 'bg-pink-500', desc: 'Small talk practice.', stages: ['Meeting', 'Chatting', 'Goodbye'], greeting: "Hi friend! How have you been? 👋" },
+  {
+    id: 'sim_interview', cat: 'Career', title: 'Job Interview', icon: Briefcase, color: 'bg-blue-500',
+    desc: 'Nail your next interview.',
+    stages: [
+      { name: 'Reception', icon: '🏢', npc: 'Receptionist Priya' },
+      { name: 'HR Round', icon: '👔', npc: 'HR Manager Sharma' },
+      { name: 'Technical Round', icon: '💼', npc: 'Tech Lead Rahul' },
+      { name: 'Salary Discussion', icon: '💰', npc: 'HR Manager Sharma' },
+      { name: 'Offer Discussion', icon: '🤝', npc: 'Director Verma' }
+    ],
+    greeting: "Welcome! 🏢 I'm Priya from reception. Here for the interview? May I have your name?"
+  },
+  {
+    id: 'sim_cafe', cat: 'Social', title: 'Coffee Shop', icon: Coffee, color: 'bg-amber-500',
+    desc: 'Order drinks & snacks.',
+    stages: [
+      { name: 'Counter', icon: '☕', npc: 'Barista Ankit' },
+      { name: 'Customization', icon: '🥛', npc: 'Barista Ankit' },
+      { name: 'Add Snacks', icon: '🍰', npc: 'Barista Ankit' },
+      { name: 'Payment', icon: '💳', npc: 'Barista Ankit' },
+      { name: 'Pickup', icon: '✅', npc: 'Barista Ankit' }
+    ],
+    greeting: "Hey! ☕ Welcome to Chai & Coffee House! I'm Ankit. What would you like today?"
+  },
+  {
+    id: 'sim_doctor', cat: 'Health', title: 'Doctor Visit', icon: Stethoscope, color: 'bg-red-500',
+    desc: 'Describe symptoms clearly.',
+    stages: [
+      { name: 'Reception', icon: '📋', npc: 'Receptionist Neha' },
+      { name: 'Registration', icon: '📝', npc: 'Receptionist Neha' },
+      { name: 'Waiting Room', icon: '🪑', npc: 'Nurse Kavya' },
+      { name: 'Consultation', icon: '🩺', npc: 'Dr. Mehta' },
+      { name: 'Diagnosis', icon: '🔬', npc: 'Dr. Mehta' },
+      { name: 'Prescription', icon: '📋', npc: 'Dr. Mehta' },
+      { name: 'Pharmacy', icon: '💊', npc: 'Pharmacist Rohit' }
+    ],
+    greeting: "Good morning! 🏥 I'm Neha at reception. Do you have an appointment or walk-in?"
+  },
+  {
+    id: 'sim_station', cat: 'Travel', title: 'Train Station', icon: Train, color: 'bg-green-500',
+    desc: 'Book tickets confidently.',
+    stages: [
+      { name: 'Enquiry', icon: '🧑‍💼', npc: 'Help Desk Ravi' },
+      { name: 'Ticket Booking', icon: '🎫', npc: 'Counter Staff Sunita' },
+      { name: 'Payment', icon: '💳', npc: 'Counter Staff Sunita' },
+      { name: 'Platform', icon: '🚉', npc: 'Platform Attendant' },
+      { name: 'On Board', icon: '🚂', npc: 'TTE Officer Singh' }
+    ],
+    greeting: "Welcome to the Railway Station! 🚉 I'm Ravi. Where would you like to travel by train today?"
+  },
+  {
+    id: 'sim_travel', cat: 'Travel', title: 'Airport Check-in', icon: Plane, color: 'bg-indigo-500',
+    desc: 'Navigate airport confidently.',
+    stages: [
+      { name: 'Check-in Counter', icon: '🛂', npc: 'Agent Simran' },
+      { name: 'Baggage Check', icon: '🧳', npc: 'Agent Simran' },
+      { name: 'Security Check', icon: '🔍', npc: 'CISF Officer Kapoor' },
+      { name: 'Immigration', icon: '🛃', npc: 'Immigration Officer' },
+      { name: 'Boarding Gate', icon: '🚪', npc: 'Gate Agent Diya' },
+      { name: 'On Board', icon: '✈️', npc: 'Flight Attendant Meera' }
+    ],
+    greeting: "Good morning! ✈️ I'm Simran at check-in. May I see your ID and booking please?"
+  },
+  {
+    id: 'sim_friend', cat: 'Social', title: 'Casual Chat', icon: Users, color: 'bg-pink-500',
+    desc: 'Small talk practice.',
+    stages: [
+      { name: 'Meeting', icon: '👋', npc: 'Your Friend Arjun' },
+      { name: 'Catching Up', icon: '💬', npc: 'Your Friend Arjun' },
+      { name: 'Discussing Plans', icon: '🎬', npc: 'Your Friend Arjun' },
+      { name: 'Making Plans', icon: '📅', npc: 'Your Friend Arjun' }
+    ],
+    greeting: "Hey! 👋 Long time no see! How have you been?"
+  },
 ];
 
 const STAT_INFO = {
@@ -72,6 +282,7 @@ const App = () => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
   const [currentStage, setCurrentStage] = useState("");
+  const [currentStageIndex, setCurrentStageIndex] = useState(0);
   const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Rookie', sessions: 0, avgScore: 0, lastPracticeDate: null });
   const [userAvatar, setUserAvatar] = useState('🦁');
   const [sessionPoints, setSessionPoints] = useState(0);
@@ -79,6 +290,7 @@ const App = () => {
   const [lastCorrection, setLastCorrection] = useState(null);
   const [showPointsAnimation, setShowPointsAnimation] = useState(null);
   const [minimizedCorrections, setMinimizedCorrections] = useState({});
+  const [messageAccuracies, setMessageAccuracies] = useState([]); // V7: Track per-message accuracy scores
 
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
@@ -98,6 +310,7 @@ const App = () => {
   const [showStatInfo, setShowStatInfo] = useState(null);
 
   const [dualAnalysis, setDualAnalysis] = useState(null);
+  const [battleOpponentData, setBattleOpponentData] = useState(null); // Captured opponent for WinnerReveal
   const [showWinnerReveal, setShowWinnerReveal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [loadingAction, setLoadingAction] = useState(null); // 'practice' | 'compete' | 'friend' | 'google' | 'guest'
@@ -117,6 +330,9 @@ const App = () => {
   const [helpFeedbackRating, setHelpFeedbackRating] = useState(0);
   const [helpFeedbackSubmitted, setHelpFeedbackSubmitted] = useState(false);
   const [showSessionSummary, setShowSessionSummary] = useState(null);
+  const [aiFeedback, setAiFeedback] = useState(''); // AI-generated personalized feedback
+  const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
+  const [showMistakesPopup, setShowMistakesPopup] = useState(false); // Full-screen mistakes list popup
   const [showAchievements, setShowAchievements] = useState(false);
   const [showDetailedExplanation, setShowDetailedExplanation] = useState(null);
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
@@ -131,7 +347,7 @@ const App = () => {
 
   // Voice-to-Text & Text-to-Speech
   const [isListening, setIsListening] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true); // TTS enabled by default
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false); // TTS disabled by default for reading focus
   const recognitionRef = useRef(null);
   const typingQueue = useRef([]);
   const isSyncingQueue = useRef(false);
@@ -219,6 +435,7 @@ const App = () => {
 
         console.log('TYPING_QUEUE: Reveal', m.id, 'at', now);
         setVisibleMessageIds(prev => new Set([...prev, m.id]));
+        playReceiveSound(); // Play receive sound
 
         // Text-to-Speech for opponent message (uses WaveNet audio if available)
         speakText(m.text, m.audioBase64);
@@ -268,6 +485,13 @@ const App = () => {
       return () => unsub();
     } else setIsAuthChecking(false);
   }, []);
+
+  // Trigger confetti when session summary shows with 70%+ accuracy
+  useEffect(() => {
+    if (showSessionSummary && showSessionSummary.accuracy >= 70) {
+      setTimeout(() => fireCelebrationConfetti(true), 300);
+    }
+  }, [showSessionSummary]);
 
   useEffect(() => {
     if (!user) {
@@ -498,6 +722,7 @@ const App = () => {
     if (incomingInvitation && view === 'dashboard') {
       // Reset countdown to 16 seconds when new invitation arrives
       setInvitationCountdown(16);
+      playInviteReceivedSound(); // Play invitation sound
 
       // Start countdown
       invitationTimerRef.current = setInterval(() => {
@@ -535,6 +760,7 @@ const App = () => {
       const invRef = doc(db, 'invitations', user.uid);
       // Set status to 'timeout' so sender knows it auto-expired
       await setDoc(invRef, { status: 'timeout' }, { merge: true });
+      playDeclinedSound(); // Play declined sound
       await new Promise(resolve => setTimeout(resolve, 500));
       await deleteDoc(invRef);
       setIncomingInvitation(null);
@@ -832,6 +1058,7 @@ const App = () => {
       console.log('[DECLINE DEBUG] Setting status to declined for:', user.uid);
       // First update status to 'declined' so sender's listener sees it
       await setDoc(invRef, { status: 'declined' }, { merge: true });
+      playDeclinedSound(); // Play declined sound
       console.log('[DECLINE DEBUG] Status updated, waiting 500ms...');
       // Small delay to ensure sender receives the update
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -1073,6 +1300,7 @@ const App = () => {
     setTimeRemaining(420);
     setTimerActive(true);
     setSessionPoints(0);
+    setMessageAccuracies([]); // V7: Reset accuracy tracking
     setView('chat');
 
     // Chat listener with error handling
@@ -1099,6 +1327,7 @@ const App = () => {
           // But we need the results! They should be in data.results
           if (data.results) {
             setDualAnalysis(data.results);
+            setBattleOpponentData(activeSession?.opponent); // Capture opponent before clearing
             setShowWinnerReveal(true);
             setView('dashboard');
             setActiveSession(null);
@@ -1225,12 +1454,19 @@ const App = () => {
     setPreparingSim(null);
     const sessionId = 'sim_' + Date.now() + Math.random().toString(36).substring(2, 7);
     resetChatStates();
+
+    // Get first stage NPC as opponent name
+    const firstStage = sim.stages[0];
+    const npcName = typeof firstStage === 'object' ? firstStage.npc : sim.title;
+    const npcIcon = typeof firstStage === 'object' ? firstStage.icon : '🤖';
+
     setActiveSession({
       id: sim.id,
       sessionId,
-      opponent: { name: sim.title, avatar: '🤖' },
+      opponent: { name: npcName, avatar: npcIcon },
       type: 'bot',
-      topic: sim.desc
+      topic: sim.desc,
+      simulation: sim // Include full simulation data for stage tracking
     });
     // Reset typing status for bots
     setIsOpponentTyping(false);
@@ -1242,8 +1478,12 @@ const App = () => {
     typingQueue.current.push({ id: greetingId, sender: 'opponent', text: sim.greeting, createdAt: Date.now() });
     setTimeout(processTypingQueue, 600); // Wait for the 'chat' view to mount
 
-    setCurrentStage(sim.stages[0]);
+    // Set initial stage (handle both old string format and new object format)
+    const firstStageName = typeof firstStage === 'object' ? firstStage.name : firstStage;
+    setCurrentStage(firstStageName);
+    setCurrentStageIndex(0);
     setSessionPoints(0);
+    setMessageAccuracies([]); // V7: Reset accuracy tracking
     setView('chat');
   };
 
@@ -1263,14 +1503,36 @@ const App = () => {
         const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
         return tA - tB;
       }));
+      playSendSound(); // Play send sound
 
       try {
         const token = await user.getIdToken();
-        const history = messages.filter(m => m.sender !== 'system' && m.sender !== 'correction').map(m => `${m.sender === 'me' ? 'User' : 'AI'}: ${m.text}`);
+        const history = messages.filter(m => m.sender !== 'system' && m.sender !== 'correction' && m.sender !== 'suggestion').map(m => `${m.sender === 'me' ? 'User' : 'AI'}: ${m.text}`);
+
+        // Build stage info for backend (for stage transitions)
+        const sim = activeSession?.simulation;
+        const allStages = sim?.stages?.map(s => typeof s === 'object' ? s.name : s) || [];
+        const stageInfo = {
+          currentStage: currentStage,
+          currentIndex: currentStageIndex,
+          allStages: allStages,
+          totalStages: allStages.length,
+          simId: activeSession.id,
+          simTitle: sim?.title || 'Simulation'
+        };
+
         const res = await fetch(`${BACKEND_URL}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ type: 'chat', message: text, personaId: activeSession.id, context: activeSession.topic, history, stage: currentStage })
+          body: JSON.stringify({
+            type: 'chat',
+            message: text,
+            personaId: activeSession.id,
+            context: activeSession.topic,
+            history,
+            stage: currentStage,
+            stageInfo: stageInfo  // Full stage context for transitions
+          })
         });
 
         // Step 2: Update to status='sent' (single tick ✓)
@@ -1293,18 +1555,68 @@ const App = () => {
           setShowPointsAnimation({ points: earnedPoints, id: Date.now() });
           setTimeout(() => setShowPointsAnimation(null), 1500);
 
-          if (data.hasCorrection && data.correction) {
+          // V7 ACCURACY: Track per-message accuracy score from AI
+          const msgAccuracy = data.accuracy ?? 100; // Default 100 if not provided
+          setMessageAccuracies(prev => [...prev, msgAccuracy]);
+          console.log('[V7 ACCURACY] Message:', text, 'Accuracy:', msgAccuracy, 'Summary:', data.errorSummary);
+
+          // 3-LEVEL CLASSIFICATION: Handle errorLevel (perfect/suggestion/mistake)
+          const errorLevel = data.errorLevel || (data.hasCorrection ? 'mistake' : 'perfect');
+
+          if (errorLevel === 'mistake' && data.correction) {
+            // RED CARD: Clear grammar error - show full correction card
             const correctionId = 'correction' + Date.now();
             const now = Date.now();
-
-            // FORCE VISUAL APPEND: Track in adjustedTimestamps like bot messages
             adjustedTimestamps.current[correctionId] = now;
-
-            setMessages(prev => [...prev, { id: correctionId, sender: 'correction', correction: data.correction, originalText: text, createdAt: now }]);
+            setMessages(prev => [...prev, {
+              id: correctionId,
+              sender: 'correction',
+              errorLevel: 'mistake',
+              correction: data.correction,
+              originalText: text,
+              createdAt: now
+            }]);
             try { new Audio('/sounds/correction.mp3').play().catch(() => { }); } catch { }
             setTimeout(() => setMinimizedCorrections(prev => ({ ...prev, [correctionId]: true })), 8000);
+          } else if (errorLevel === 'suggestion' && data.correction) {
+            // YELLOW TIP: Minor suggestion - show inline tip (less intrusive)
+            const suggestionId = 'suggestion' + Date.now();
+            const now = Date.now();
+            adjustedTimestamps.current[suggestionId] = now;
+            setMessages(prev => [...prev, {
+              id: suggestionId,
+              sender: 'suggestion',
+              errorLevel: 'suggestion',
+              correction: data.correction,
+              originalText: text,
+              createdAt: now
+            }]);
+            // Auto-minimize suggestions faster since they're minor
+            setTimeout(() => setMinimizedCorrections(prev => ({ ...prev, [suggestionId]: true })), 5000);
           } else {
+            // PERFECT: No issues - play success sound
             try { new Audio('/sounds/success.mp3').play().catch(() => { }); } catch { }
+          }
+
+          // Handle stage transition from API
+          if (data.stageTransition && activeSession?.simulation?.stages) {
+            const stages = activeSession.simulation.stages;
+            const newStageIdx = stages.findIndex(s =>
+              (typeof s === 'object' ? s.name : s).toLowerCase() === data.stageTransition.toLowerCase()
+            );
+            if (newStageIdx > currentStageIndex && newStageIdx < stages.length) {
+              setCurrentStageIndex(newStageIdx);
+              const newStage = stages[newStageIdx];
+              setCurrentStage(typeof newStage === 'object' ? newStage.name : newStage);
+              // Update opponent/NPC if it changed
+              if (typeof newStage === 'object' && newStage.npc) {
+                setActiveSession(prev => ({
+                  ...prev,
+                  opponent: { name: newStage.npc, avatar: newStage.icon || prev.opponent?.avatar }
+                }));
+              }
+              console.log('[STAGE] Transitioned to:', data.stageTransition);
+            }
           }
 
           // UNIFIED: Add bot reply to typing queue for sequential reveal
@@ -1336,6 +1648,7 @@ const App = () => {
         const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
         return tA - tB;
       }));
+      playSendSound(); // Play send sound
 
       try {
         const token = await user.getIdToken();
@@ -1411,14 +1724,13 @@ const App = () => {
     if (!activeSession || isEndingRef.current) return;
     isEndingRef.current = true;
 
-    // IMMEDIATE: For non-bot sessions, show analyzing view right away to avoid blank screen
+    // IMMEDIATE: Show ending animation right away to avoid freeze
     const isCompetitive = activeSession?.type !== 'bot';
     const capturedMessages = [...messages]; // Capture messages BEFORE reset
     const capturedSession = { ...activeSession }; // Capture session info
 
-    if (isCompetitive) {
-      setView('analyzing'); // Instant visual feedback
-    }
+    // Show ending view immediately for ALL session types
+    setView('ending'); // New ending view with animation
 
     resetChatStates();
 
@@ -1441,8 +1753,13 @@ const App = () => {
     // Calculate accuracy based on messages and corrections
     const myMessages = capturedMessages.filter(m => m.sender === 'me');
     const totalSent = myMessages.length;
-    const correctionCount = capturedMessages.filter(m => m.sender === 'correction').length;
+    // Count BOTH corrections (red) AND suggestions (yellow) as mistakes
+    const rawCorrectionCount = capturedMessages.filter(m => m.sender === 'correction' || m.sender === 'suggestion').length;
+    // FIX: Ensure correction count doesn't exceed messages sent (edge case protection)
+    const correctionCount = Math.min(rawCorrectionCount, totalSent);
     const cleanCount = totalSent - correctionCount;
+    // Store actual corrections for session-specific feedback (include both corrections and suggestions)
+    const sessionCorrections = capturedMessages.filter(m => m.sender === 'correction' || m.sender === 'suggestion').map(m => m.correction);
 
     let sessionAccuracy = 100;
     if (totalSent === 0) {
@@ -1450,10 +1767,15 @@ const App = () => {
     } else if (totalSent < 3) {
       // Engagement Guard: Under 3 messages gets 0% accuracy
       sessionAccuracy = 0;
+    } else if (messageAccuracies.length > 0) {
+      // V7 FORMULA: Average of all per-message accuracy scores
+      const sum = messageAccuracies.reduce((a, b) => a + b, 0);
+      sessionAccuracy = Math.round(sum / messageAccuracies.length);
     } else {
-      // Weighted Accuracy Formula: Clean=100%, Corrected=65%
+      // Fallback: Old weighted formula if no V7 data
       sessionAccuracy = Math.round(((cleanCount * 100) + (correctionCount * 65)) / totalSent);
     }
+    console.log('[V7 ACCURACY] Session:', { totalSent, messageAccuracies, sessionAccuracy });
 
     if (capturedSession?.type === 'bot') {
       // Store session history to Firestore
@@ -1511,14 +1833,55 @@ const App = () => {
         return n;
       });
 
-      // Show session summary modal
+      // Show session summary modal with session-specific corrections
       setShowSessionSummary({
         simName: capturedSession.opponent?.name || 'Session',
+        simId: capturedSession.id,
         points: sessionPoints,
         accuracy: sessionAccuracy,
         messagesCount: totalSent,
-        correctionsCount: correctionCount
+        correctionsCount: correctionCount,
+        corrections: sessionCorrections
       });
+
+      // Fetch AI-powered personalized feedback
+      setIsLoadingFeedback(true);
+      setAiFeedback('');
+
+      // Check message count - need at least 3 for proper assessment
+      if (totalSent < 3) {
+        setAiFeedback(totalSent === 0
+          ? "You didn't send any messages. Please try at least 3+ messages for us to assess your English level."
+          : `You only sent ${totalSent} message${totalSent > 1 ? 's' : ''}. Please send at least 3+ messages for a proper assessment of your skills.`
+        );
+        setIsLoadingFeedback(false);
+      } else {
+        try {
+          const token = await user.getIdToken();
+          const feedbackRes = await fetch(`${BACKEND_URL}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              type: 'session_feedback',
+              messages: capturedMessages.filter(m => m.sender === 'me' || m.sender === 'bot').slice(-20),
+              corrections: sessionCorrections,
+              accuracy: sessionAccuracy,
+              messageCount: totalSent,
+              simName: capturedSession.opponent?.name || 'Practice Session'
+            })
+          });
+          const feedbackData = await feedbackRes.json();
+          if (feedbackData.feedback) {
+            setAiFeedback(feedbackData.feedback);
+          }
+        } catch (e) {
+          console.error('[AI_FEEDBACK_ERROR]', e);
+          setAiFeedback('Great effort today! Keep practicing daily to improve your fluency.');
+        } finally {
+          setIsLoadingFeedback(false);
+        }
+      }
+
       setView('dashboard'); setActiveSession(null);
 
     } else {
@@ -1531,7 +1894,9 @@ const App = () => {
         const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
         setDualAnalysis(data);
-        const myScore = data?.player1?.total || 70;
+        // FIX: Normalize Battle Mode score from 0-400 to 0-100%
+        const rawScore = data?.player1?.total || 280;
+        const myScore = Math.min(100, Math.round(rawScore / 4));
 
         // Store competitive session
         try {
@@ -1572,7 +1937,9 @@ const App = () => {
           }
 
           const newTotalSessions = prev.sessions + 1;
-          const newAvgScore = Math.round((prev.avgScore * prev.sessions + myScore) / newTotalSessions);
+          // FIX: Use rawScore which is defined in outer scope (line 1657), not myData which is in inner try
+          const normalizedMyScore = Math.min(100, Math.round(rawScore / 4));
+          const newAvgScore = Math.round((prev.avgScore * prev.sessions + normalizedMyScore) / newTotalSessions);
           const n = {
             ...prev,
             sessions: newTotalSessions,
@@ -1584,6 +1951,7 @@ const App = () => {
           setTimeout(() => saveUserData(n, null), 10);
           return n;
         });
+        setBattleOpponentData(capturedSession?.opponent); // Capture opponent before clearing
         setShowWinnerReveal(true);
         setView('dashboard');
       } catch (e) { setView('dashboard'); }
@@ -2490,7 +2858,7 @@ const App = () => {
             <WinnerReveal
               dualAnalysis={dualAnalysis}
               myUserId={user.uid}
-              opponentData={activeSession?.opponent}
+              opponentData={battleOpponentData}
               feedbackState={{ rating: feedbackRating, text: feedbackText, submitted: feedbackSubmitted }}
               onFeedback={async (rating, text) => {
                 try {
@@ -2703,95 +3071,130 @@ const App = () => {
                   <span>{showSessionSummary.correctionsCount} corrections</span>
                 </div>
 
-                {/* Areas to Work On */}
-                {showSessionSummary.correctionsCount > 0 && (
-                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-4 text-left">
-                    <div className="text-xs text-amber-600 font-bold uppercase mb-2">📝 Areas to improve:</div>
-                    <ul className="text-sm text-amber-800 space-y-1">
-                      <li>• Focus on subject-verb agreement</li>
-                      <li>• Practice article usage (a, an, the)</li>
-                      {showSessionSummary.correctionsCount >= 2 && <li>• Review sentence structure patterns</li>}
-                    </ul>
-                  </div>
-                )}
 
-                {/* Encouragement Message */}
-                <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl p-4 mb-4">
-                  <div className="text-sm text-indigo-800">
-                    {showSessionSummary.accuracy >= 80
-                      ? "🔥 You're on fire! Your English skills are impressive. Keep up the great work!"
-                      : showSessionSummary.accuracy >= 50
-                        ? "👏 Great effort! You're making steady progress. Practice makes perfect!"
-                        : "💪 Every expert was once a beginner. Keep practicing and you'll see amazing improvement!"}
+                {/* AI Feedback Section - Modern with thin orange border */}
+                <div className="bg-white border border-orange-300 rounded-2xl p-5 mb-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xl">🎓</span>
+                    <span className="font-bold uppercase tracking-wide text-orange-600">Your Feedback</span>
                   </div>
+
+                  {/* Scrollable content - LARGER */}
+                  <div className="max-h-48 overflow-y-auto pr-2 text-base leading-relaxed text-gray-800">
+                    {isLoadingFeedback ? (
+                      <span className="animate-pulse text-orange-500">Analyzing your session...</span>
+                    ) : (
+                      aiFeedback || "Great effort! Keep practicing to improve."
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-3 text-center">↓ scroll if more content</div>
                 </div>
 
-                {/* Motivation - Compare with peers */}
-                <div className="bg-teal-50 border border-teal-100 rounded-2xl p-3 mb-6 text-left">
+                {/* Motivation Section */}
+                <div className="bg-teal-50 border border-teal-100 rounded-2xl p-3 mb-4 text-left">
                   <div className="flex items-center gap-2 text-teal-700 text-sm">
                     <Users size={16} />
                     <span><strong>4,200+ learners</strong> at your level practice daily. You're not alone! 🌍</span>
                   </div>
                 </div>
 
-                {/* Contextual Feedback Section */}
-                <div className="mt-8 pt-6 border-t border-gray-100 text-left">
-                  <div className="text-xs font-black text-gray-400 uppercase mb-3 tracking-widest">How was this session?</div>
-                  {feedbackSubmitted ? (
-                    <div className="bg-emerald-50 text-emerald-700 rounded-2xl p-4 text-center text-sm font-bold flex items-center justify-center gap-2">
-                      <Sparkles size={16} /> Thank you for the feedback!
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex gap-2">
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <button
-                            key={star}
-                            onClick={() => setFeedbackRating(star)}
-                            className={`text-2xl transition-all ${feedbackRating >= star ? 'text-amber-400 scale-110' : 'text-gray-200'}`}
-                          >
-                            ⭐
-                          </button>
-                        ))}
+                {/* Mistakes - Blinking Button */}
+                {showSessionSummary.corrections && showSessionSummary.corrections.length > 0 ? (
+                  <div className="bg-gradient-to-r from-amber-100 to-orange-100 border-2 border-amber-300 rounded-2xl p-4 mb-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">📝</span>
+                        <span className="text-sm font-bold text-amber-800">Found {showSessionSummary.corrections.length} area{showSessionSummary.corrections.length > 1 ? 's' : ''} to improve</span>
                       </div>
-                      <textarea
-                        value={feedbackText}
-                        onChange={(e) => setFeedbackText(e.target.value)}
-                        placeholder="Any comments on the AI or match quality?"
-                        className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 text-sm focus:border-emerald-400 focus:outline-none h-20 resize-none"
-                      />
-                      {feedbackRating > 0 && (
-                        <button
-                          onClick={async () => {
-                            try {
-                              await addDoc(collection(db, 'feedback'), {
-                                userId: user.uid,
-                                rating: feedbackRating,
-                                text: feedbackText,
-                                sessionId: feedbackSessionId,
-                                simId: showSessionSummary.simId || null,
-                                simName: showSessionSummary.simName,
-                                timestamp: serverTimestamp()
-                              });
-                              setFeedbackSubmitted(true);
-                            } catch (e) { console.error(e); }
-                          }}
-                          className="w-full py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition-colors"
-                        >
-                          Send Feedback
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setShowMistakesPopup(true)}
+                        className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-full shadow-md hover:bg-amber-600 transition-all animate-pulse"
+                      >
+                        View All →
+                      </button>
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : showSessionSummary.messagesCount === 0 ? (
+                  <div className="bg-gradient-to-r from-gray-100 to-slate-100 border-2 border-gray-300 rounded-2xl p-4 mb-4 text-center">
+                    <div className="text-2xl mb-1">💬</div>
+                    <div className="text-gray-700 font-bold">No Messages to Analyze</div>
+                    <div className="text-sm text-gray-600">Send messages to see your mistakes and areas to improve.</div>
+                  </div>
+                ) : (
+                  <div className="bg-gradient-to-r from-emerald-100 to-green-100 border-2 border-emerald-300 rounded-2xl p-4 mb-4 text-center">
+                    <div className="text-2xl mb-1">🎉</div>
+                    <div className="text-emerald-700 font-bold">Perfect Session!</div>
+                    <div className="text-sm text-emerald-600">No corrections needed - excellent work!</div>
+                  </div>
+                )}
 
                 <button
                   onClick={() => setShowSessionSummary(null)}
-                  className="w-full py-4 mt-6 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black rounded-2xl hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg shadow-emerald-200 uppercase tracking-widest text-sm"
+                  className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black rounded-2xl hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg shadow-emerald-200 uppercase tracking-widest text-sm"
                 >
                   Continue Practicing 🚀
                 </button>
               </motion.div>
+
+              {/* Full-Screen Mistakes Popup */}
+              <AnimatePresence>
+                {showMistakesPopup && showSessionSummary?.corrections && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+                    onClick={() => setShowMistakesPopup(false)}
+                  >
+                    <motion.div
+                      initial={{ scale: 0.9, y: 20 }}
+                      animate={{ scale: 1, y: 0 }}
+                      exit={{ scale: 0.9, y: 20 }}
+                      className="bg-white rounded-3xl w-full max-w-md max-h-[80vh] overflow-hidden"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-4 text-white">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">📝</span>
+                            <span className="font-bold text-lg">Your Mistakes</span>
+                          </div>
+                          <button
+                            onClick={() => setShowMistakesPopup(false)}
+                            className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="text-sm text-amber-100 mt-1">{showSessionSummary.corrections.length} corrections from this session</div>
+                      </div>
+
+                      <div className="p-4 overflow-y-auto max-h-[60vh]">
+                        <div className="space-y-3">
+                          {showSessionSummary.corrections.map((c, i) => (
+                            <div key={i} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase ${c?.type === 'spelling' ? 'bg-purple-100 text-purple-700' :
+                                  c?.type === 'grammar' ? 'bg-red-100 text-red-700' :
+                                    'bg-blue-100 text-blue-700'
+                                  }`}>
+                                  {c?.type || 'grammar'}
+                                </span>
+                              </div>
+                              <div className="text-base mb-2">
+                                <span className="text-red-500 line-through font-medium">{c?.original}</span>
+                                <span className="text-gray-400 mx-3">→</span>
+                                <span className="text-emerald-600 font-bold">{c?.corrected}</span>
+                              </div>
+                              <div className="text-sm text-gray-600 bg-white rounded-lg p-2 border border-gray-100">{c?.reason}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
             </motion.div>
           )}
@@ -3032,11 +3435,26 @@ const App = () => {
           <p className="text-gray-500 mb-6">Choose a real-life scenario to practice your English conversation skills.</p>
           <div className="grid grid-cols-2 gap-4">
             {SIMULATIONS.map(sim => (
-              <button key={sim.id} onClick={() => startSimulation(sim)} className="bg-white border-2 border-gray-100 rounded-2xl p-5 text-left hover:border-emerald-500 hover:shadow-lg transition-all group">
-                <div className={`w-12 h-12 ${sim.color} rounded-xl flex items-center justify-center text-white mb-3 group-hover:scale-110 transition-transform`}><sim.icon size={24} /></div>
-                <div className="font-bold text-gray-900">{sim.title}</div>
-                <div className="text-xs text-gray-400 mt-1">{sim.desc}</div>
-              </button>
+              sim.id === 'sim_friend' ? (
+                <motion.button
+                  key={sim.id}
+                  onClick={() => startSimulation(sim)}
+                  className="bg-white border-2 border-gray-100 rounded-2xl p-5 text-left hover:border-emerald-500 hover:shadow-lg transition-all group relative overflow-hidden"
+                  animate={{ rotate: [0, -3, 3, -3, 3, 0] }}
+                  transition={{ duration: 0.6, delay: 0.5, ease: "easeInOut" }}
+                >
+                  <div className="absolute -top-1 -right-1 bg-gradient-to-r from-pink-500 to-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg rounded-tr-lg">🔥 POPULAR</div>
+                  <div className={`w-12 h-12 ${sim.color} rounded-xl flex items-center justify-center text-white mb-3 group-hover:scale-110 transition-transform`}><sim.icon size={24} /></div>
+                  <div className="font-bold text-gray-900">{sim.title}</div>
+                  <div className="text-xs text-gray-400 mt-1">{sim.desc}</div>
+                </motion.button>
+              ) : (
+                <button key={sim.id} onClick={() => startSimulation(sim)} className="bg-white border-2 border-gray-100 rounded-2xl p-5 text-left hover:border-emerald-500 hover:shadow-lg transition-all group">
+                  <div className={`w-12 h-12 ${sim.color} rounded-xl flex items-center justify-center text-white mb-3 group-hover:scale-110 transition-transform`}><sim.icon size={24} /></div>
+                  <div className="font-bold text-gray-900">{sim.title}</div>
+                  <div className="text-xs text-gray-400 mt-1">{sim.desc}</div>
+                </button>
+              )
             ))}
           </div>
         </main>
@@ -3050,37 +3468,63 @@ const App = () => {
     <div className="h-screen bg-gray-100 font-sans flex flex-col">
       <div className="max-w-2xl w-full mx-auto bg-white flex-1 shadow-xl md:my-4 md:rounded-3xl md:max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
         {/* Fixed Header */}
-        <header className="px-4 py-3 flex items-center justify-between border-b border-gray-100 bg-white shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl">{activeSession?.opponent?.avatar || '👤'}</div>
-            <div>
-              <div className="font-bold text-gray-900">{activeSession?.opponent?.name}</div>
-              <div className="text-xs text-emerald-600 font-bold flex items-center gap-1">
-                <Sparkles size={12} /> +{sessionPoints} pts
+        <header className="px-4 py-3 flex flex-col gap-2 border-b border-gray-100 bg-white shrink-0">
+          {/* Main Header Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl">{activeSession?.opponent?.avatar || '👤'}</div>
+              <div>
+                <div className="font-bold text-gray-900">{activeSession?.opponent?.name}</div>
+                <div className="text-xs text-emerald-600 font-bold flex items-center gap-1">
+                  <Sparkles size={12} /> +{sessionPoints} pts
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {timerActive && (
-              <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
-                <Clock size={12} /> {formatTime(timeRemaining)}
-              </div>
-            )}
-            <button
-              onClick={handleEndClick}
-              disabled={isEnding}
-              className={`px-4 py-2 text-white font-bold rounded-full text-sm transition-all flex items-center gap-2 ${isEnding ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 shadow-md active:scale-95'}`}
-            >
-              {isEnding ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Ending...
-                </>
-              ) : (
-                'End Session'
+            <div className="flex items-center gap-2">
+              {timerActive && (
+                <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
+                  <Clock size={12} /> {formatTime(timeRemaining)}
+                </div>
               )}
-            </button>
+              <button
+                onClick={handleEndClick}
+                disabled={isEnding}
+                className={`px-4 py-2 text-white font-bold rounded-full text-sm transition-all flex items-center gap-2 ${isEnding ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 shadow-md active:scale-95'}`}
+              >
+                {isEnding ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Ending...
+                  </>
+                ) : (
+                  'End Session'
+                )}
+              </button>
+            </div>
           </div>
+
+          {/* Stage Progress Bar - Compact for Simulations */}
+          {activeSession?.type === 'bot' && activeSession?.simulation?.stages && (() => {
+            const sim = activeSession.simulation;
+            const stages = sim.stages;
+            const currentIdx = currentStageIndex;
+            const currentStageData = stages[currentIdx] || stages[0];
+
+            return (
+              <div className="flex items-center gap-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg px-3 py-1.5">
+                <span className="text-base">{currentStageData?.icon || '📍'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-indigo-700 truncate">{currentStageData?.name || 'Stage'}</span>
+                    <span className="text-[10px] font-bold text-indigo-500 bg-white px-1.5 py-0.5 rounded shrink-0">{currentIdx + 1}/{stages.length}</span>
+                  </div>
+                  <div className="h-1 bg-indigo-100 rounded-full mt-1 overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${((currentIdx + 1) / stages.length) * 100}%` }} />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </header>
 
         {/* Points Animation Popup */}
@@ -3106,26 +3550,63 @@ const App = () => {
             const isVisible = m.sender !== 'opponent' || visibleMessageIds.has(m.id);
             if (!isVisible) return null;
             return (
-              <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : m.sender === 'system' ? 'justify-center' : m.sender === 'correction' ? 'justify-center' : 'justify-start'}`}>
+              <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : m.sender === 'system' ? 'justify-center' : m.sender === 'correction' || m.sender === 'suggestion' ? 'justify-center' : 'justify-start'}`}>
                 {m.sender === 'system' ? (
                   <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-200 px-3 py-1 rounded-full">{m.text}</span>
-                ) : m.sender === 'correction' ? (
-                  // Check if this correction is minimized
+                ) : m.sender === 'suggestion' ? (
+                  // YELLOW SUGGESTION - Compact, less intrusive tip
                   minimizedCorrections[m.id] ? (
-                    // Minimized compact pill with RED indicator - clickable to expand
                     <motion.button
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: false }))}
-                      className="flex items-center gap-2 bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-300 rounded-full px-4 py-2 shadow-md hover:shadow-lg transition-all cursor-pointer group blinking-alert"
+                      className="flex items-center gap-2 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-full px-3 py-1.5 shadow-sm hover:shadow transition-all cursor-pointer"
                     >
-                      <div className="relative">
-                        <AlertTriangle size={16} className="text-red-500" />
-                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                      <Lightbulb size={14} className="text-amber-500" />
+                      <span className="text-amber-700 font-medium text-xs">Tip available</span>
+                      <ChevronDown size={12} className="text-amber-500" />
+                    </motion.button>
+                  ) : (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="w-full max-w-sm bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-3 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Lightbulb size={16} className="text-amber-500" />
+                          <span className="font-bold text-amber-700 text-sm">Quick Tip</span>
+                        </div>
+                        <button
+                          onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: true }))}
+                          className="text-amber-400 hover:text-amber-600 p-1 hover:bg-amber-100 rounded transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                      <span className="text-red-700 font-bold text-sm">Mistake Found</span>
-                      <span className="text-red-500 text-xs">tap to view</span>
-                      <ChevronDown size={14} className="text-red-500 group-hover:translate-y-0.5 transition-transform" />
+                      <div className="text-xs text-amber-800 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-500">"{m.correction?.original}"</span>
+                          <span className="text-amber-400">→</span>
+                          <span className="font-semibold text-amber-700">"{m.correction?.corrected}"</span>
+                        </div>
+                        <div className="text-amber-600 italic">{m.correction?.reason}</div>
+                      </div>
+                    </motion.div>
+                  )
+                ) : m.sender === 'correction' ? (
+                  // Check if this correction is minimized
+                  minimizedCorrections[m.id] ? (
+                    // COMPACT minimized pill - same size as yellow tip
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: false }))}
+                      className="flex items-center gap-2 bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 rounded-full px-3 py-1.5 shadow-sm hover:shadow transition-all cursor-pointer blinking-alert"
+                    >
+                      <AlertTriangle size={14} className="text-red-500" />
+                      <span className="text-red-700 font-medium text-xs">Mistake</span>
+                      <ChevronDown size={12} className="text-red-500" />
                     </motion.button>
                   ) : (
                     // Full expanded correction card
@@ -3301,8 +3782,8 @@ const App = () => {
             >
               {isSpeakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
             </button>
-            <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 bg-emerald-600 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300">
-              {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
+              {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
             </button>
           </div>
         </div>
@@ -3429,6 +3910,46 @@ const App = () => {
 
 
 
+
+  // ENDING SESSION - Show animated transition
+  if (view === 'ending') return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center font-sans">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="max-w-md bg-white/10 backdrop-blur-xl rounded-3xl shadow-2xl p-10 text-center border border-white/20"
+      >
+        {/* Animated Paper Stack */}
+        <div className="relative w-24 h-24 mx-auto mb-6">
+          <motion.div
+            animate={{ rotate: [-5, 5, -5], y: [0, -5, 0] }}
+            transition={{ repeat: Infinity, duration: 2 }}
+            className="absolute inset-0 bg-white rounded-xl shadow-lg flex items-center justify-center text-4xl"
+          >📝</motion.div>
+          <motion.div
+            animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+            transition={{ repeat: Infinity, duration: 1.5 }}
+            className="absolute -top-2 -right-2 w-8 h-8 bg-amber-400 rounded-full flex items-center justify-center text-lg"
+          >✓</motion.div>
+        </div>
+
+        <h2 className="text-2xl font-black text-white mb-2">Checking Your Conversation...</h2>
+        <p className="text-purple-200 text-sm">Analyzing grammar, vocabulary & fluency</p>
+
+        {/* Progress dots */}
+        <div className="flex justify-center gap-2 mt-6">
+          {[0, 1, 2].map(i => (
+            <motion.div
+              key={i}
+              animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
+              transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
+              className="w-3 h-3 bg-purple-400 rounded-full"
+            />
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
 
   // ANALYZING
   if (view === 'analyzing') return (

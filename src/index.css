@@ -111,12 +111,19 @@ button {
   scrollbar-width: none;
 }
 
-/* Blinking Alert Animation */
+/* Blinking Alert Animation - Only blinks 2 times then stops */
 @keyframes blink-red {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .blinking-alert {
-  animation: blink-red 2s infinite;
+  animation: blink-red 0.6s ease-in-out 2;
 }
