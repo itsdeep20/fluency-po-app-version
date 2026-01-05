@@ -768,19 +768,21 @@ Return ONLY the translation in {target_language} script. No explanations."""
 
 Sentence: "{text}"
 
-ACCURACY FORMULA (SAME AS SIMULATIONS):
+ACCURACY FORMULA:
 Base: Accuracy = 100 - (errors × 75 / wordCount)
 
-SHORT MESSAGE ADJUSTMENT (to prevent gaming with short messages):
-- Short messages (<4 words): multiply error penalty by 0.25 (lenient)
-- Medium messages (4-6 words): multiply error penalty by 0.5
-- Long messages (7+ words): full penalty
+MESSAGE LENGTH ADJUSTMENT (to reward effort and prevent gaming):
+- Short messages (<4 words): multiply error penalty by 1.5 (HARSHER - easy to write short, should be perfect)
+- Medium messages (4-6 words): normal penalty (1.0x)
+- Long messages (7+ words): multiply error penalty by 0.75 (LENIENT - harder to write long perfectly)
+
+LOGIC: Writing a long message with 1 error = impressive. Writing a short message with 1 error = lazy.
 
 EXAMPLES:
 "OK" (1 word, perfect) → 100%
-"I going" (2 words, 1 error) → 100 - (1 × 75 / 2 × 0.25) = 100 - 9.4 = 91%
-"I going to market" (4 words, 1 error) → 100 - (1 × 75 / 4 × 0.5) = 100 - 9.4 = 91%
-"I going to the market yesterday" (6+ words, 1 error) → full penalty
+"I going" (2 words, 1 error) → 100 - (75/2 × 1.5) = 100 - 56 = 44% (harsh!)
+"I going to market" (4 words, 1 error) → 100 - (75/4 × 1.0) = 100 - 19 = 81%
+"I going to the big market near my house" (9 words, 1 error) → 100 - (75/9 × 0.75) = 100 - 6 = 94% (lenient!)
 
 Be STRICT on grammar errors (wrong tense, missing articles, wrong prepositions)
 
@@ -789,10 +791,10 @@ If PERFECT:
 {{"accuracy": 100, "errorLevel": "perfect", "correction": null}}
 
 If MINOR ISSUE (natural/casual speech):
-{{"accuracy": 90, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "informal speech"}}}}
+{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "informal speech"}}}}
 
 If ERROR:
-{{"accuracy": 65, "errorLevel": "mistake", "correction": {{"original": "I going market", "corrected": "I am going to the market", "reason": "missing verb 'am' and article 'the'"}}}}
+{{"accuracy": 60, "errorLevel": "mistake", "correction": {{"original": "I going market", "corrected": "I am going to the market", "reason": "missing verb 'am' and article 'the'"}}}}
 
 JSON only:"""
             
