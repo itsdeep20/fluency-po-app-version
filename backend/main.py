@@ -764,7 +764,7 @@ Return ONLY the translation in {target_language} script. No explanations."""
             # --- PER-MESSAGE ACCURACY ANALYSIS ---
             # Analyze user's message for errors (EASIER scoring for Battle Mode)
             model = get_model()
-            accuracy_prompt = f"""You are a friendly English teacher. Analyze this sentence for grammar and spelling errors.
+            accuracy_prompt = f"""You are a friendly, encouraging English coach. Analyze this sentence for grammar and spelling errors.
 
 Sentence: "{text}"
 
@@ -772,26 +772,31 @@ ACCURACY FORMULA (EASY - Battle Mode):
 Accuracy = 100 - (errors × 50 / wordCount)
 
 RULES:
-- All message lengths treated equally (no harsh penalties for short messages)
+- All message lengths treated equally (no harsh penalties)
 - Focus on CLEAR errors only (wrong verb, missing article, spelling)
 - Be LENIENT on casual speech, contractions, and informal style
 - Perfect casual messages like "Yeah", "OK", "Nice!" = 100%
 
+FEEDBACK STYLE - Be POLITE and ENCOURAGING:
+- Use friendly language like "Try saying...", "A small tweak...", "Almost perfect!"
+- Add encouraging emojis like 😊 ✨ 👍
+- Never be harsh or critical
+- Make it feel like a helpful friend, not a strict teacher
+
 EXAMPLES:
 "OK" (1 word, perfect) → 100%
-"I going" (2 words, 1 error) → 100 - (50/2) = 75%
-"I going to market" (4 words, 1 error) → 100 - (50/4) = 87%
-"I am going to market" (5 words, perfect) → 100%
+"I going" (2 words, 1 error) → 75%
+"I going to market" (4 words, 1 error) → 87%
 
 Return JSON ONLY:
 If PERFECT:
 {{"accuracy": 100, "errorLevel": "perfect", "correction": null}}
 
 If MINOR ISSUE:
-{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "informal"}}}}
+{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "Casual is fine! Just a tiny polish 😊"}}}}
 
 If ERROR:
-{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"original": "I going", "corrected": "I am going", "reason": "missing auxiliary verb"}}}}
+{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"original": "I going", "corrected": "I am going", "reason": "Almost! Just add 'am' - you've got this! 💪"}}}}
 
 JSON only:"""
             
