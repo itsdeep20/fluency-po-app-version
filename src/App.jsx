@@ -337,6 +337,7 @@ const App = () => {
 
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
+  const [showTimeOver, setShowTimeOver] = useState(false); // Bug 3: Time's Up notification
   const timerRef = useRef(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchStatusText, setSearchStatusText] = useState("Finding a partner...");
@@ -377,6 +378,7 @@ const App = () => {
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
   const [showMistakesPopup, setShowMistakesPopup] = useState(false); // Full-screen mistakes list popup
   const [showAchievements, setShowAchievements] = useState(false);
+  const [lockedAvatarModal, setLockedAvatarModal] = useState(null); // Bug 5: Beautiful locked avatar popup
   const [showDetailedExplanation, setShowDetailedExplanation] = useState(null);
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
   const isEndingRef = useRef(false);
@@ -765,7 +767,17 @@ const App = () => {
     if (timerActive && timeRemaining > 0) {
       timerRef.current = setInterval(() => {
         setTimeRemaining(prev => {
-          if (prev <= 1) { clearInterval(timerRef.current); setTimerActive(false); endSession(true); return 0; }
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            setTimerActive(false);
+            // Bug 3: Show Time's Up notification before ending
+            setShowTimeOver(true);
+            setTimeout(() => {
+              setShowTimeOver(false);
+              endSession(true, true); // Second param = timeEnded flag
+            }, 2000); // Show for 2 seconds
+            return 0;
+          }
           return prev - 1;
         });
       }, 1000);
@@ -1892,7 +1904,7 @@ const App = () => {
     }
   };
 
-  const endSession = async (initiatedByMe = true) => {
+  const endSession = async (initiatedByMe = true, timeEnded = false) => {
     if (!activeSession || isEndingRef.current) return;
     isEndingRef.current = true;
 
@@ -1900,9 +1912,14 @@ const App = () => {
     const isCompetitive = activeSession?.type !== 'bot';
     const capturedMessages = [...messages]; // Capture messages BEFORE reset
     const capturedSession = { ...activeSession }; // Capture session info
+    // Bug 2 Fix: Capture battleAccuracies BEFORE resetChatStates clears them
+    const capturedBattleAccuracies = [...battleAccuracies];
+    console.log('[BUG2 FIX] Captured battleAccuracies before reset:', capturedBattleAccuracies);
 
-    // Show ending view immediately for ALL session types
-    setView('ending'); // New ending view with animation
+    // Show ending view for Simulation only (Bug 4 fix: skip for Battle to avoid animation flash)
+    if (!isCompetitive) {
+      setView('ending');
+    }
 
     resetChatStates();
 
@@ -2070,11 +2087,12 @@ const App = () => {
         setDualAnalysis(data);
 
         // V8: Prefer per-message battleAccuracies average over AI analysis
+        // Bug 2 Fix: Use CAPTURED battleAccuracies (before reset), not state
         let myScore;
-        if (battleAccuracies.length > 0) {
+        if (capturedBattleAccuracies.length > 0) {
           // Use average of per-message accuracies (transparent, formula-based)
-          myScore = Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length);
-          console.log('[V8 BATTLE_SCORE] Using per-message average:', myScore, 'from', battleAccuracies.length, 'messages');
+          myScore = Math.round(capturedBattleAccuracies.reduce((a, b) => a + b, 0) / capturedBattleAccuracies.length);
+          console.log('[V8 BATTLE_SCORE] Using per-message average:', myScore, 'from', capturedBattleAccuracies.length, 'messages');
         } else {
           // Fallback to AI analysis (old method)
           const rawScore = data?.player1?.total || 280;
@@ -3151,8 +3169,8 @@ const App = () => {
                           if (unlocked) {
                             selectAvatar(av);
                           } else {
-                            // Show unlock message
-                            alert(`🔒 Practice more to unlock!\n\nReach ${requiredAccuracy}% accuracy to unlock this avatar.\nYour current accuracy: ${stats.avgScore || 0}%`);
+                            // Bug 5 Fix: Show beautiful modal instead of ugly alert
+                            setLockedAvatarModal({ avatar: av, required: requiredAccuracy, current: stats.avgScore || 0 });
                           }
                         }}
                         className={`relative flex-shrink-0 text-4xl p-3 rounded-xl transition-all ${userAvatar === av ? 'bg-emerald-100 ring-2 ring-emerald-500 scale-110' :
@@ -3184,6 +3202,73 @@ const App = () => {
                     Sign Out
                   </button>
                 </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bug 5 Fix: Beautiful Locked Avatar Modal */}
+        <AnimatePresence>
+          {lockedAvatarModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              onClick={() => setLockedAvatarModal(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.8, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.8, y: 20 }}
+                className="bg-white rounded-3xl p-6 max-w-xs w-full shadow-2xl text-center"
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Locked Avatar Display */}
+                <div className="relative w-24 h-24 mx-auto mb-4">
+                  <div className="text-6xl grayscale opacity-50">{lockedAvatarModal.avatar}</div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="bg-black/40 rounded-full p-3">
+                      <span className="text-3xl">🔒</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Title */}
+                <h3 className="text-xl font-black text-gray-900 mb-2">Keep Practicing!</h3>
+
+                {/* Progress */}
+                <div className="mb-4">
+                  <div className="text-sm text-gray-500 mb-2">
+                    Unlock at <span className="font-bold text-purple-600">{lockedAvatarModal.required}%</span> accuracy
+                  </div>
+                  <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all"
+                      style={{ width: `${Math.min(100, (lockedAvatarModal.current / lockedAvatarModal.required) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    Your accuracy: {lockedAvatarModal.current}% / {lockedAvatarModal.required}%
+                  </div>
+                </div>
+
+                {/* Encouragement */}
+                <p className="text-sm text-gray-600 mb-4">
+                  {lockedAvatarModal.current < lockedAvatarModal.required * 0.5
+                    ? "You're making great progress! Keep chatting to boost your accuracy 💪"
+                    : lockedAvatarModal.current < lockedAvatarModal.required * 0.8
+                      ? "Almost there! A few more practice sessions will unlock this 🌟"
+                      : "So close! Just a little more practice to unlock this beauty ✨"}
+                </p>
+
+                {/* Dismiss Button */}
+                <button
+                  onClick={() => setLockedAvatarModal(null)}
+                  className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-2xl hover:opacity-90 transition-opacity"
+                >
+                  Got it! 👍
+                </button>
               </motion.div>
             </motion.div>
           )}
@@ -3799,6 +3884,28 @@ const App = () => {
               className="absolute top-20 right-4 z-50 bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-4 py-2 rounded-full font-bold shadow-lg flex items-center gap-2"
             >
               <Sparkles size={16} /> +{showPointsAnimation.points} points!
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bug 3 Fix: Time's Up Notification Overlay */}
+        <AnimatePresence>
+          {showTimeOver && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            >
+              <motion.div
+                initial={{ y: 50 }}
+                animate={{ y: 0 }}
+                className="bg-gradient-to-br from-amber-500 to-orange-600 text-white px-8 py-6 rounded-3xl shadow-2xl text-center"
+              >
+                <div className="text-5xl mb-3">⏰</div>
+                <div className="text-2xl font-black mb-1">Time's Up!</div>
+                <div className="text-sm opacity-90">Calculating your results...</div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
