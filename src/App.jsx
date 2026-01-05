@@ -181,7 +181,33 @@ try {
   analytics = getAnalytics(app);
 } catch (e) { console.error("Firebase init error", e); }
 
-const AVATARS = ['🦁', '🐯', '🦊', '🐼', '🐨', '🐸', '🦄', '🐲', '🦅', '🐬', '🦋', '🌸'];
+// Avatar tiers - some are locked until accuracy milestones
+const AVATAR_TIERS = {
+  free: ['🦁', '🐯', '🦊', '🐼', '🐨', '🐸', '🦄', '🐲', '🌸', '🔥', '🦅'], // Always unlocked (eagle added!)
+  tier50: ['🐬', '🦋', '🐺', '🌟', '🍀'], // Unlock at 50% accuracy
+  tier70: ['💎', '🎸', '👨‍💼', '👩‍💼', '🧑‍🎓', '👨‍🎨'], // Unlock at 70% accuracy
+  tier85: ['👩‍🔬', '🧙‍♂️', '🦸‍♂️', '🦸‍♀️'], // Unlock at 85% accuracy
+  tier95: ['🧑‍🚀', '👸', '🤴', '🥷'], // Unlock at 95% accuracy (Master)
+};
+
+// Helper to check if avatar is unlocked based on accuracy
+const isAvatarUnlocked = (avatar, avgScore) => {
+  if (AVATAR_TIERS.free.includes(avatar)) return true;
+  if (AVATAR_TIERS.tier50.includes(avatar)) return avgScore >= 50;
+  if (AVATAR_TIERS.tier70.includes(avatar)) return avgScore >= 70;
+  if (AVATAR_TIERS.tier85.includes(avatar)) return avgScore >= 85;
+  if (AVATAR_TIERS.tier95.includes(avatar)) return avgScore >= 95;
+  return true;
+};
+
+// All avatars in display order
+const AVATARS = [
+  ...AVATAR_TIERS.free,
+  ...AVATAR_TIERS.tier50,
+  ...AVATAR_TIERS.tier70,
+  ...AVATAR_TIERS.tier85,
+  ...AVATAR_TIERS.tier95,
+];
 
 const SIMULATIONS = [
   {
@@ -263,8 +289,17 @@ const SIMULATIONS = [
 const STAT_INFO = {
   streak: { title: 'Streak 🔥', desc: 'Number of consecutive days you have practiced. Keep it going!' },
   points: { title: 'Total Points ⭐', desc: 'Points earned from sessions. Higher scores = more points.' },
-  level: { title: 'Your Level 🏆', desc: 'Your rank based on total points. Level up by practicing!' },
+  level: { title: 'Your Level 🏆', desc: 'Your rank based on accuracy. Improve your English to level up!' },
   avgScore: { title: 'Average Score 📊', desc: 'Your average performance score across all sessions.' },
+};
+
+// Helper function to compute level from accuracy (fixes stale Firestore values)
+const getLevelFromAccuracy = (avgScore) => {
+  if (avgScore >= 95) return { name: 'Master', icon: '👑', gradient: 'from-yellow-500 to-amber-500' };
+  if (avgScore >= 85) return { name: 'Expert', icon: '⭐', gradient: 'from-purple-500 to-indigo-500' };
+  if (avgScore >= 70) return { name: 'Advanced', icon: '🎯', gradient: 'from-blue-500 to-cyan-500' };
+  if (avgScore >= 50) return { name: 'Intermediate', icon: '📈', gradient: 'from-emerald-500 to-teal-500' };
+  return { name: 'Beginner', icon: '🌱', gradient: 'from-gray-400 to-gray-500' };
 };
 
 const App = () => {
@@ -272,6 +307,13 @@ const App = () => {
     'Aman': 'bot_aman', 'Rahul': 'bot_rahul', 'Neha': 'bot_neha', 'Pooja': 'bot_pooja',
     'Rohit': 'bot_rohit', 'Simran': 'bot_simran', 'Ankit': 'bot_ankit',
     'Priya': 'bot_priya', 'Kavya': 'bot_kavya', 'Diya': 'bot_diya', 'Riya': 'bot_riya'
+  };
+
+  // Bot avatars for fallback when not stored in chat record
+  const BOT_AVATARS = {
+    'Aman': '🧑🏽', 'Rahul': '👨🏽', 'Neha': '👩🏽', 'Pooja': '👩🏽‍💼',
+    'Rohit': '👨🏽‍💻', 'Simran': '👧🏽', 'Ankit': '🧔🏽',
+    'Priya': '👩🏽‍🎓', 'Kavya': '👩🏽‍💻', 'Diya': '👩🏽', 'Riya': '👩🏽‍🍳'
   };
 
   const [user, setUser] = useState(null);
@@ -2674,16 +2716,15 @@ const App = () => {
             </div>
             <div className="flex-1">
               <div className="font-bold text-gray-900">{user.isAnonymous ? 'Guest Player' : user.displayName || 'Player'}</div>
-              <div className="text-sm font-bold">
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-white shadow-sm ${stats.level === 'Master' ? 'bg-gradient-to-r from-yellow-500 to-amber-500' :
-                    stats.level === 'Expert' ? 'bg-gradient-to-r from-purple-500 to-indigo-500' :
-                      stats.level === 'Advanced' ? 'bg-gradient-to-r from-blue-500 to-cyan-500' :
-                        stats.level === 'Intermediate' ? 'bg-gradient-to-r from-emerald-500 to-teal-500' :
-                          'bg-gradient-to-r from-gray-400 to-gray-500'
-                  }`}>
-                  {stats.level === 'Master' ? '👑' : stats.level === 'Expert' ? '⭐' : stats.level === 'Advanced' ? '🎯' : stats.level === 'Intermediate' ? '📈' : '🌱'} {stats.level}
-                </span>
-              </div>
+              {/* Level badge - computed from avgScore, smaller and stylish */}
+              {(() => {
+                const levelData = getLevelFromAccuracy(stats.avgScore || 0);
+                return (
+                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-gradient-to-r ${levelData.gradient}`}>
+                    {levelData.icon} {levelData.name}
+                  </span>
+                );
+              })()}
             </div>
             <button onClick={() => setShowStatInfo('level')} className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold hover:bg-emerald-200 transition-colors">
               View Stats
@@ -2842,9 +2883,9 @@ const App = () => {
                           </div>
                         )}
 
-                        {/* Avatar */}
+                        {/* Avatar - Battle shows bot/player avatar with fallback, Simulation shows sim icon */}
                         <div className="text-2xl mb-1">
-                          {isBattle && chat.opponentAvatar ? chat.opponentAvatar : (sim?.icon ? '🤖' : '👤')}
+                          {isBattle ? (chat.opponentAvatar || BOT_AVATARS[chat.title] || '👤') : (sim ? React.createElement(sim.icon, { size: 24, className: 'mx-auto text-gray-600' }) : '📝')}
                         </div>
 
                         {/* Name */}
@@ -2905,12 +2946,15 @@ const App = () => {
                     <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm">{userAvatar}</div>
                     <div className="text-left flex-1">
                       <div className="font-bold text-gray-900">{user.isAnonymous ? 'Guest' : user.displayName?.split(' ')[0]}</div>
-                      <div className={`text-xs font-bold px-2 py-0.5 rounded-full text-white ${stats.level === 'Master' ? 'bg-gradient-to-r from-yellow-500 to-amber-500' :
-                          stats.level === 'Expert' ? 'bg-gradient-to-r from-purple-500 to-indigo-500' :
-                            stats.level === 'Advanced' ? 'bg-gradient-to-r from-blue-500 to-cyan-500' :
-                              stats.level === 'Intermediate' ? 'bg-gradient-to-r from-emerald-500 to-teal-500' :
-                                'bg-gradient-to-r from-gray-400 to-gray-500'
-                        }`}>{stats.level}</div>
+                      {/* Level badge - computed from avgScore */}
+                      {(() => {
+                        const levelData = getLevelFromAccuracy(stats.avgScore || 0);
+                        return (
+                          <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-gradient-to-r ${levelData.gradient}`}>
+                            {levelData.icon} {levelData.name}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className="text-gray-400">›</div>
                   </button>
@@ -3056,11 +3100,50 @@ const App = () => {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-sm p-6 relative my-auto max-h-[90vh] overflow-y-auto">
                 <button onClick={() => setShowProfile(false)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
-                <h3 className="text-2xl font-black mb-6 text-center">Choose Avatar</h3>
-                <div className="grid grid-cols-4 gap-4 mb-6">
-                  {AVATARS.map(av => (
-                    <button key={av} onClick={() => selectAvatar(av)} className={`text-4xl p-3 rounded-xl hover:bg-gray-100 transition-colors ${userAvatar === av ? 'bg-emerald-100 ring-2 ring-emerald-500' : ''}`}>{av}</button>
-                  ))}
+                <h3 className="text-2xl font-black mb-4 text-center">Choose Avatar</h3>
+                {/* Swipe indicator */}
+                <div className="text-center text-[10px] text-gray-400 mb-3 flex items-center justify-center gap-1">
+                  ← Swipe to see more →
+                </div>
+                {/* Avatar slider - horizontal scroll with large icons */}
+                <div className="flex gap-3 overflow-x-auto pb-4 mb-4 scrollbar-hide" style={{ scrollSnapType: 'x mandatory' }}>
+                  {AVATARS.map(av => {
+                    const unlocked = isAvatarUnlocked(av, stats.avgScore || 0);
+                    const requiredAccuracy = AVATAR_TIERS.tier95.includes(av) ? 95 :
+                      AVATAR_TIERS.tier85.includes(av) ? 85 :
+                        AVATAR_TIERS.tier70.includes(av) ? 70 :
+                          AVATAR_TIERS.tier50.includes(av) ? 50 : 0;
+
+                    return (
+                      <button
+                        key={av}
+                        onClick={() => {
+                          if (unlocked) {
+                            selectAvatar(av);
+                          } else {
+                            // Show unlock message
+                            alert(`🔒 Practice more to unlock!\n\nReach ${requiredAccuracy}% accuracy to unlock this avatar.\nYour current accuracy: ${stats.avgScore || 0}%`);
+                          }
+                        }}
+                        className={`relative flex-shrink-0 text-4xl p-3 rounded-xl transition-all ${userAvatar === av ? 'bg-emerald-100 ring-2 ring-emerald-500 scale-110' :
+                          unlocked ? 'hover:bg-gray-100' : 'opacity-50'
+                          }`}
+                        style={{ scrollSnapAlign: 'start' }}
+                      >
+                        {av}
+                        {/* Lock overlay for locked avatars */}
+                        {!unlocked && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl">
+                            <span className="text-lg">🔒</span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Tier legend */}
+                <div className="text-[9px] text-gray-400 text-center mb-4">
+                  🔓 Free • 50% • 70% • 85% • 95% 🔒
                 </div>
                 <div className="border-t border-gray-100 pt-6">
                   <button
