@@ -768,9 +768,21 @@ Return ONLY the translation in {target_language} script. No explanations."""
 
 Sentence: "{text}"
 
-ACCURACY FORMULA: 100 - (errors × 75 / wordCount)
-- Short sentences (<4 words) are lenient
-- Be STRICT on grammar errors (wrong tense, missing articles, wrong prepositions)
+ACCURACY FORMULA (SAME AS SIMULATIONS):
+Base: Accuracy = 100 - (errors × 75 / wordCount)
+
+SHORT MESSAGE ADJUSTMENT (to prevent gaming with short messages):
+- Short messages (<4 words): multiply error penalty by 0.25 (lenient)
+- Medium messages (4-6 words): multiply error penalty by 0.5
+- Long messages (7+ words): full penalty
+
+EXAMPLES:
+"OK" (1 word, perfect) → 100%
+"I going" (2 words, 1 error) → 100 - (1 × 75 / 2 × 0.25) = 100 - 9.4 = 91%
+"I going to market" (4 words, 1 error) → 100 - (1 × 75 / 4 × 0.5) = 100 - 9.4 = 91%
+"I going to the market yesterday" (6+ words, 1 error) → full penalty
+
+Be STRICT on grammar errors (wrong tense, missing articles, wrong prepositions)
 
 Return JSON ONLY:
 If PERFECT:
