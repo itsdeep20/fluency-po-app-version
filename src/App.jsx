@@ -2133,10 +2133,11 @@ const App = () => {
           }
 
           const newTotalSessions = prev.sessions + 1;
-          // FIX: Use rawScore which is defined in outer scope (line 1657), not myData which is in inner try
-          const normalizedMyScore = Math.min(100, Math.round(rawScore / 4));
+          // V8: Battle Mode gets 1.1x difficulty bonus (harder mode due to strict penalties)
+          const battleBonusScore = Math.min(100, Math.round(myScore * 1.1));
+          console.log('[V8 BATTLE_BONUS] Raw:', myScore, '→ With 1.1x bonus:', battleBonusScore);
           // EMA formula with n=9 (each session has ~10% weight)
-          const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + normalizedMyScore) / 10);
+          const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + battleBonusScore) / 10);
           // Level based on ACCURACY (not points)
           const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
           const n = {
