@@ -344,6 +344,13 @@ const App = () => {
   const searchTimeoutRef = useRef(null);
   const matchListener = useRef(null);
   const chatListener = useRef(null);
+  // Stale Closure Fix Refs (Bug 6)
+  const messagesRef = useRef([]);
+  const battleAccuraciesRef = useRef([]);
+
+  // Sync refs with state immediately
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { battleAccuraciesRef.current = battleAccuracies; }, [battleAccuracies]);
   const randomSearchListener = useRef(null);
 
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
@@ -770,12 +777,12 @@ const App = () => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
             setTimerActive(false);
-            // Bug 3: Show Time's Up notification before ending
+            // Bug 3 & 7: Show Time's Up notification before ending
             setShowTimeOver(true);
             setTimeout(() => {
               setShowTimeOver(false);
               endSession(true, true); // Second param = timeEnded flag
-            }, 2000); // Show for 2 seconds
+            }, 4000); // Bug 7 Fix: Show for 4 seconds (was 2)
             return 0;
           }
           return prev - 1;
@@ -1910,11 +1917,11 @@ const App = () => {
 
     // IMMEDIATE: Show ending animation right away to avoid freeze
     const isCompetitive = activeSession?.type !== 'bot';
-    const capturedMessages = [...messages]; // Capture messages BEFORE reset
+    // Bug 6 Fix: Use REFS for capturing to avoid stale closure issues in auto-end
+    const capturedMessages = [...messagesRef.current];
     const capturedSession = { ...activeSession }; // Capture session info
-    // Bug 2 Fix: Capture battleAccuracies BEFORE resetChatStates clears them
-    const capturedBattleAccuracies = [...battleAccuracies];
-    console.log('[BUG2 FIX] Captured battleAccuracies before reset:', capturedBattleAccuracies);
+    const capturedBattleAccuracies = [...battleAccuraciesRef.current];
+    console.log('[BUG6 FIX] Captured latest data from refs:', { msgCount: capturedMessages.length, accCount: capturedBattleAccuracies.length });
 
     // Show ending view for Simulation only (Bug 4 fix: skip for Battle to avoid animation flash)
     if (!isCompetitive) {
