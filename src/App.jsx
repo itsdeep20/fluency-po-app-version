@@ -394,6 +394,10 @@ const App = () => {
   const [lockedAvatarModal, setLockedAvatarModal] = useState(null); // Bug 5: Beautiful locked avatar popup
   const [showDetailedExplanation, setShowDetailedExplanation] = useState(null);
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
+  const [showLevelProgress, setShowLevelProgress] = useState(false); // Badge progression popup
+  const [showStreakMilestone, setShowStreakMilestone] = useState(null); // Streak milestone celebration (3, 7, 15, 30)
+  const prevLevelRef = useRef(null); // Track previous level for badge unlock detection
+  const prevStreakRef = useRef(0); // Track previous streak for milestone detection
   const isEndingRef = useRef(false);
   const isJoiningRef = useRef(false);
   const isAlertingRef = useRef(false);
@@ -852,6 +856,45 @@ const App = () => {
     };
     fetchSessionHistory();
   }, [showProgressReport, user]);
+
+  // Detect level-up and streak milestones for confetti celebration
+  useEffect(() => {
+    if (!stats.avgScore && !stats.streak) return;
+
+    const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
+    const currentStreak = stats.streak || 0;
+
+    // Check for level-up (only if prevLevel is set & different)
+    if (prevLevelRef.current && prevLevelRef.current !== currentLevel) {
+      const levels = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
+      const prevIndex = levels.indexOf(prevLevelRef.current);
+      const newIndex = levels.indexOf(currentLevel);
+
+      if (newIndex > prevIndex) {
+        // Level UP! Trigger celebration
+        console.log('[LEVEL_UP] 🎉', prevLevelRef.current, '→', currentLevel);
+        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 } });
+        setTimeout(() => confetti({ particleCount: 100, spread: 120, origin: { y: 0.5 } }), 300);
+      }
+    }
+    prevLevelRef.current = currentLevel;
+
+    // Check for streak milestones
+    const milestones = [3, 7, 15, 30, 60, 100];
+    const prevStreak = prevStreakRef.current;
+
+    for (const m of milestones) {
+      if (currentStreak >= m && prevStreak < m) {
+        // Hit a new milestone!
+        console.log('[STREAK_MILESTONE] 🔥', m, 'days!');
+        setShowStreakMilestone(m);
+        confetti({ particleCount: 80, spread: 60, origin: { y: 0.7 } });
+        setTimeout(() => setShowStreakMilestone(null), 3000); // Auto-close after 3s
+        break;
+      }
+    }
+    prevStreakRef.current = currentStreak;
+  }, [stats.avgScore, stats.streak]);
 
   const autoTimeoutInvitation = async () => {
     if (!incomingInvitation) return;
@@ -3379,9 +3422,9 @@ const App = () => {
                       <div className="text-xl font-black text-orange-600">{stats.streak || 0}</div>
                       <div className="text-[9px] text-orange-500 font-semibold">🔥 Streak</div>
                     </button>
-                    {/* Level - Clickable, fixed overflow */}
+                    {/* Level - Clickable, shows progression popup */}
                     <button
-                      onClick={() => setShowStatInfo('level')}
+                      onClick={() => setShowLevelProgress(true)}
                       className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-3 text-center hover:ring-2 hover:ring-emerald-300 transition-all overflow-hidden"
                     >
                       <div className="text-sm font-black text-emerald-600 truncate">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
@@ -4144,6 +4187,98 @@ const App = () => {
                 <div className="text-5xl mb-3">⏰</div>
                 <div className="text-2xl font-black mb-1">Time's Up!</div>
                 <div className="text-sm opacity-90">Calculating your results...</div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Streak Milestone Celebration Popup */}
+        <AnimatePresence>
+          {showStreakMilestone && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowStreakMilestone(null)}
+            >
+              <motion.div
+                initial={{ y: 50 }}
+                animate={{ y: 0 }}
+                className="bg-gradient-to-br from-orange-500 to-red-500 text-white px-8 py-6 rounded-3xl shadow-2xl text-center max-w-xs"
+              >
+                <div className="text-6xl mb-3">🔥</div>
+                <div className="text-2xl font-black mb-1">{showStreakMilestone} Day Streak!</div>
+                <div className="text-sm opacity-90 mb-3">
+                  {showStreakMilestone >= 30 ? "You're on fire! Legendary dedication! 🌟" :
+                    showStreakMilestone >= 15 ? "Incredible commitment! Keep blazing! 💪" :
+                      showStreakMilestone >= 7 ? "Amazing! A full week of practice! 🎯" :
+                        "Great start! Keep the momentum going! 🚀"}
+                </div>
+                <div className="text-xs opacity-70">Next: {showStreakMilestone < 7 ? 7 : showStreakMilestone < 15 ? 15 : showStreakMilestone < 30 ? 30 : 60} day milestone</div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Level Progression Popup */}
+        <AnimatePresence>
+          {showLevelProgress && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              onClick={() => setShowLevelProgress(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🏆 Level Journey</h3>
+                <div className="space-y-3">
+                  {[
+                    { name: 'Master', icon: '👑', range: '95%+', gradient: 'from-yellow-400 to-amber-500' },
+                    { name: 'Expert', icon: '⭐', range: '85-94%', gradient: 'from-purple-400 to-indigo-500' },
+                    { name: 'Advanced', icon: '🎯', range: '70-84%', gradient: 'from-blue-400 to-cyan-500' },
+                    { name: 'Intermediate', icon: '📈', range: '50-69%', gradient: 'from-emerald-400 to-teal-500' },
+                    { name: 'Beginner', icon: '🌱', range: '0-49%', gradient: 'from-gray-300 to-gray-400' },
+                  ].map((level, i) => {
+                    const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
+                    const isCurrentLevel = level.name === currentLevel;
+                    const currentIndex = ['Master', 'Expert', 'Advanced', 'Intermediate', 'Beginner'].indexOf(currentLevel);
+                    const isUnlocked = i >= currentIndex;
+
+                    return (
+                      <div
+                        key={level.name}
+                        className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${isCurrentLevel ? `bg-gradient-to-r ${level.gradient} text-white ring-2 ring-offset-2 ring-yellow-400` :
+                          isUnlocked ? 'bg-gray-100' : 'bg-gray-50 opacity-50'
+                          }`}
+                      >
+                        <div className="text-2xl">{isUnlocked ? level.icon : '🔒'}</div>
+                        <div className="flex-1">
+                          <div className={`font-bold ${isCurrentLevel ? 'text-white' : 'text-gray-700'}`}>
+                            {level.name} {isCurrentLevel && '← You'}
+                          </div>
+                          <div className={`text-xs ${isCurrentLevel ? 'text-white/80' : 'text-gray-400'}`}>
+                            {isUnlocked ? level.range : 'Practice more to unlock!'}
+                          </div>
+                        </div>
+                        {isCurrentLevel && <div className="text-lg">✨</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setShowLevelProgress(false)}
+                  className="w-full mt-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:opacity-90"
+                >
+                  Keep Practicing! 💪
+                </button>
               </motion.div>
             </motion.div>
           )}
