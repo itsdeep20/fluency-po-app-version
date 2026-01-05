@@ -288,10 +288,10 @@ const SIMULATIONS = [
 ];
 
 const STAT_INFO = {
-  streak: { title: 'Streak 🔥', desc: 'Number of consecutive days you have practiced. Keep it going!' },
-  points: { title: 'Total Points ⭐', desc: 'Points earned from sessions. Higher scores = more points.' },
-  level: { title: 'Your Level 🏆', desc: 'Your rank based on accuracy. Improve your English to level up!' },
-  avgScore: { title: 'Average Score 📊', desc: 'Your average performance score across all sessions.' },
+  streak: { title: '🔥 Practice Streak', desc: 'Your consecutive practice days! Next milestone: Keep practicing daily to build a strong habit. Every day counts! 💪' },
+  points: { title: '⭐ Total Points', desc: 'Points earned from all your sessions. Keep practicing to earn more and climb the leaderboard!' },
+  level: { title: '🏆 Your Level', desc: 'Your English proficiency level based on practice performance. Keep improving to unlock the next badge! Practice more to level up! 🚀' },
+  avgScore: { title: '📊 Accuracy Score', desc: 'This score reflects deep analysis of your grammar, vocabulary, and fluency from sessions & battles. Practice regularly to boost your accuracy! ✨' },
 };
 
 // Helper function to compute level from accuracy (fixes stale Firestore values)
@@ -3351,59 +3351,82 @@ const App = () => {
                 </div>
 
                 <div className="p-4 space-y-4">
-                  {/* Stats Grid */}
-                  <div className="grid grid-cols-3 gap-3">
+                  {/* Stats Grid - Clickable items */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {/* Sessions */}
                     <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl p-3 text-center">
-                      <div className="text-2xl font-black text-blue-600">{stats.sessions || 0}</div>
-                      <div className="text-[10px] text-blue-500 font-semibold">Sessions</div>
+                      <div className="text-xl font-black text-blue-600">{stats.sessions || 0}</div>
+                      <div className="text-[9px] text-blue-500 font-semibold">Sessions</div>
                     </div>
+                    {/* Points */}
                     <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-2xl p-3 text-center">
-                      <div className="text-2xl font-black text-amber-600">{stats.points || 0}</div>
-                      <div className="text-[10px] text-amber-500 font-semibold">Points</div>
+                      <div className="text-xl font-black text-amber-600">{stats.points || 0}</div>
+                      <div className="text-[9px] text-amber-500 font-semibold">Points</div>
                     </div>
-                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl p-3 text-center">
-                      <div className="text-2xl font-black text-purple-600">{stats.avgScore || 0}%</div>
-                      <div className="text-[10px] text-purple-500 font-semibold">Avg Accuracy</div>
-                    </div>
-                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-2xl p-3 text-center">
-                      <div className="text-2xl font-black text-orange-600">{stats.streak || 0}</div>
-                      <div className="text-[10px] text-orange-500 font-semibold">🔥 Streak</div>
-                    </div>
-                    <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-3 text-center">
-                      <div className="text-2xl font-black text-emerald-600">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
-                      <div className="text-[10px] text-emerald-500 font-semibold">Level</div>
-                    </div>
+                    {/* Accuracy - Clickable */}
+                    <button
+                      onClick={() => setShowStatInfo('avgScore')}
+                      className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl p-3 text-center hover:ring-2 hover:ring-purple-300 transition-all"
+                    >
+                      <div className="text-xl font-black text-purple-600">{stats.avgScore || 0}%</div>
+                      <div className="text-[9px] text-purple-500 font-semibold">Accuracy 📊</div>
+                    </button>
+                    {/* Streak - Clickable */}
+                    <button
+                      onClick={() => setShowStatInfo('streak')}
+                      className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-2xl p-3 text-center hover:ring-2 hover:ring-orange-300 transition-all"
+                    >
+                      <div className="text-xl font-black text-orange-600">{stats.streak || 0}</div>
+                      <div className="text-[9px] text-orange-500 font-semibold">🔥 Streak</div>
+                    </button>
+                    {/* Level - Clickable, fixed overflow */}
+                    <button
+                      onClick={() => setShowStatInfo('level')}
+                      className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-3 text-center hover:ring-2 hover:ring-emerald-300 transition-all overflow-hidden"
+                    >
+                      <div className="text-sm font-black text-emerald-600 truncate">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
+                      <div className="text-[9px] text-emerald-500 font-semibold">Level 🏆</div>
+                    </button>
+                    {/* Battles Won */}
                     <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl p-3 text-center">
-                      <div className="text-2xl font-black text-rose-600">
+                      <div className="text-xl font-black text-rose-600">
                         {sessionHistory.filter(s => s.won).length}/{sessionHistory.filter(s => s.type === '1v1').length}
                       </div>
-                      <div className="text-[10px] text-rose-500 font-semibold">Battles Won</div>
+                      <div className="text-[9px] text-rose-500 font-semibold">Battles ⚔️</div>
                     </div>
                   </div>
 
-                  {/* Accuracy Trend */}
-                  <div className="bg-gray-50 rounded-2xl p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <TrendingUp size={16} className="text-emerald-500" />
-                      <span className="text-sm font-bold text-gray-700">Accuracy Trend (Last 10)</span>
+                  {/* Accuracy Trend - Only show after 2+ sessions */}
+                  {(stats.sessions || 0) >= 2 && sessionHistory.length > 0 ? (
+                    <div className="bg-gray-50 rounded-2xl p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <TrendingUp size={16} className="text-emerald-500" />
+                        <span className="text-sm font-bold text-gray-700">Your Journey</span>
+                      </div>
+                      <div className="flex items-end gap-1 h-16">
+                        {sessionHistory.slice(-10).map((s, i) => {
+                          const acc = s.accuracy || s.score || 50;
+                          return (
+                            <div key={i} className="flex-1 flex flex-col items-center">
+                              <div
+                                className={`w-full rounded-t transition-all ${acc >= 80 ? 'bg-emerald-400' :
+                                  acc >= 60 ? 'bg-amber-400' : 'bg-rose-400'
+                                  }`}
+                                style={{ height: `${Math.max(8, acc * 0.5)}px` }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="text-[10px] text-gray-400 text-center mt-2">
+                        Last {Math.min(10, sessionHistory.length)} sessions • Keep going! 💪
+                      </div>
                     </div>
-                    <div className="flex items-end gap-1 h-20">
-                      {(sessionHistory.slice(-10).length > 0
-                        ? sessionHistory.slice(-10)
-                        : [{ accuracy: 0 }, { accuracy: 0 }, { accuracy: 0 }]
-                      ).map((s, i) => (
-                        <div key={i} className="flex-1 flex flex-col items-center">
-                          <div
-                            className={`w-full rounded-t transition-all ${(s.accuracy || 0) >= 80 ? 'bg-emerald-400' :
-                              (s.accuracy || 0) >= 60 ? 'bg-amber-400' : 'bg-rose-400'
-                              }`}
-                            style={{ height: `${Math.max(8, (s.accuracy || 0) * 0.7)}px` }}
-                          />
-                          <div className="text-[8px] text-gray-400 mt-1">{s.accuracy || 0}%</div>
-                        </div>
-                      ))}
+                  ) : (
+                    <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                      <div className="text-gray-400 text-sm">📈 Complete 2+ sessions to see your progress chart!</div>
                     </div>
-                  </div>
+                  )}
 
                   {/* AI Analysis Section - Placeholder */}
                   <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-100">
@@ -3442,14 +3465,14 @@ const App = () => {
                         )}
                       </div>
                     ) : (
-                      <div className="text-center py-4">
-                        <p className="text-xs text-gray-500 mb-2">Complete more sessions to get personalized AI insights!</p>
+                      <div className="text-center py-3">
                         <button
                           onClick={async () => {
-                            if (!user || sessionHistory.length < 3) return;
+                            if (!user || (stats.sessions || 0) < 3) return;
                             setIsLoadingReport(true);
                             try {
                               const token = await user.getIdToken();
+                              // Use stats.sessions which is accurate, fetch corrections from recent sessions
                               const corrections = sessionHistory.flatMap(s => s.corrections || []).slice(-30);
                               const res = await fetch(`${BACKEND_URL}`, {
                                 method: 'POST',
@@ -3464,10 +3487,10 @@ const App = () => {
                               setIsLoadingReport(false);
                             }
                           }}
-                          className="px-4 py-2 bg-indigo-500 text-white text-xs font-bold rounded-full hover:bg-indigo-600 transition-colors"
-                          disabled={sessionHistory.length < 3}
+                          className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-bold rounded-full hover:opacity-90 transition-opacity"
+                          disabled={(stats.sessions || 0) < 3}
                         >
-                          {sessionHistory.length < 3 ? 'Need 3+ sessions' : 'Get AI Insights ✨'}
+                          {(stats.sessions || 0) < 3 ? `Need ${3 - (stats.sessions || 0)} more sessions` : 'Analyze My Progress ✨'}
                         </button>
                       </div>
                     )}
