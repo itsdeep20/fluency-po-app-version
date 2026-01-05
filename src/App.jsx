@@ -333,6 +333,7 @@ const App = () => {
   const [showPointsAnimation, setShowPointsAnimation] = useState(null);
   const [minimizedCorrections, setMinimizedCorrections] = useState({});
   const [messageAccuracies, setMessageAccuracies] = useState([]); // V7: Track per-message accuracy scores
+  const [battleAccuracies, setBattleAccuracies] = useState([]); // V8: Track per-message accuracy in Battle Mode
 
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
@@ -1453,6 +1454,7 @@ const App = () => {
     setTimerActive(true);
     setSessionPoints(0);
     setMessageAccuracies([]); // V7: Reset accuracy tracking
+    setBattleAccuracies([]); // V8: Reset battle accuracy tracking
     setView('chat');
 
     // Chat listener with error handling
@@ -1804,14 +1806,44 @@ const App = () => {
 
       try {
         const token = await user.getIdToken();
-        await fetch(`${BACKEND_URL}`, {
+        const res = await fetch(`${BACKEND_URL}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid })
         });
 
-        // Step 2: Update to status='sent' (single tick ✓)
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'sent' } : m));
+        // V8: Parse accuracy from response
+        const data = await res.json();
+        const msgAccuracy = data.accuracy ?? 100;
+        const errorLevel = data.errorLevel || 'perfect';
+        const correction = data.correction;
+
+        // Track accuracy for running average
+        setBattleAccuracies(prev => [...prev, msgAccuracy]);
+        console.log('[V8 BATTLE_ACCURACY] Message:', text.slice(0, 30), 'Accuracy:', msgAccuracy, 'Level:', errorLevel);
+
+        // Step 2: Update message with status and accuracy indicator
+        setMessages(prev => prev.map(m => m.id === msgId ? {
+          ...m,
+          status: 'sent',
+          accuracy: msgAccuracy,
+          errorLevel: errorLevel
+        } : m));
+
+        // V8: Show correction card if error/suggestion found
+        if (errorLevel !== 'perfect' && correction) {
+          const correctionId = 'battle_correction_' + Date.now();
+          const now = Date.now();
+          adjustedTimestamps.current[correctionId] = now;
+          setMessages(prev => [...prev, {
+            id: correctionId,
+            sender: 'correction',
+            errorLevel: errorLevel,
+            correction: correction,
+            originalText: text,
+            createdAt: now
+          }]);
+        }
 
         // For Battle-Bot: Simulate seen + typing with delays
         if (activeSession.type === 'battle-bot') {
@@ -2048,9 +2080,19 @@ const App = () => {
         const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
         setDualAnalysis(data);
-        // FIX: Normalize Battle Mode score from 0-400 to 0-100%
-        const rawScore = data?.player1?.total || 280;
-        const myScore = Math.min(100, Math.round(rawScore / 4));
+
+        // V8: Prefer per-message battleAccuracies average over AI analysis
+        let myScore;
+        if (battleAccuracies.length > 0) {
+          // Use average of per-message accuracies (transparent, formula-based)
+          myScore = Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length);
+          console.log('[V8 BATTLE_SCORE] Using per-message average:', myScore, 'from', battleAccuracies.length, 'messages');
+        } else {
+          // Fallback to AI analysis (old method)
+          const rawScore = data?.player1?.total || 280;
+          myScore = Math.min(100, Math.round(rawScore / 4));
+          console.log('[V8 BATTLE_SCORE] Fallback to AI analysis:', myScore);
+        }
 
         // Store competitive session
         try {
@@ -3686,8 +3728,29 @@ const App = () => {
               <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl">{activeSession?.opponent?.avatar || '👤'}</div>
               <div>
                 <div className="font-bold text-gray-900">{activeSession?.opponent?.name}</div>
-                <div className="text-xs text-emerald-600 font-bold flex items-center gap-1">
-                  <Sparkles size={12} /> +{sessionPoints} pts
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-emerald-600 font-bold flex items-center gap-1">
+                    <Sparkles size={12} /> +{sessionPoints} pts
+                  </div>
+                  {/* V8: Live Accuracy Bar for Battle Mode */}
+                  {activeSession?.type?.includes('battle') && battleAccuracies.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-gray-500">🎯</span>
+                      <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length) >= 80 ? 'bg-emerald-500' :
+                            Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length) >= 60 ? 'bg-amber-500' : 'bg-red-500'
+                            }`}
+                          style={{ width: `${Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length)}%` }}
+                        />
+                      </div>
+                      <span className={`text-[10px] font-bold ${Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length) >= 80 ? 'text-emerald-600' :
+                        Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length) >= 60 ? 'text-amber-600' : 'text-red-600'
+                        }`}>
+                        {Math.round(battleAccuracies.reduce((a, b) => a + b, 0) / battleAccuracies.length)}%
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

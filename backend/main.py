@@ -761,6 +761,53 @@ Return ONLY the translation in {target_language} script. No explanations."""
                 'text': text, 'senderId': sender_id, 'createdAt': firestore.SERVER_TIMESTAMP
             })
             
+            # --- PER-MESSAGE ACCURACY ANALYSIS ---
+            # Analyze user's message for errors (same formula as simulations)
+            model = get_model()
+            accuracy_prompt = f"""You are a strict English examiner. Analyze this sentence for grammar, spelling, and fluency errors.
+
+Sentence: "{text}"
+
+ACCURACY FORMULA: 100 - (errors × 75 / wordCount)
+- Short sentences (<4 words) are lenient
+- Be STRICT on grammar errors (wrong tense, missing articles, wrong prepositions)
+
+Return JSON ONLY:
+If PERFECT:
+{{"accuracy": 100, "errorLevel": "perfect", "correction": null}}
+
+If MINOR ISSUE (natural/casual speech):
+{{"accuracy": 90, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "informal speech"}}}}
+
+If ERROR:
+{{"accuracy": 65, "errorLevel": "mistake", "correction": {{"original": "I going market", "corrected": "I am going to the market", "reason": "missing verb 'am' and article 'the'"}}}}
+
+JSON only:"""
+            
+            accuracy_result = {"accuracy": 100, "errorLevel": "perfect", "correction": None}
+            try:
+                acc_response = model.generate_content(accuracy_prompt).text.strip()
+                # Clean markdown if present
+                if '```' in acc_response:
+                    parts = acc_response.split('```')
+                    for part in parts:
+                        if part.strip().startswith('json'):
+                            acc_response = part.strip()[4:].strip()
+                            break
+                        elif part.strip().startswith('{'):
+                            acc_response = part.strip()
+                            break
+                start = acc_response.find('{')
+                end = acc_response.rfind('}') + 1
+                if start >= 0 and end > start:
+                    accuracy_result = json.loads(acc_response[start:end])
+                print(f"[BATTLE_ACCURACY] Text: '{text[:30]}...' Accuracy: {accuracy_result.get('accuracy', 100)}")
+            except Exception as e:
+                print(f"[BATTLE_ACCURACY_ERROR] {e}")
+            
+            # Store accuracy for this message in room for later aggregation
+            user_accuracy = accuracy_result.get('accuracy', 100)
+            
             # Check if Bot Match
             room_snap = db.collection('queue').document(room_id).get()
             room_data = room_snap.to_dict()
@@ -835,7 +882,12 @@ CRITICAL - ENGLISH ONLY:
                 
                 db.collection('queue').document(room_id).collection('messages').add(message_data)
 
-            return (json.dumps({"success": True}), 200, headers)
+            return (json.dumps({
+                "success": True,
+                "accuracy": accuracy_result.get('accuracy', 100),
+                "errorLevel": accuracy_result.get('errorLevel', 'perfect'),
+                "correction": accuracy_result.get('correction')
+            }), 200, headers)
 
         # --- END SESSION ---
         if req_type == "end_session":
