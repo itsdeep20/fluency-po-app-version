@@ -13,7 +13,8 @@ import {
   Send, Zap, Swords, Sword, MessageSquare, Trophy, Briefcase, Coffee, Stethoscope,
   Train, Plane, Loader2, LogOut, MessageCircle, Target,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
-  ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb, Globe
+  ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb, Globe,
+  FileText, Download, TrendingUp, TrendingDown, BarChart3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -359,6 +360,11 @@ const App = () => {
   const [showRoomInput, setShowRoomInput] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showStatInfo, setShowStatInfo] = useState(null);
+  // Progress Report Feature
+  const [showProgressReport, setShowProgressReport] = useState(false);
+  const [progressReportData, setProgressReportData] = useState(null);
+  const [sessionHistory, setSessionHistory] = useState([]);
+  const [isLoadingReport, setIsLoadingReport] = useState(false);
 
   const [dualAnalysis, setDualAnalysis] = useState(null);
   const [battleOpponentData, setBattleOpponentData] = useState(null); // Captured opponent for WinnerReveal
@@ -828,6 +834,24 @@ const App = () => {
   useEffect(() => {
     sentInviteTargetRef.current = sentInviteTarget;
   }, [sentInviteTarget]);
+
+  // Fetch session history when Progress Report opens
+  useEffect(() => {
+    const fetchSessionHistory = async () => {
+      if (!showProgressReport || !user) return;
+      try {
+        const sessionsRef = collection(db, 'users', user.uid, 'sessions');
+        const q = query(sessionsRef, orderBy('timestamp', 'desc'), limit(20));
+        const snapshot = await getDocs(q);
+        const sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setSessionHistory(sessions.reverse()); // Oldest first for chart
+        console.log('[PROGRESS_REPORT] Fetched sessions:', sessions.length);
+      } catch (e) {
+        console.error('Failed to fetch session history:', e);
+      }
+    };
+    fetchSessionHistory();
+  }, [showProgressReport, user]);
 
   const autoTimeoutInvitation = async () => {
     if (!incomingInvitation) return;
@@ -2798,6 +2822,9 @@ const App = () => {
             <button onClick={() => setShowStatInfo('level')} className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold hover:bg-emerald-200 transition-colors">
               View Stats
             </button>
+            <button onClick={() => setShowProgressReport(true)} className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full text-xs font-bold hover:opacity-90 transition-opacity flex items-center gap-1">
+              <FileText size={12} /> Report
+            </button>
           </div>
 
           {/* Pending Friend Invites */}
@@ -3290,6 +3317,174 @@ const App = () => {
                 >
                   Got it! 👍
                 </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Progress Report Modal */}
+        <AnimatePresence>
+          {showProgressReport && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto"
+              onClick={() => setShowProgressReport(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white rounded-3xl max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto"
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="sticky top-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white p-4 rounded-t-3xl flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 size={24} />
+                    <h2 className="text-xl font-black">Progress Report</h2>
+                  </div>
+                  <button onClick={() => setShowProgressReport(false)} className="p-1 hover:bg-white/20 rounded-full transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-4">
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-blue-600">{stats.sessions || 0}</div>
+                      <div className="text-[10px] text-blue-500 font-semibold">Sessions</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-amber-600">{stats.points || 0}</div>
+                      <div className="text-[10px] text-amber-500 font-semibold">Points</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-purple-600">{stats.avgScore || 0}%</div>
+                      <div className="text-[10px] text-purple-500 font-semibold">Avg Accuracy</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-orange-600">{stats.streak || 0}</div>
+                      <div className="text-[10px] text-orange-500 font-semibold">🔥 Streak</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-emerald-600">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
+                      <div className="text-[10px] text-emerald-500 font-semibold">Level</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-rose-600">
+                        {sessionHistory.filter(s => s.won).length}/{sessionHistory.filter(s => s.type === '1v1').length}
+                      </div>
+                      <div className="text-[10px] text-rose-500 font-semibold">Battles Won</div>
+                    </div>
+                  </div>
+
+                  {/* Accuracy Trend */}
+                  <div className="bg-gray-50 rounded-2xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingUp size={16} className="text-emerald-500" />
+                      <span className="text-sm font-bold text-gray-700">Accuracy Trend (Last 10)</span>
+                    </div>
+                    <div className="flex items-end gap-1 h-20">
+                      {(sessionHistory.slice(-10).length > 0
+                        ? sessionHistory.slice(-10)
+                        : [{ accuracy: 0 }, { accuracy: 0 }, { accuracy: 0 }]
+                      ).map((s, i) => (
+                        <div key={i} className="flex-1 flex flex-col items-center">
+                          <div
+                            className={`w-full rounded-t transition-all ${(s.accuracy || 0) >= 80 ? 'bg-emerald-400' :
+                              (s.accuracy || 0) >= 60 ? 'bg-amber-400' : 'bg-rose-400'
+                              }`}
+                            style={{ height: `${Math.max(8, (s.accuracy || 0) * 0.7)}px` }}
+                          />
+                          <div className="text-[8px] text-gray-400 mt-1">{s.accuracy || 0}%</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* AI Analysis Section - Placeholder */}
+                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles size={16} className="text-indigo-500" />
+                      <span className="text-sm font-bold text-indigo-700">AI Analysis</span>
+                    </div>
+                    {isLoadingReport ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 size={24} className="animate-spin text-indigo-500" />
+                        <span className="ml-2 text-sm text-indigo-500">Analyzing your progress...</span>
+                      </div>
+                    ) : progressReportData ? (
+                      <div className="space-y-3">
+                        {/* Weak Points */}
+                        {progressReportData.weakPoints?.length > 0 && (
+                          <div>
+                            <div className="text-xs font-semibold text-rose-600 mb-1">🔴 Areas to Improve</div>
+                            {progressReportData.weakPoints.map((wp, i) => (
+                              <div key={i} className="text-xs text-gray-600 bg-rose-50 rounded-lg p-2 mb-1">
+                                <span className="font-semibold">{wp.category}:</span> {wp.detail}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Strong Points */}
+                        {progressReportData.strongPoints?.length > 0 && (
+                          <div>
+                            <div className="text-xs font-semibold text-emerald-600 mb-1">🟢 Your Strengths</div>
+                            {progressReportData.strongPoints.map((sp, i) => (
+                              <div key={i} className="text-xs text-gray-600 bg-emerald-50 rounded-lg p-2 mb-1">
+                                <span className="font-semibold">{sp.category}:</span> {sp.detail}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <p className="text-xs text-gray-500 mb-2">Complete more sessions to get personalized AI insights!</p>
+                        <button
+                          onClick={async () => {
+                            if (!user || sessionHistory.length < 3) return;
+                            setIsLoadingReport(true);
+                            try {
+                              const token = await user.getIdToken();
+                              const corrections = sessionHistory.flatMap(s => s.corrections || []).slice(-30);
+                              const res = await fetch(`${BACKEND_URL}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({ type: 'progress_analysis', corrections })
+                              });
+                              const data = await res.json();
+                              setProgressReportData(data);
+                            } catch (e) {
+                              console.error('Progress analysis error:', e);
+                            } finally {
+                              setIsLoadingReport(false);
+                            }
+                          }}
+                          className="px-4 py-2 bg-indigo-500 text-white text-xs font-bold rounded-full hover:bg-indigo-600 transition-colors"
+                          disabled={sessionHistory.length < 3}
+                        >
+                          {sessionHistory.length < 3 ? 'Need 3+ sessions' : 'Get AI Insights ✨'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Download PDF Button - Placeholder */}
+                  <button
+                    className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+                    onClick={() => {
+                      // PDF generation will be added in Phase 3
+                      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                      alert('PDF feature coming soon! 📄');
+                    }}
+                  >
+                    <Download size={18} /> Download Practice PDF
+                  </button>
+                </div>
               </motion.div>
             </motion.div>
           )}

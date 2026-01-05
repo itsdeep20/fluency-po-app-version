@@ -1250,6 +1250,68 @@ JSON only:"""
                     "tips": ["Practice saying this correctly 5 times", "Write 3 sentences using this pattern daily"]
                 }), 200, headers)
 
+        # --- PROGRESS ANALYSIS ---
+        if req_type == "progress_analysis":
+            corrections = data.get("corrections", [])
+            
+            if len(corrections) < 3:
+                return (json.dumps({
+                    "weakPoints": [],
+                    "strongPoints": [{"category": "Getting Started", "detail": "Complete more sessions to get personalized insights!"}]
+                }), 200, headers)
+            
+            model = get_model()
+            
+            # Format corrections for analysis
+            corrections_text = "\n".join([
+                f"- Error: '{c.get('original', '')}' → Correct: '{c.get('corrected', '')}' (Reason: {c.get('reason', 'unknown')})"
+                for c in corrections[:30] if c
+            ])
+            
+            prompt = f"""You are an English learning advisor. Analyze these correction patterns from a student's practice sessions:
+
+{corrections_text}
+
+Based on these corrections, identify:
+
+1. WEAK POINTS (up to 3): Common error patterns the student makes repeatedly
+2. STRONG POINTS (up to 3): Areas where the student shows improvement or strength
+
+Return ONLY valid JSON in this format:
+{{
+  "weakPoints": [
+    {{"category": "Grammar", "detail": "Often forgets articles (a/an/the)"}},
+    {{"category": "Tense", "detail": "Mixes present and past tense"}}
+  ],
+  "strongPoints": [
+    {{"category": "Vocabulary", "detail": "Uses varied and appropriate words"}},
+    {{"category": "Sentence Structure", "detail": "Good command of complex sentences"}}
+  ]
+}}
+
+Be encouraging but honest. If there aren't enough patterns to identify, provide fewer points.
+
+JSON only:"""
+
+            try:
+                response = model.generate_content(prompt)
+                response_text = response.text.strip()
+                
+                # Clean and parse JSON
+                start = response_text.find('{')
+                end = response_text.rfind('}') + 1
+                if start != -1 and end > start:
+                    response_text = response_text[start:end]
+                
+                result = json.loads(response_text)
+                return (json.dumps(result), 200, headers)
+            except Exception as e:
+                print(f"[PROGRESS_ANALYSIS_ERROR] {e}")
+                return (json.dumps({
+                    "weakPoints": [{"category": "General", "detail": "Keep practicing to identify patterns!"}],
+                    "strongPoints": [{"category": "Effort", "detail": "Great job staying consistent with practice!"}]
+                }), 200, headers)
+
     except Exception as e:
         print(f"[GLOBAL_ERR] {e}")
         return (json.dumps({"error": str(e)}), 200, headers)
