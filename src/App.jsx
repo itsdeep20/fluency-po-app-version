@@ -2013,8 +2013,15 @@ const App = () => {
 
         const newTotalSessions = prev.sessions + 1;
         const newTotalPoints = prev.points + sessionPoints;
-        // EMA formula with n=9 (each session has ~10% weight, older sessions fade but never fully forgotten)
-        const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + sessionAccuracy) / 10);
+        // HYBRID FORMULA: Simple average for first 5 sessions, then EMA
+        let newAvgScore;
+        if (prev.sessions < 5) {
+          // Simple average for new users (fair weight to each session)
+          newAvgScore = Math.round((prev.avgScore * prev.sessions + sessionAccuracy) / newTotalSessions);
+        } else {
+          // EMA after 5 sessions (stability)
+          newAvgScore = Math.round(((prev.avgScore || 0) * 9 + sessionAccuracy) / 10);
+        }
         // Level based on ACCURACY (not points) - renamed Rookie to Beginner
         const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
 
@@ -2146,10 +2153,17 @@ const App = () => {
           }
 
           const newTotalSessions = prev.sessions + 1;
-          // V8: Battle Mode scoring is now easier, no bonus needed - direct contribution
-          console.log('[V8 BATTLE_SCORE] Contributing to avgScore:', myScore);
-          // EMA formula with n=9 (each session has ~10% weight)
-          const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
+          // V8: Battle Mode uses same HYBRID formula as Simulation
+          console.log('[V8 BATTLE_SCORE] Contributing to avgScore:', myScore, 'sessions:', prev.sessions);
+          // HYBRID FORMULA: Simple average for first 5 sessions, then EMA
+          let newAvgScore;
+          if (prev.sessions < 5) {
+            // Simple average for new users (fair weight)
+            newAvgScore = Math.round((prev.avgScore * prev.sessions + myScore) / newTotalSessions);
+          } else {
+            // EMA after 5 sessions (stability)
+            newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
+          }
           // Level based on ACCURACY (not points)
           const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
           const n = {
