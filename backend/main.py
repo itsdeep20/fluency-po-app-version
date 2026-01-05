@@ -762,39 +762,36 @@ Return ONLY the translation in {target_language} script. No explanations."""
             })
             
             # --- PER-MESSAGE ACCURACY ANALYSIS ---
-            # Analyze user's message for errors (same formula as simulations)
+            # Analyze user's message for errors (EASIER scoring for Battle Mode)
             model = get_model()
-            accuracy_prompt = f"""You are a strict English examiner. Analyze this sentence for grammar, spelling, and fluency errors.
+            accuracy_prompt = f"""You are a friendly English teacher. Analyze this sentence for grammar and spelling errors.
 
 Sentence: "{text}"
 
-ACCURACY FORMULA:
-Base: Accuracy = 100 - (errors × 75 / wordCount)
+ACCURACY FORMULA (EASY - Battle Mode):
+Accuracy = 100 - (errors × 50 / wordCount)
 
-MESSAGE LENGTH ADJUSTMENT (to reward effort and prevent gaming):
-- Short messages (<4 words): multiply error penalty by 1.5 (HARSHER - easy to write short, should be perfect)
-- Medium messages (4-6 words): normal penalty (1.0x)
-- Long messages (7+ words): multiply error penalty by 0.75 (LENIENT - harder to write long perfectly)
-
-LOGIC: Writing a long message with 1 error = impressive. Writing a short message with 1 error = lazy.
+RULES:
+- All message lengths treated equally (no harsh penalties for short messages)
+- Focus on CLEAR errors only (wrong verb, missing article, spelling)
+- Be LENIENT on casual speech, contractions, and informal style
+- Perfect casual messages like "Yeah", "OK", "Nice!" = 100%
 
 EXAMPLES:
 "OK" (1 word, perfect) → 100%
-"I going" (2 words, 1 error) → 100 - (75/2 × 1.5) = 100 - 56 = 44% (harsh!)
-"I going to market" (4 words, 1 error) → 100 - (75/4 × 1.0) = 100 - 19 = 81%
-"I going to the big market near my house" (9 words, 1 error) → 100 - (75/9 × 0.75) = 100 - 6 = 94% (lenient!)
-
-Be STRICT on grammar errors (wrong tense, missing articles, wrong prepositions)
+"I going" (2 words, 1 error) → 100 - (50/2) = 75%
+"I going to market" (4 words, 1 error) → 100 - (50/4) = 87%
+"I am going to market" (5 words, perfect) → 100%
 
 Return JSON ONLY:
 If PERFECT:
 {{"accuracy": 100, "errorLevel": "perfect", "correction": null}}
 
-If MINOR ISSUE (natural/casual speech):
-{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "informal speech"}}}}
+If MINOR ISSUE:
+{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "informal"}}}}
 
 If ERROR:
-{{"accuracy": 60, "errorLevel": "mistake", "correction": {{"original": "I going market", "corrected": "I am going to the market", "reason": "missing verb 'am' and article 'the'"}}}}
+{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"original": "I going", "corrected": "I am going", "reason": "missing auxiliary verb"}}}}
 
 JSON only:"""
             

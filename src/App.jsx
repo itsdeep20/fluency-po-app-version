@@ -1830,20 +1830,8 @@ const App = () => {
           errorLevel: errorLevel
         } : m));
 
-        // V8: Show correction card if error/suggestion found
-        if (errorLevel !== 'perfect' && correction) {
-          const correctionId = 'battle_correction_' + Date.now();
-          const now = Date.now();
-          adjustedTimestamps.current[correctionId] = now;
-          setMessages(prev => [...prev, {
-            id: correctionId,
-            sender: 'correction',
-            errorLevel: errorLevel,
-            correction: correction,
-            originalText: text,
-            createdAt: now
-          }]);
-        }
+        // V8: Battle Mode - NO correction cards shown (clean battlefield)
+        // Accuracy is tracked silently for scoring, no tips/corrections displayed
 
         // For Battle-Bot: Simulate seen + typing with delays
         if (activeSession.type === 'battle-bot') {
@@ -2133,11 +2121,10 @@ const App = () => {
           }
 
           const newTotalSessions = prev.sessions + 1;
-          // V8: Battle Mode gets 1.1x difficulty bonus (harder mode due to strict penalties)
-          const battleBonusScore = Math.min(100, Math.round(myScore * 1.1));
-          console.log('[V8 BATTLE_BONUS] Raw:', myScore, '→ With 1.1x bonus:', battleBonusScore);
+          // V8: Battle Mode scoring is now easier, no bonus needed - direct contribution
+          console.log('[V8 BATTLE_SCORE] Contributing to avgScore:', myScore);
           // EMA formula with n=9 (each session has ~10% weight)
-          const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + battleBonusScore) / 10);
+          const newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
           // Level based on ACCURACY (not points)
           const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
           const n = {
