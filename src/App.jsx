@@ -299,7 +299,7 @@ const getLevelFromAccuracy = (avgScore) => {
   if (avgScore >= 95) return { name: 'Master', icon: '👑', gradient: 'from-yellow-500 to-amber-500' };
   if (avgScore >= 85) return { name: 'Expert', icon: '⭐', gradient: 'from-purple-500 to-indigo-500' };
   if (avgScore >= 70) return { name: 'Advanced', icon: '🎯', gradient: 'from-blue-500 to-cyan-500' };
-  if (avgScore >= 50) return { name: 'Intermediate', icon: '📈', gradient: 'from-emerald-500 to-teal-500' };
+  if (avgScore >= 50) return { name: 'Intermediate', icon: '🚀', gradient: 'from-emerald-500 to-teal-500' };
   return { name: 'Beginner', icon: '🌱', gradient: 'from-gray-400 to-gray-500' };
 };
 
@@ -2768,7 +2768,7 @@ const App = () => {
         <main className="p-4 space-y-4">
           {/* Quick Stats Bar */}
           <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl p-3">
-            <button onClick={() => setShowStatInfo('streak')} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
+            <button onClick={() => setShowStreakProgress(true)} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
               <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
                 <Zap className="text-orange-500" size={16} />
               </div>
@@ -2799,7 +2799,7 @@ const App = () => {
               </div>
             </button>
             <div className="w-px h-8 bg-gray-200"></div>
-            <button onClick={() => setShowStatInfo('avgScore')} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
+            <button onClick={() => setShowAccuracyInfo(true)} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
               <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
                 <Target className="text-emerald-500" size={16} />
               </div>
@@ -3445,15 +3445,11 @@ const App = () => {
                     {/* Level - Clickable, shows progression popup */}
                     <button
                       onClick={() => setShowLevelProgress(true)}
-                      className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-3 text-center hover:ring-2 hover:ring-emerald-300 transition-all overflow-hidden"
+                      className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-2 text-center hover:ring-2 hover:ring-emerald-300 transition-all overflow-hidden"
                     >
-                      <div className="text-[10px] font-black text-emerald-600 leading-tight">
-                        {(() => {
-                          const level = getLevelFromAccuracy(stats.avgScore || 0).name;
-                          return level === 'Intermediate' ? 'Intermed.' : level;
-                        })()}
-                      </div>
-                      <div className="text-[9px] text-emerald-500 font-semibold">Level 🏆</div>
+                      <div className="text-lg">{getLevelFromAccuracy(stats.avgScore || 0).icon}</div>
+                      <div className="text-[9px] font-bold text-emerald-600 truncate">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
+                      <div className="text-[8px] text-emerald-400">Level</div>
                     </button>
                     {/* Battles Won */}
                     <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl p-3 text-center">
@@ -3467,9 +3463,9 @@ const App = () => {
                   {/* Accuracy Trend - Only show after 2+ sessions */}
                   {(stats.sessions || 0) >= 2 && sessionHistory.length > 0 ? (
                     <div className="bg-gray-50 rounded-2xl p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <TrendingUp size={16} className="text-emerald-500" />
-                        <span className="text-sm font-bold text-gray-700">Your Journey</span>
+                      <div className="flex items-center gap-2 mb-2">
+                        <TrendingUp size={14} className="text-emerald-500" />
+                        <span className="text-xs font-bold text-gray-700">Accuracy per Session</span>
                       </div>
                       <div className="flex items-end gap-1 h-16">
                         {sessionHistory.slice(-10).map((s, i) => {
