@@ -3704,14 +3704,25 @@ const App = () => {
                       <div className="text-xl font-black text-orange-600">{stats.streak || 0}</div>
                       <div className="text-[9px] text-orange-500 font-semibold">🔥 Streak</div>
                     </button>
-                    {/* Level - Clickable, shows progression popup */}
+                    {/* Level - Shield Badge, shows progression popup */}
                     <button
                       onClick={() => setShowLevelProgress(true)}
-                      className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-2 text-center hover:ring-2 hover:ring-emerald-300 transition-all overflow-hidden"
+                      className="relative flex items-center justify-center hover:scale-105 transition-transform"
                     >
-                      <div className="text-lg">{getLevelFromAccuracy(stats.avgScore || 0).icon}</div>
-                      <div className="text-[9px] font-bold text-emerald-600 truncate">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
-                      <div className="text-[8px] text-emerald-400">Level</div>
+                      <div
+                        className={`relative w-14 h-16 flex flex-col items-center justify-center bg-gradient-to-br ${getLevelFromAccuracy(stats.avgScore || 0).gradient}`}
+                        style={{
+                          clipPath: 'polygon(50% 0%, 100% 15%, 100% 75%, 50% 100%, 0% 75%, 0% 15%)'
+                        }}
+                      >
+                        {/* Inner shine */}
+                        <div className="absolute inset-1 bg-gradient-to-b from-white/40 to-transparent"
+                          style={{ clipPath: 'polygon(50% 2%, 98% 16%, 98% 74%, 50% 98%, 2% 74%, 2% 16%)' }} />
+                        <div className="relative z-10 text-white text-center">
+                          <div className="text-[10px] font-bold tracking-wider drop-shadow-md">{getLevelFromAccuracy(stats.avgScore || 0).icon}</div>
+                          <div className="text-[7px] font-black mt-0.5 drop-shadow uppercase">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
+                        </div>
+                      </div>
                     </button>
                     {/* Battles Won */}
                     <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl p-3 text-center">
