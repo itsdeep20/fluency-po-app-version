@@ -854,12 +854,15 @@ const App = () => {
         console.log('[PROGRESS_REPORT] Fetched sessions:', sessions.length);
 
         // Auto-trigger AI analysis if user has 3+ sessions and no existing data
+        console.log('[DEBUG] AI Analysis check: stats.sessions=', stats.sessions, 'progressReportData=', !!progressReportData, 'sessions fetched=', sessions.length);
+        console.log('[DEBUG] Sample session data:', sessions[0]);
         if ((stats.sessions || 0) >= 3 && !progressReportData) {
           setIsLoadingReport(true);
           try {
             const token = await user.getIdToken();
             const corrections = sessions.flatMap(s => s.corrections || []).slice(-30);
-            console.log('[PROGRESS_REPORT] Auto-triggering AI analysis with', corrections.length, 'corrections');
+            console.log('[DEBUG] AI Analysis: Found', corrections.length, 'corrections from', sessions.length, 'sessions');
+            console.log('[DEBUG] Sample corrections:', corrections.slice(0, 2));
             const res = await fetch(`${BACKEND_URL}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -2769,7 +2772,7 @@ const App = () => {
         <main className="p-4 space-y-4">
           {/* Quick Stats Bar */}
           <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl p-3">
-            <button onClick={() => setShowStreakProgress(true)} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
+            <button onClick={() => { console.log('[DEBUG] Streak clicked - opening showStreakProgress'); setShowStreakProgress(true); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
               <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
                 <Zap className="text-orange-500" size={16} />
               </div>
@@ -2790,7 +2793,7 @@ const App = () => {
               </div>
             </button>
             <div className="w-px h-8 bg-gray-200"></div>
-            <button onClick={() => setShowStatInfo('points')} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
+            <button onClick={() => { console.log('[DEBUG] Points clicked'); setShowStatInfo('points'); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
               <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
                 <Award className="text-purple-500" size={16} />
               </div>
@@ -2800,7 +2803,7 @@ const App = () => {
               </div>
             </button>
             <div className="w-px h-8 bg-gray-200"></div>
-            <button onClick={() => setShowAccuracyInfo(true)} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
+            <button onClick={() => { console.log('[DEBUG] Accuracy clicked - opening showAccuracyInfo'); setShowAccuracyInfo(true); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
               <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
                 <Target className="text-emerald-500" size={16} />
               </div>
