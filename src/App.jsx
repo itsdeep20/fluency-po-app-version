@@ -294,13 +294,13 @@ const STAT_INFO = {
   avgScore: { title: '📊 Accuracy Score', desc: 'This score reflects deep analysis of your grammar, vocabulary, and fluency from sessions & battles. Practice regularly to boost your accuracy! ✨' },
 };
 
-// Helper function to compute level from accuracy (fixes stale Firestore values)
+// Helper function to compute level from accuracy (Military rank style)
 const getLevelFromAccuracy = (avgScore) => {
-  if (avgScore >= 95) return { name: 'Master', icon: '👑', gradient: 'from-yellow-500 to-amber-500' };
-  if (avgScore >= 85) return { name: 'Expert', icon: '⭐', gradient: 'from-purple-500 to-indigo-500' };
-  if (avgScore >= 70) return { name: 'Advanced', icon: '🎯', gradient: 'from-blue-500 to-cyan-500' };
-  if (avgScore >= 50) return { name: 'Intermediate', icon: '🚀', gradient: 'from-emerald-500 to-teal-500' };
-  return { name: 'Beginner', icon: '🌱', gradient: 'from-gray-400 to-gray-500' };
+  if (avgScore >= 95) return { name: 'General', icon: '★★★★', gradient: 'from-yellow-500 to-amber-500' };
+  if (avgScore >= 85) return { name: 'Lieutenant', icon: '★★★', gradient: 'from-purple-500 to-indigo-500' };
+  if (avgScore >= 70) return { name: 'Sergeant', icon: '★★', gradient: 'from-blue-500 to-cyan-500' };
+  if (avgScore >= 50) return { name: 'Corporal', icon: '★', gradient: 'from-emerald-500 to-teal-500' };
+  return { name: 'Cadet', icon: '☆', gradient: 'from-slate-400 to-slate-500' };
 };
 
 const App = () => {
@@ -398,6 +398,7 @@ const App = () => {
   const [showStreakMilestone, setShowStreakMilestone] = useState(null); // Streak milestone celebration (3, 7, 15, 30)
   const [showStreakProgress, setShowStreakProgress] = useState(false); // Streak milestones view popup
   const [showAccuracyInfo, setShowAccuracyInfo] = useState(false); // Accuracy explanation popup
+  const [showPointsInfo, setShowPointsInfo] = useState(false); // Points explanation popup
   const prevLevelRef = useRef(null); // Track previous level for badge unlock detection
   const prevStreakRef = useRef(0); // Track previous streak for milestone detection
   const isEndingRef = useRef(false);
@@ -2664,7 +2665,7 @@ const App = () => {
                       <div
                         key={milestone}
                         className={`flex items-center gap-3 p-2 rounded-xl transition-all ${isReached ? 'bg-gradient-to-r from-orange-400 to-red-400 text-white' :
-                            isNext ? 'bg-orange-100 ring-2 ring-orange-400' : 'bg-gray-100 opacity-60'
+                          isNext ? 'bg-orange-100 ring-2 ring-orange-400' : 'bg-gray-100 opacity-60'
                           }`}
                       >
                         <div className="text-xl">{isReached ? '✅' : isNext ? '🎯' : '🔒'}</div>
@@ -2754,14 +2755,14 @@ const App = () => {
                 className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
                 onClick={e => e.stopPropagation()}
               >
-                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🏆 Level Journey</h3>
+                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🎖️ Rank Journey</h3>
                 <div className="space-y-2">
                   {[
-                    { name: 'Beginner', icon: '🌱', min: 0, color: 'from-gray-400 to-gray-500' },
-                    { name: 'Intermediate', icon: '🚀', min: 50, color: 'from-emerald-500 to-teal-500' },
-                    { name: 'Advanced', icon: '🎯', min: 70, color: 'from-blue-500 to-cyan-500' },
-                    { name: 'Expert', icon: '⭐', min: 85, color: 'from-purple-500 to-indigo-500' },
-                    { name: 'Master', icon: '👑', min: 95, color: 'from-yellow-500 to-amber-500' }
+                    { name: 'Cadet', stars: '☆', min: 0, color: 'from-slate-400 to-slate-500', desc: 'Starting out' },
+                    { name: 'Corporal', stars: '★', min: 50, color: 'from-emerald-500 to-teal-500', desc: '1 Star Rank' },
+                    { name: 'Sergeant', stars: '★★', min: 70, color: 'from-blue-500 to-cyan-500', desc: '2 Star Rank' },
+                    { name: 'Lieutenant', stars: '★★★', min: 85, color: 'from-purple-500 to-indigo-500', desc: '3 Star Rank' },
+                    { name: 'General', stars: '★★★★', min: 95, color: 'from-yellow-500 to-amber-500', desc: '4 Star Commander' }
                   ].map(level => {
                     const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
                     const isUnlocked = (stats.avgScore || 0) >= level.min;
@@ -2770,16 +2771,16 @@ const App = () => {
                       <div
                         key={level.name}
                         className={`flex items-center gap-3 p-3 rounded-xl transition-all ${isCurrent ? `bg-gradient-to-r ${level.color} text-white ring-2 ring-offset-2 ring-emerald-400` :
-                            isUnlocked ? 'bg-gray-100' : 'bg-gray-50 opacity-50'
+                          isUnlocked ? 'bg-gray-100' : 'bg-gray-50 opacity-50'
                           }`}
                       >
-                        <div className="text-2xl">{level.icon}</div>
+                        <div className={`text-lg font-bold ${isCurrent ? 'text-yellow-300' : isUnlocked ? 'text-yellow-500' : 'text-gray-400'}`}>{level.stars}</div>
                         <div className="flex-1">
                           <div className={`font-bold ${isCurrent ? 'text-white' : 'text-gray-700'}`}>
                             {level.name} {isCurrent && '← You'}
                           </div>
                           <div className={`text-xs ${isCurrent ? 'text-white/80' : 'text-gray-400'}`}>
-                            {level.min}%+ accuracy
+                            {level.desc} • {level.min}%+
                           </div>
                         </div>
                         {!isUnlocked && <div className="text-lg">🔒</div>}
@@ -2792,6 +2793,71 @@ const App = () => {
                   className="w-full mt-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:opacity-90"
                 >
                   Keep Practicing! 💪
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Points Info Popup - GLOBAL */}
+        <AnimatePresence>
+          {showPointsInfo && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              onClick={() => setShowPointsInfo(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">⭐ Your Points</h3>
+                <div className="text-center mb-4">
+                  <div className="text-4xl font-black bg-gradient-to-r from-purple-500 to-indigo-500 bg-clip-text text-transparent">{(stats.points || 0).toLocaleString()}</div>
+                  <div className="text-sm text-gray-500">Total XP Earned</div>
+                </div>
+                <div className="bg-purple-50 rounded-2xl p-4 mb-4">
+                  <div className="text-sm text-purple-800 leading-relaxed">
+                    Earn points by practicing! Each message earns 5 XP, corrections teach you more (+2 XP), and winning battles gives bonus XP! 🎮
+                  </div>
+                </div>
+                <div className="space-y-2 mb-4">
+                  <div className="text-xs font-bold text-gray-600 mb-2">Point Milestones</div>
+                  {[
+                    { points: 100, badge: '🥉', name: 'Starter' },
+                    { points: 500, badge: '🥈', name: 'Rising Star' },
+                    { points: 1000, badge: '🥇', name: 'Champion' },
+                    { points: 2500, badge: '💎', name: 'Diamond' },
+                    { points: 5000, badge: '👑', name: 'Elite' },
+                    { points: 10000, badge: '🏆', name: 'Legend' }
+                  ].map(m => {
+                    const current = stats.points || 0;
+                    const isReached = current >= m.points;
+                    const isNext = !isReached && current >= (m.points === 100 ? 0 : [100, 500, 1000, 2500, 5000][[100, 500, 1000, 2500, 5000, 10000].indexOf(m.points)]);
+                    return (
+                      <div key={m.points} className={`flex items-center gap-2 p-2 rounded-lg text-sm ${isReached ? 'bg-gradient-to-r from-purple-100 to-indigo-100' :
+                        isNext ? 'bg-purple-50 ring-1 ring-purple-300' : 'bg-gray-50 opacity-50'
+                        }`}>
+                        <span className="text-lg">{m.badge}</span>
+                        <span className={`flex-1 ${isReached ? 'font-bold text-purple-700' : 'text-gray-600'}`}>
+                          {m.name} {isNext && '← Next'}
+                        </span>
+                        <span className="text-xs text-gray-400">{m.points.toLocaleString()} XP</span>
+                        {isReached && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setShowPointsInfo(false)}
+                  className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-2xl hover:opacity-90"
+                >
+                  Keep Earning! 💪
                 </button>
               </motion.div>
             </motion.div>
@@ -2958,7 +3024,7 @@ const App = () => {
               </div>
             </button>
             <div className="w-px h-8 bg-gray-200"></div>
-            <button onClick={() => { console.log('[DEBUG] Points clicked'); setShowStatInfo('points'); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
+            <button onClick={() => { console.log('[DEBUG] Points clicked'); setShowPointsInfo(true); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
               <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
                 <Award className="text-purple-500" size={16} />
               </div>
