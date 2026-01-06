@@ -399,6 +399,10 @@ const App = () => {
   const [showStreakProgress, setShowStreakProgress] = useState(false); // Streak milestones view popup
   const [showAccuracyInfo, setShowAccuracyInfo] = useState(false); // Accuracy explanation popup
   const [showPointsInfo, setShowPointsInfo] = useState(false); // Points explanation popup
+  const [showStudyGuideModal, setShowStudyGuideModal] = useState(false); // Study Guide PDF modal
+  const [studyGuideFilter, setStudyGuideFilter] = useState('new'); // 'new', '7days', '30days', 'all'
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [lastPdfDownload, setLastPdfDownload] = useState(null);
   const prevLevelRef = useRef(null); // Track previous level for badge unlock detection
   const prevStreakRef = useRef(0); // Track previous streak for milestone detection
   const isEndingRef = useRef(false);
@@ -2920,6 +2924,154 @@ const App = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Study Guide PDF Modal */}
+        <AnimatePresence>
+          {showStudyGuideModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+              onClick={() => !isGeneratingPdf && setShowStudyGuideModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="text-center mb-4">
+                  <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-emerald-200">
+                    <FileText className="text-white" size={28} />
+                  </div>
+                  <h3 className="text-xl font-black text-gray-900">📄 Download Study Guide</h3>
+                  <p className="text-xs text-gray-500 mt-1">Get a PDF of your corrections to practice offline</p>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                  <div className="text-sm font-bold text-gray-700 mb-2">Select corrections to include:</div>
+                  {[
+                    { id: 'new', label: 'New since last download', desc: lastPdfDownload ? `Since ${new Date(lastPdfDownload).toLocaleDateString()}` : 'First download' },
+                    { id: '7days', label: 'Last 7 days', desc: 'Recent practice' },
+                    { id: '30days', label: 'Last 30 days', desc: 'Monthly review' },
+                    { id: 'all', label: 'All time', desc: 'Complete history' }
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setStudyGuideFilter(opt.id)}
+                      className={`w-full p-3 rounded-xl text-left transition-all ${studyGuideFilter === opt.id
+                        ? 'bg-emerald-50 ring-2 ring-emerald-500'
+                        : 'bg-gray-50 hover:bg-gray-100'
+                        }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${studyGuideFilter === opt.id ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300'
+                          }`}>
+                          {studyGuideFilter === opt.id && <div className="w-2 h-2 bg-white rounded-full" />}
+                        </div>
+                        <span className={`font-semibold ${studyGuideFilter === opt.id ? 'text-emerald-700' : 'text-gray-700'}`}>
+                          {opt.label}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-400 ml-6">{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {lastPdfDownload && (
+                  <div className="text-xs text-gray-400 text-center mb-3">
+                    Last download: {new Date(lastPdfDownload).toLocaleDateString()}
+                  </div>
+                )}
+
+                <button
+                  onClick={async () => {
+                    setIsGeneratingPdf(true);
+                    try {
+                      const res = await fetch('https://us-central1-project-fluency-ai-pro-d3189.cloudfunctions.net/ext-firestore-bundle-builder-serve', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: 'generate_study_guide',
+                          userId: user.uid,
+                          dateFilter: studyGuideFilter
+                        })
+                      });
+                      const data = await res.json();
+
+                      if (data.error === 'no_corrections') {
+                        alert(data.message || 'No corrections found. Complete more practice sessions first!');
+                        setIsGeneratingPdf(false);
+                        return;
+                      }
+
+                      if (data.error) {
+                        alert('Error: ' + data.error);
+                        setIsGeneratingPdf(false);
+                        return;
+                      }
+
+                      if (data.pdf) {
+                        // Convert base64 to blob and download
+                        const byteCharacters = atob(data.pdf);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                          byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], { type: 'application/pdf' });
+
+                        // Create download link
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `fluency-pro-study-guide-${new Date().toISOString().split('T')[0]}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+
+                        // Update last download date locally
+                        setLastPdfDownload(new Date().toISOString());
+                        setShowStudyGuideModal(false);
+                      }
+                    } catch (err) {
+                      console.error('PDF generation error:', err);
+                      alert('Failed to generate PDF. Please try again.');
+                    }
+                    setIsGeneratingPdf(false);
+                  }}
+                  disabled={isGeneratingPdf}
+                  className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isGeneratingPdf ? (
+                    <>
+                      <Loader2 className="animate-spin" size={18} />
+                      Generating PDF...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={18} />
+                      Generate & Download PDF
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => setShowStudyGuideModal(false)}
+                  disabled={isGeneratingPdf}
+                  className="w-full mt-2 py-2 text-gray-500 hover:text-gray-700 font-medium text-sm"
+                >
+                  Cancel
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </>
     );
   };
@@ -3700,9 +3852,19 @@ const App = () => {
                     <BarChart3 size={24} />
                     <h2 className="text-xl font-black">Progress Report</h2>
                   </div>
-                  <button onClick={() => setShowProgressReport(false)} className="p-1 hover:bg-white/20 rounded-full transition-colors">
-                    <X size={20} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { setShowProgressReport(false); setShowStudyGuideModal(true); }}
+                      className="p-2 hover:bg-white/20 rounded-full transition-colors flex items-center gap-1 text-xs font-semibold"
+                      title="Download Study Guide PDF"
+                    >
+                      <Download size={16} />
+                      <span className="hidden sm:inline">PDF</span>
+                    </button>
+                    <button onClick={() => setShowProgressReport(false)} className="p-1 hover:bg-white/20 rounded-full transition-colors">
+                      <X size={20} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="p-4 space-y-4">

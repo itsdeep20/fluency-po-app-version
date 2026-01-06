@@ -8,8 +8,22 @@ from google.cloud import firestore
 from google.cloud import texttospeech
 import base64
 from vertexai.generative_models import GenerativeModel, Content, Part
+from io import BytesIO
 
 import re
+
+# --- PDF Generation Imports (Optional) ---
+REPORTLAB_AVAILABLE = True
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch, mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    print("[WARNING] reportlab not available - PDF generation disabled")
 
 # --- TTS VOICE CONFIGURATION ---
 # Maps bot IDs to Indian English WaveNet voices (Male/Female)
@@ -1312,9 +1326,281 @@ JSON only:"""
                     "strongPoints": [{"category": "Effort", "detail": "Great job staying consistent with practice!"}]
                 }), 200, headers)
 
+        # ========================================
+        # GENERATE STUDY GUIDE PDF
+        # ========================================
+        if req_type == 'generate_study_guide':
+            # Check if PDF generation is available
+            if not REPORTLAB_AVAILABLE:
+                return (json.dumps({
+                    "error": "pdf_unavailable",
+                    "message": "PDF generation is temporarily unavailable. Please try again later."
+                }), 503, headers)
+            
+            user_id = data.get('userId')
+            date_filter = data.get('dateFilter', 'new')  # '7days', '30days', 'all', 'new'
+            
+            if not user_id:
+                return (json.dumps({"error": "userId required"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                
+                # Get user data
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if not user_doc.exists:
+                    return (json.dumps({"error": "User not found"}), 404, headers)
+                
+                user_data = user_doc.to_dict()
+                streak = user_data.get('streak', 0)
+                points = user_data.get('points', 0)
+                avg_score = user_data.get('avgScore', 0)
+                last_pdf_download = user_data.get('lastPdfDownload')
+                
+                # Determine level from accuracy
+                if avg_score >= 95:
+                    level_name, level_icon = 'Master', '****'
+                elif avg_score >= 85:
+                    level_name, level_icon = 'Pro', '***'
+                elif avg_score >= 70:
+                    level_name, level_icon = 'Improver', '**'
+                elif avg_score >= 50:
+                    level_name, level_icon = 'Learner', '*'
+                else:
+                    level_name, level_icon = 'Starter', '-'
+                
+                # Calculate date filter
+                now = datetime.now(timezone.utc)
+                filter_date = None
+                filter_label = "All Time"
+                
+                if date_filter == '7days':
+                    filter_date = now - timedelta(days=7)
+                    filter_label = "Last 7 Days"
+                elif date_filter == '30days':
+                    filter_date = now - timedelta(days=30)
+                    filter_label = "Last 30 Days"
+                elif date_filter == 'new' and last_pdf_download:
+                    try:
+                        filter_date = datetime.fromisoformat(last_pdf_download.replace('Z', '+00:00'))
+                        filter_label = f"Since {filter_date.strftime('%b %d, %Y')}"
+                    except:
+                        filter_date = now - timedelta(days=7)
+                        filter_label = "Last 7 Days"
+                elif date_filter == 'new':
+                    filter_date = now - timedelta(days=7)
+                    filter_label = "Last 7 Days (First Download)"
+                
+                # Fetch sessions with corrections
+                sessions_ref = db.collection('users').document(user_id).collection('sessions')
+                sessions_query = sessions_ref.order_by('startTime', direction=firestore.Query.DESCENDING).limit(100)
+                sessions = sessions_query.stream()
+                
+                all_corrections = []
+                for session in sessions:
+                    session_data = session.to_dict()
+                    session_date = session_data.get('startTime')
+                    
+                    # Apply date filter
+                    if filter_date and session_date:
+                        try:
+                            if hasattr(session_date, 'timestamp'):
+                                session_datetime = datetime.fromtimestamp(session_date.timestamp(), tz=timezone.utc)
+                            else:
+                                session_datetime = datetime.fromisoformat(str(session_date).replace('Z', '+00:00'))
+                            
+                            if session_datetime < filter_date:
+                                continue
+                        except:
+                            pass
+                    
+                    corrections = session_data.get('corrections', [])
+                    for corr in corrections:
+                        if isinstance(corr, dict):
+                            corr['sessionDate'] = session_data.get('startTime')
+                            all_corrections.append(corr)
+                
+                # Limit to 50 corrections max
+                all_corrections = all_corrections[:50]
+                
+                if not all_corrections:
+                    return (json.dumps({
+                        "error": "no_corrections",
+                        "message": "No corrections found for the selected time period. Complete more practice sessions first!"
+                    }), 200, headers)
+                
+                # Categorize corrections for focus areas
+                categories = {}
+                for corr in all_corrections:
+                    cat = corr.get('type', 'General')
+                    if cat not in categories:
+                        categories[cat] = 0
+                    categories[cat] += 1
+                
+                focus_areas = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:3]
+                
+                # Generate PDF
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=A4, 
+                                        rightMargin=20*mm, leftMargin=20*mm,
+                                        topMargin=20*mm, bottomMargin=20*mm)
+                
+                styles = getSampleStyleSheet()
+                
+                # Custom styles
+                title_style = ParagraphStyle(
+                    'CustomTitle', parent=styles['Heading1'],
+                    fontSize=24, textColor=colors.HexColor('#10B981'),
+                    alignment=TA_CENTER, spaceAfter=10
+                )
+                subtitle_style = ParagraphStyle(
+                    'Subtitle', parent=styles['Normal'],
+                    fontSize=12, textColor=colors.HexColor('#6B7280'),
+                    alignment=TA_CENTER, spaceAfter=20
+                )
+                section_style = ParagraphStyle(
+                    'Section', parent=styles['Heading2'],
+                    fontSize=14, textColor=colors.HexColor('#1F2937'),
+                    spaceBefore=15, spaceAfter=10
+                )
+                body_style = ParagraphStyle(
+                    'Body', parent=styles['Normal'],
+                    fontSize=10, textColor=colors.HexColor('#374151'),
+                    spaceAfter=5
+                )
+                correction_header = ParagraphStyle(
+                    'CorrHeader', parent=styles['Normal'],
+                    fontSize=9, textColor=colors.HexColor('#6B7280'),
+                    spaceAfter=5
+                )
+                wrong_style = ParagraphStyle(
+                    'Wrong', parent=styles['Normal'],
+                    fontSize=11, textColor=colors.HexColor('#DC2626'),
+                    leftIndent=10, spaceAfter=3
+                )
+                correct_style = ParagraphStyle(
+                    'Correct', parent=styles['Normal'],
+                    fontSize=11, textColor=colors.HexColor('#059669'),
+                    leftIndent=10, spaceAfter=3
+                )
+                tip_style = ParagraphStyle(
+                    'Tip', parent=styles['Normal'],
+                    fontSize=9, textColor=colors.HexColor('#7C3AED'),
+                    leftIndent=10, spaceBefore=5, spaceAfter=10,
+                    backColor=colors.HexColor('#F3E8FF')
+                )
+                
+                story = []
+                
+                # Header
+                story.append(Paragraph("FLUENCY PRO", title_style))
+                story.append(Paragraph("Study Guide - Your Personalized Learning Summary", subtitle_style))
+                story.append(Paragraph(f"Generated: {now.strftime('%B %d, %Y')} | {filter_label} | {len(all_corrections)} Corrections", 
+                                       ParagraphStyle('DateLine', parent=styles['Normal'], fontSize=9, textColor=colors.gray, alignment=TA_CENTER)))
+                story.append(Spacer(1, 15))
+                
+                # Stats Table
+                stats_data = [
+                    [f"Streak: {streak}", f"XP: {points:,.0f}", f"Accuracy: {avg_score}%"],
+                    ["Day Streak", "XP Points", "Accuracy"]
+                ]
+                stats_table = Table(stats_data, colWidths=[55*mm, 55*mm, 55*mm])
+                stats_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F0FDF4')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#047857')),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('FONTSIZE', (0, 1), (-1, 1), 9),
+                    ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                    ('TOPPADDING', (0, 0), (-1, 0), 10),
+                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#D1FAE5')),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1FAE5')),
+                ]))
+                story.append(stats_table)
+                story.append(Paragraph(f"Level: {level_icon} {level_name}", 
+                                       ParagraphStyle('Level', fontSize=11, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=10)))
+                story.append(Spacer(1, 15))
+                
+                # Focus Areas
+                if focus_areas:
+                    story.append(Paragraph("TOP FOCUS AREAS", section_style))
+                    story.append(Paragraph("Based on your recent mistakes:", body_style))
+                    for i, (cat, count) in enumerate(focus_areas, 1):
+                        story.append(Paragraph(f"  {i}. {cat} ({count} correction{'s' if count > 1 else ''})", body_style))
+                    story.append(Spacer(1, 15))
+                
+                # Corrections
+                story.append(Paragraph("CORRECTIONS TO PRACTICE", section_style))
+                story.append(Spacer(1, 5))
+                
+                for i, corr in enumerate(all_corrections, 1):
+                    original = corr.get('original', corr.get('userText', 'N/A'))
+                    corrected = corr.get('corrected', corr.get('correctedText', 'N/A'))
+                    explanation = corr.get('explanation', 'Practice this pattern.')
+                    corr_type = corr.get('type', 'General')
+                    
+                    # Get date if available
+                    session_date = corr.get('sessionDate', '')
+                    date_str = ''
+                    if session_date:
+                        try:
+                            if hasattr(session_date, 'strftime'):
+                                date_str = session_date.strftime('%b %d')
+                            elif hasattr(session_date, 'timestamp'):
+                                date_str = datetime.fromtimestamp(session_date.timestamp()).strftime('%b %d')
+                        except:
+                            pass
+                    
+                    story.append(Paragraph(f"#{i} | {corr_type} {' | ' + date_str if date_str else ''}", correction_header))
+                    story.append(Paragraph(f"YOUR VERSION: \"{original}\"", wrong_style))
+                    story.append(Paragraph(f"CORRECT: \"{corrected}\"", correct_style))
+                    story.append(Paragraph(f"TIP: {explanation}", tip_style))
+                    story.append(Spacer(1, 8))
+                
+                # Footer
+                story.append(Spacer(1, 20))
+                story.append(Paragraph("QUICK PRACTICE TIPS", section_style))
+                story.append(Paragraph("- Read each correction out loud 3 times", body_style))
+                story.append(Paragraph("- Write the correct sentence in a notebook", body_style))
+                story.append(Paragraph("- Try using these patterns in your next session", body_style))
+                story.append(Spacer(1, 20))
+                story.append(Paragraph("Mistakes are proof that you are trying!", 
+                                       ParagraphStyle('Quote', fontSize=11, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER, fontName='Helvetica-Oblique')))
+                story.append(Paragraph("Keep practicing on Fluency Pro!", 
+                                       ParagraphStyle('Footer', fontSize=9, textColor=colors.gray, alignment=TA_CENTER, spaceBefore=5)))
+                
+                # Build PDF
+                doc.build(story)
+                pdf_bytes = buffer.getvalue()
+                buffer.close()
+                
+                # Update lastPdfDownload in Firestore
+                user_ref.update({
+                    'lastPdfDownload': now.isoformat()
+                })
+                
+                # Return base64 encoded PDF
+                pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                
+                return (json.dumps({
+                    "pdf": pdf_base64,
+                    "correctionsCount": len(all_corrections),
+                    "dateRange": filter_label,
+                    "focusAreas": [{"name": cat, "count": count} for cat, count in focus_areas]
+                }), 200, headers)
+                
+            except Exception as e:
+                print(f"[STUDY_GUIDE_ERROR] {e}")
+                import traceback
+                traceback.print_exc()
+                return (json.dumps({"error": str(e)}), 500, headers)
+
+        return (json.dumps({"error": f"Unknown type: {req_type}, keys: {list(data.keys())}"}), 400, headers)
+
     except Exception as e:
-        print(f"[GLOBAL_ERR] {e}")
-        return (json.dumps({"error": str(e)}), 200, headers)
-
-
-    return (json.dumps({"error": f"Unknown type: {req_type}, keys: {list(data.keys())}"}), 400, headers)
+        print(f"[GLOBAL_ERR] Type: {req_type}, Error: {e}")
+        return (json.dumps({"error": str(e)}), 500, headers)
