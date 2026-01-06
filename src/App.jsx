@@ -2632,6 +2632,171 @@ const App = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Streak Progress Popup - GLOBAL */}
+        <AnimatePresence>
+          {showStreakProgress && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              onClick={() => setShowStreakProgress(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🔥 Streak Journey</h3>
+                <div className="text-center mb-4">
+                  <div className="text-4xl font-black text-orange-500">{stats.streak || 0}</div>
+                  <div className="text-sm text-gray-500">Current streak days</div>
+                </div>
+                <div className="space-y-2">
+                  {[3, 7, 15, 30, 60, 100].map(milestone => {
+                    const current = stats.streak || 0;
+                    const isReached = current >= milestone;
+                    const isNext = !isReached && (milestone === 3 || current >= [0, 3, 7, 15, 30, 60][[3, 7, 15, 30, 60, 100].indexOf(milestone)]);
+                    return (
+                      <div
+                        key={milestone}
+                        className={`flex items-center gap-3 p-2 rounded-xl transition-all ${isReached ? 'bg-gradient-to-r from-orange-400 to-red-400 text-white' :
+                            isNext ? 'bg-orange-100 ring-2 ring-orange-400' : 'bg-gray-100 opacity-60'
+                          }`}
+                      >
+                        <div className="text-xl">{isReached ? '✅' : isNext ? '🎯' : '🔒'}</div>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${isReached ? 'text-white' : 'text-gray-700'}`}>
+                            {milestone} Day Streak {isNext && '← Next'}
+                          </div>
+                          <div className={`text-xs ${isReached ? 'text-white/80' : 'text-gray-400'}`}>
+                            {isReached ? 'Achieved! 🎉' : `${milestone - current} days to go`}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setShowStreakProgress(false)}
+                  className="w-full mt-4 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white font-bold rounded-2xl hover:opacity-90"
+                >
+                  Keep the Fire Burning! 🔥
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Accuracy Info Popup - GLOBAL */}
+        <AnimatePresence>
+          {showAccuracyInfo && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              onClick={() => setShowAccuracyInfo(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🎯 Your Accuracy</h3>
+                <div className="text-center mb-4">
+                  <div className="text-5xl font-black text-purple-500">{stats.avgScore || 0}%</div>
+                  <div className="text-sm text-gray-500 mt-1">Overall Performance</div>
+                </div>
+                <div className="bg-purple-50 rounded-2xl p-4 mb-4">
+                  <div className="text-sm text-purple-800 leading-relaxed">
+                    Your accuracy reflects how well you communicate in English. It's calculated from grammar, vocabulary, and fluency across all your practice sessions. ✨
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded-2xl p-3 text-center">
+                  <div className="text-xs text-gray-500">
+                    {stats.avgScore >= 80 ? "🌟 Excellent! You're doing amazing!" :
+                      stats.avgScore >= 60 ? "💪 Great progress! Keep practicing!" :
+                        stats.avgScore >= 40 ? "📈 You're improving! Stay consistent!" :
+                          "🚀 Every practice session helps you grow!"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAccuracyInfo(false)}
+                  className="w-full mt-4 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-2xl hover:opacity-90"
+                >
+                  Got it! 👍
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Level Progression Popup - GLOBAL */}
+        <AnimatePresence>
+          {showLevelProgress && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              onClick={() => setShowLevelProgress(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🏆 Level Journey</h3>
+                <div className="space-y-2">
+                  {[
+                    { name: 'Beginner', icon: '🌱', min: 0, color: 'from-gray-400 to-gray-500' },
+                    { name: 'Intermediate', icon: '🚀', min: 50, color: 'from-emerald-500 to-teal-500' },
+                    { name: 'Advanced', icon: '🎯', min: 70, color: 'from-blue-500 to-cyan-500' },
+                    { name: 'Expert', icon: '⭐', min: 85, color: 'from-purple-500 to-indigo-500' },
+                    { name: 'Master', icon: '👑', min: 95, color: 'from-yellow-500 to-amber-500' }
+                  ].map(level => {
+                    const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
+                    const isUnlocked = (stats.avgScore || 0) >= level.min;
+                    const isCurrent = currentLevel === level.name;
+                    return (
+                      <div
+                        key={level.name}
+                        className={`flex items-center gap-3 p-3 rounded-xl transition-all ${isCurrent ? `bg-gradient-to-r ${level.color} text-white ring-2 ring-offset-2 ring-emerald-400` :
+                            isUnlocked ? 'bg-gray-100' : 'bg-gray-50 opacity-50'
+                          }`}
+                      >
+                        <div className="text-2xl">{level.icon}</div>
+                        <div className="flex-1">
+                          <div className={`font-bold ${isCurrent ? 'text-white' : 'text-gray-700'}`}>
+                            {level.name} {isCurrent && '← You'}
+                          </div>
+                          <div className={`text-xs ${isCurrent ? 'text-white/80' : 'text-gray-400'}`}>
+                            {level.min}%+ accuracy
+                          </div>
+                        </div>
+                        {!isUnlocked && <div className="text-lg">🔒</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setShowLevelProgress(false)}
+                  className="w-full mt-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:opacity-90"
+                >
+                  Keep Practicing! 💪
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </>
     );
   };
