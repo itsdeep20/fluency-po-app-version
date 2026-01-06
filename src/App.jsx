@@ -2692,7 +2692,7 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        {/* Accuracy Info Popup - GLOBAL */}
+        {/* Accuracy Info Popup - GLOBAL with Premium Shield Badges */}
         <AnimatePresence>
           {showAccuracyInfo && (
             <motion.div
@@ -2706,32 +2706,86 @@ const App = () => {
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.9, y: 20 }}
-                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                className="bg-gradient-to-b from-slate-50 to-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200"
                 onClick={e => e.stopPropagation()}
               >
-                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🎯 Your Accuracy</h3>
+                <h3 className="text-xl font-black text-gray-900 mb-2 text-center">🎖️ Accuracy Badges</h3>
                 <div className="text-center mb-4">
-                  <div className="text-5xl font-black text-purple-500">{stats.avgScore || 0}%</div>
-                  <div className="text-sm text-gray-500 mt-1">Overall Performance</div>
+                  <div className="text-4xl font-black bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">{stats.avgScore || 0}%</div>
+                  <div className="text-xs text-gray-400">Current Accuracy</div>
                 </div>
-                <div className="bg-purple-50 rounded-2xl p-4 mb-4">
-                  <div className="text-sm text-purple-800 leading-relaxed">
-                    Your accuracy reflects how well you communicate in English. It's calculated from grammar, vocabulary, and fluency across all your practice sessions. ✨
-                  </div>
+
+                {/* Shield Badge Grid */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  {[
+                    { name: 'Bronze', min: 50, color: 'from-amber-600 via-amber-500 to-yellow-600', borderColor: 'border-amber-700', star: '★', shadow: 'shadow-amber-200' },
+                    { name: 'Silver', min: 70, color: 'from-slate-400 via-slate-300 to-slate-400', borderColor: 'border-slate-500', star: '★★', shadow: 'shadow-slate-200' },
+                    { name: 'Gold', min: 85, color: 'from-yellow-500 via-yellow-400 to-amber-500', borderColor: 'border-yellow-600', star: '★★★', shadow: 'shadow-yellow-200' },
+                    { name: 'Diamond', min: 95, color: 'from-cyan-400 via-sky-300 to-blue-400', borderColor: 'border-cyan-500', star: '★★★★', shadow: 'shadow-cyan-200' }
+                  ].map(badge => {
+                    const isEarned = (stats.avgScore || 0) >= badge.min;
+                    const isNext = !isEarned && (stats.avgScore || 0) >= (badge.min === 50 ? 0 : badge.min - 20);
+                    return (
+                      <div key={badge.name} className="flex flex-col items-center">
+                        {/* Shield Badge */}
+                        <div
+                          className={`relative w-16 h-20 flex flex-col items-center justify-center transition-all ${isEarned ? 'scale-100' : 'scale-90 opacity-40 grayscale'
+                            }`}
+                          style={{
+                            clipPath: 'polygon(50% 0%, 100% 15%, 100% 75%, 50% 100%, 0% 75%, 0% 15%)',
+                            background: isEarned ? `linear-gradient(135deg, var(--tw-gradient-stops))` : '#94a3b8'
+                          }}
+                        >
+                          <div className={`absolute inset-0 bg-gradient-to-br ${badge.color} ${isEarned ? '' : 'hidden'}`}
+                            style={{ clipPath: 'polygon(50% 0%, 100% 15%, 100% 75%, 50% 100%, 0% 75%, 0% 15%)' }} />
+                          <div className="absolute inset-1 bg-gradient-to-b from-white/30 to-transparent rounded-t-lg"
+                            style={{ clipPath: 'polygon(50% 2%, 98% 16%, 98% 74%, 50% 98%, 2% 74%, 2% 16%)' }} />
+                          <div className={`relative z-10 text-white text-center ${isEarned ? '' : 'text-slate-400'}`}>
+                            <div className="text-[10px] font-bold tracking-wider drop-shadow-md">{badge.star}</div>
+                            <div className="text-[8px] font-black mt-0.5 drop-shadow">{badge.name.toUpperCase()}</div>
+                          </div>
+                          {isNext && <div className="absolute -top-1 -right-1 w-4 h-4 bg-purple-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold animate-pulse">!</div>}
+                        </div>
+                        <div className={`text-[10px] mt-1 font-bold ${isEarned ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {badge.min}%+ {isEarned ? '✓' : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="bg-gray-50 rounded-2xl p-3 text-center">
-                  <div className="text-xs text-gray-500">
-                    {stats.avgScore >= 80 ? "🌟 Excellent! You're doing amazing!" :
-                      stats.avgScore >= 60 ? "💪 Great progress! Keep practicing!" :
-                        stats.avgScore >= 40 ? "📈 You're improving! Stay consistent!" :
-                          "🚀 Every practice session helps you grow!"}
-                  </div>
-                </div>
+
+                {/* Progress to Next Badge */}
+                {(() => {
+                  const current = stats.avgScore || 0;
+                  const nextBadge = current < 50 ? { name: 'Bronze', min: 50 } :
+                    current < 70 ? { name: 'Silver', min: 70 } :
+                      current < 85 ? { name: 'Gold', min: 85 } :
+                        current < 95 ? { name: 'Diamond', min: 95 } : null;
+                  if (!nextBadge) return (
+                    <div className="bg-gradient-to-r from-yellow-100 to-amber-100 rounded-2xl p-3 text-center border border-yellow-200">
+                      <div className="text-sm font-bold text-yellow-800">🏆 All Badges Earned!</div>
+                      <div className="text-xs text-yellow-600">You're a Diamond Champion!</div>
+                    </div>
+                  );
+                  const progress = Math.round((current / nextBadge.min) * 100);
+                  return (
+                    <div className="bg-slate-100 rounded-2xl p-3">
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-600">Next: <span className="font-bold">{nextBadge.name}</span></span>
+                        <span className="text-purple-600 font-bold">{nextBadge.min - current}% to go</span>
+                      </div>
+                      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <button
                   onClick={() => setShowAccuracyInfo(false)}
-                  className="w-full mt-4 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-2xl hover:opacity-90"
+                  className="w-full mt-4 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-2xl hover:opacity-90 shadow-lg shadow-purple-200"
                 >
-                  Got it! 👍
+                  Keep Earning Badges! 🎖️
                 </button>
               </motion.div>
             </motion.div>
@@ -2799,7 +2853,7 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        {/* Points Info Popup - GLOBAL */}
+        {/* Points Info Popup - GLOBAL (Simple) */}
         <AnimatePresence>
           {showPointsInfo && (
             <motion.div
@@ -2813,51 +2867,24 @@ const App = () => {
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.9, y: 20 }}
-                className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                className="bg-white rounded-3xl p-6 max-w-xs w-full shadow-2xl"
                 onClick={e => e.stopPropagation()}
               >
-                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">⭐ Your Points</h3>
-                <div className="text-center mb-4">
-                  <div className="text-4xl font-black bg-gradient-to-r from-purple-500 to-indigo-500 bg-clip-text text-transparent">{(stats.points || 0).toLocaleString()}</div>
-                  <div className="text-sm text-gray-500">Total XP Earned</div>
-                </div>
-                <div className="bg-purple-50 rounded-2xl p-4 mb-4">
-                  <div className="text-sm text-purple-800 leading-relaxed">
-                    Earn points by practicing! Each message earns 5 XP, corrections teach you more (+2 XP), and winning battles gives bonus XP! 🎮
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Award className="text-purple-500" size={32} />
                   </div>
-                </div>
-                <div className="space-y-2 mb-4">
-                  <div className="text-xs font-bold text-gray-600 mb-2">Point Milestones</div>
-                  {[
-                    { points: 100, badge: '🥉', name: 'Starter' },
-                    { points: 500, badge: '🥈', name: 'Rising Star' },
-                    { points: 1000, badge: '🥇', name: 'Champion' },
-                    { points: 2500, badge: '💎', name: 'Diamond' },
-                    { points: 5000, badge: '👑', name: 'Elite' },
-                    { points: 10000, badge: '🏆', name: 'Legend' }
-                  ].map(m => {
-                    const current = stats.points || 0;
-                    const isReached = current >= m.points;
-                    const isNext = !isReached && current >= (m.points === 100 ? 0 : [100, 500, 1000, 2500, 5000][[100, 500, 1000, 2500, 5000, 10000].indexOf(m.points)]);
-                    return (
-                      <div key={m.points} className={`flex items-center gap-2 p-2 rounded-lg text-sm ${isReached ? 'bg-gradient-to-r from-purple-100 to-indigo-100' :
-                        isNext ? 'bg-purple-50 ring-1 ring-purple-300' : 'bg-gray-50 opacity-50'
-                        }`}>
-                        <span className="text-lg">{m.badge}</span>
-                        <span className={`flex-1 ${isReached ? 'font-bold text-purple-700' : 'text-gray-600'}`}>
-                          {m.name} {isNext && '← Next'}
-                        </span>
-                        <span className="text-xs text-gray-400">{m.points.toLocaleString()} XP</span>
-                        {isReached && <span className="text-emerald-500">✓</span>}
-                      </div>
-                    );
-                  })}
+                  <div className="text-3xl font-black text-gray-900 mb-1">{(stats.points || 0).toLocaleString()}</div>
+                  <div className="text-sm text-purple-500 font-semibold mb-4">Total XP</div>
+                  <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500 leading-relaxed">
+                    Earn XP by practicing, sending messages, and winning battles! 🎮
+                  </div>
                 </div>
                 <button
                   onClick={() => setShowPointsInfo(false)}
-                  className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-2xl hover:opacity-90"
+                  className="w-full mt-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors"
                 >
-                  Keep Earning! 💪
+                  Got it!
                 </button>
               </motion.div>
             </motion.div>
