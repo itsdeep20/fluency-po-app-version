@@ -2073,6 +2073,7 @@ const App = () => {
         accuracy: sessionAccuracy,
         messagesCount: totalSent,
         correctionsCount: correctionCount,
+        corrections: sessionCorrections, // IMPORTANT: Include actual corrections for AI Analysis
         timestamp: serverTimestamp(),
         lastMessage: myMessages[myMessages.length - 1]?.text || ''
       };
