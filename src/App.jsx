@@ -2992,9 +2992,13 @@ const App = () => {
                   onClick={async () => {
                     setIsGeneratingPdf(true);
                     try {
-                      const res = await fetch('https://us-central1-project-fluency-ai-pro-d3189.cloudfunctions.net/ext-firestore-bundle-builder-serve', {
+                      const token = await user.getIdToken();
+                      const res = await fetch(BACKEND_URL, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
                         body: JSON.stringify({
                           type: 'generate_study_guide',
                           userId: user.uid,
