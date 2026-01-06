@@ -294,13 +294,13 @@ const STAT_INFO = {
   avgScore: { title: '📊 Accuracy Score', desc: 'This score reflects deep analysis of your grammar, vocabulary, and fluency from sessions & battles. Practice regularly to boost your accuracy! ✨' },
 };
 
-// Helper function to compute level from accuracy (Military rank style)
+// Helper function to compute level from accuracy (Hybrid naming for clarity)
 const getLevelFromAccuracy = (avgScore) => {
-  if (avgScore >= 95) return { name: 'General', icon: '★★★★', gradient: 'from-yellow-500 to-amber-500' };
-  if (avgScore >= 85) return { name: 'Lieutenant', icon: '★★★', gradient: 'from-purple-500 to-indigo-500' };
-  if (avgScore >= 70) return { name: 'Sergeant', icon: '★★', gradient: 'from-blue-500 to-cyan-500' };
-  if (avgScore >= 50) return { name: 'Corporal', icon: '★', gradient: 'from-emerald-500 to-teal-500' };
-  return { name: 'Cadet', icon: '☆', gradient: 'from-slate-400 to-slate-500' };
+  if (avgScore >= 95) return { name: 'Master', icon: '★★★★', gradient: 'from-yellow-500 to-amber-500' };
+  if (avgScore >= 85) return { name: 'Pro', icon: '★★★', gradient: 'from-purple-500 to-indigo-500' };
+  if (avgScore >= 70) return { name: 'Improver', icon: '★★', gradient: 'from-blue-500 to-cyan-500' };
+  if (avgScore >= 50) return { name: 'Learner', icon: '★', gradient: 'from-emerald-500 to-teal-500' };
+  return { name: 'Starter', icon: '☆', gradient: 'from-slate-400 to-slate-500' };
 };
 
 const App = () => {
@@ -2699,20 +2699,27 @@ const App = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
               onClick={() => setShowAccuracyInfo(false)}
             >
               <motion.div
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: 20 }}
-                className="bg-gradient-to-b from-slate-50 to-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200"
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="bg-gradient-to-b from-slate-50 to-white rounded-3xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 max-h-[85vh] overflow-y-auto"
                 onClick={e => e.stopPropagation()}
               >
-                <h3 className="text-xl font-black text-gray-900 mb-2 text-center">🎖️ Accuracy Badges</h3>
-                <div className="text-center mb-4">
+                <h3 className="text-lg font-black text-gray-900 mb-2 text-center">🎯 Your Accuracy</h3>
+                <div className="text-center mb-3">
                   <div className="text-4xl font-black bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">{stats.avgScore || 0}%</div>
-                  <div className="text-xs text-gray-400">Current Accuracy</div>
+                </div>
+
+                {/* What is Accuracy? */}
+                <div className="bg-purple-50 rounded-xl p-3 mb-4 text-xs text-purple-700 leading-relaxed">
+                  <div className="font-bold mb-1">📊 What is Accuracy?</div>
+                  Your accuracy measures how well you communicate in English. It's calculated from your <span className="font-semibold">grammar, vocabulary,</span> and <span className="font-semibold">fluency</span> across all practice sessions.
                 </div>
 
                 {/* Shield Badge Grid */}
@@ -2809,14 +2816,14 @@ const App = () => {
                 className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
                 onClick={e => e.stopPropagation()}
               >
-                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🎖️ Rank Journey</h3>
+                <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🎖️ Level Journey</h3>
                 <div className="space-y-2">
                   {[
-                    { name: 'Cadet', stars: '☆', min: 0, color: 'from-slate-400 to-slate-500', desc: 'Starting out' },
-                    { name: 'Corporal', stars: '★', min: 50, color: 'from-emerald-500 to-teal-500', desc: '1 Star Rank' },
-                    { name: 'Sergeant', stars: '★★', min: 70, color: 'from-blue-500 to-cyan-500', desc: '2 Star Rank' },
-                    { name: 'Lieutenant', stars: '★★★', min: 85, color: 'from-purple-500 to-indigo-500', desc: '3 Star Rank' },
-                    { name: 'General', stars: '★★★★', min: 95, color: 'from-yellow-500 to-amber-500', desc: '4 Star Commander' }
+                    { name: 'Starter', stars: '☆', min: 0, color: 'from-slate-400 to-slate-500', desc: 'Beginning your journey' },
+                    { name: 'Learner', stars: '★', min: 50, color: 'from-emerald-500 to-teal-500', desc: 'Building foundations' },
+                    { name: 'Improver', stars: '★★', min: 70, color: 'from-blue-500 to-cyan-500', desc: 'Making great progress' },
+                    { name: 'Pro', stars: '★★★', min: 85, color: 'from-purple-500 to-indigo-500', desc: 'Advanced speaker' },
+                    { name: 'Master', stars: '★★★★', min: 95, color: 'from-yellow-500 to-amber-500', desc: 'English champion!' }
                   ].map(level => {
                     const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
                     const isUnlocked = (stats.avgScore || 0) >= level.min;
@@ -2853,38 +2860,61 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        {/* Points Info Popup - GLOBAL (Simple) */}
+        {/* Points Info Popup - GLOBAL (Detailed) */}
         <AnimatePresence>
           {showPointsInfo && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
               onClick={() => setShowPointsInfo(false)}
             >
               <motion.div
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: 20 }}
-                className="bg-white rounded-3xl p-6 max-w-xs w-full shadow-2xl"
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="bg-gradient-to-b from-purple-50 via-white to-purple-50 rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-purple-100"
                 onClick={e => e.stopPropagation()}
               >
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <Award className="text-purple-500" size={32} />
+                <div className="text-center mb-6">
+                  <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-purple-200 rotate-3">
+                    <Award className="text-white" size={28} />
                   </div>
-                  <div className="text-3xl font-black text-gray-900 mb-1">{(stats.points || 0).toLocaleString()}</div>
-                  <div className="text-sm text-purple-500 font-semibold mb-4">Total XP</div>
-                  <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500 leading-relaxed">
-                    Earn XP by practicing, sending messages, and winning battles! 🎮
+                  <div className="text-4xl font-black text-gray-900 mb-1 tracking-tight">{(stats.points || 0).toLocaleString()}</div>
+                  <div className="text-xs uppercase tracking-widest font-bold text-purple-600 mb-4">Total Experience</div>
+
+                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-purple-100 text-left">
+                    <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+                      ⚡ How to Earn XP
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div> Practice Message</span>
+                        <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">+5 XP</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div> Learn from Correction</span>
+                        <span className="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg">+2 XP</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-orange-400"></div> Win a Battle</span>
+                        <span className="font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-lg">+50 XP</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 text-xs text-gray-500 italic">
+                    "Consistent practice is the key to mastery!" 🗝️
                   </div>
                 </div>
                 <button
                   onClick={() => setShowPointsInfo(false)}
-                  className="w-full mt-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors"
+                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-purple-200 active:scale-95"
                 >
-                  Got it!
+                  Keep Grinding! 🚀
                 </button>
               </motion.div>
             </motion.div>
