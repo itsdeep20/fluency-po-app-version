@@ -852,6 +852,27 @@ const App = () => {
         const sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setSessionHistory(sessions.reverse()); // Oldest first for chart
         console.log('[PROGRESS_REPORT] Fetched sessions:', sessions.length);
+
+        // Auto-trigger AI analysis if user has 3+ sessions and no existing data
+        if ((stats.sessions || 0) >= 3 && !progressReportData) {
+          setIsLoadingReport(true);
+          try {
+            const token = await user.getIdToken();
+            const corrections = sessions.flatMap(s => s.corrections || []).slice(-30);
+            console.log('[PROGRESS_REPORT] Auto-triggering AI analysis with', corrections.length, 'corrections');
+            const res = await fetch(`${BACKEND_URL}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ type: 'progress_analysis', corrections })
+            });
+            const data = await res.json();
+            setProgressReportData(data);
+          } catch (err) {
+            console.error('Auto AI analysis error:', err);
+          } finally {
+            setIsLoadingReport(false);
+          }
+        }
       } catch (e) {
         console.error('Failed to fetch session history:', e);
       }
@@ -3426,7 +3447,12 @@ const App = () => {
                       onClick={() => setShowLevelProgress(true)}
                       className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-3 text-center hover:ring-2 hover:ring-emerald-300 transition-all overflow-hidden"
                     >
-                      <div className="text-sm font-black text-emerald-600 truncate">{getLevelFromAccuracy(stats.avgScore || 0).name}</div>
+                      <div className="text-[10px] font-black text-emerald-600 leading-tight">
+                        {(() => {
+                          const level = getLevelFromAccuracy(stats.avgScore || 0).name;
+                          return level === 'Intermediate' ? 'Intermed.' : level;
+                        })()}
+                      </div>
                       <div className="text-[9px] text-emerald-500 font-semibold">Level 🏆</div>
                     </button>
                     {/* Battles Won */}
@@ -4314,7 +4340,7 @@ const App = () => {
                       <div
                         key={milestone}
                         className={`flex items-center gap-3 p-2 rounded-xl transition-all ${isReached ? 'bg-gradient-to-r from-orange-400 to-red-400 text-white' :
-                            isNext ? 'bg-orange-100 ring-2 ring-orange-400' : 'bg-gray-100 opacity-60'
+                          isNext ? 'bg-orange-100 ring-2 ring-orange-400' : 'bg-gray-100 opacity-60'
                           }`}
                       >
                         <div className="text-xl">{isReached ? '✅' : isNext ? '🎯' : '🔒'}</div>
