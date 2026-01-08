@@ -99,11 +99,16 @@ def synthesize_speech(text, bot_id):
         return None
 
 # --- CONFIGURATION ---
-# Primary Model (Gemini 2.0 Flash - Stable)
+# Primary Model (Gemini 2.0 Flash - FASTEST non-thinking model for chat)
 MODEL_ID = "gemini-2.0-flash"
+# PRO Model (Gemini 3 Flash Preview - for quality tasks: feedback, analysis)
+PRO_MODEL_ID = "gemini-3-flash-preview"
 # Fallback Model
 FALLBACK_MODEL_ID = "gemini-1.5-flash"
 PROJECT_ID = "project-fluency-ai-pro-d3189"
+# Locations: GA models use us-central1, Preview models use global
+GA_LOCATION = "us-central1"
+PREVIEW_LOCATION = "global"
 
 # BATTLE BOT PERSONAS (Natural, Human-Like, Casual Chat)
 BOT_PERSONAS = [
@@ -215,17 +220,33 @@ ROLE_PAIRS = [
 def get_model(use_fallback=False):
     """Initialize and return Gemini model with fallback logic."""
     target_model = FALLBACK_MODEL_ID if use_fallback else MODEL_ID
+    # GA models use us-central1 for best performance
+    location = GA_LOCATION
     
     try:
-        vertexai.init(project=PROJECT_ID, location="us-central1")
+        vertexai.init(project=PROJECT_ID, location=location)
         model = GenerativeModel(target_model)
+        print(f"[MODEL_INIT] Using model: {target_model} at {location}")
         return model
     except Exception as e:
-        print(f"[MODEL_INIT] Failed to init {target_model}: {e}")
+        print(f"[MODEL_INIT] Failed to init {target_model} at {location}: {e}")
         if not use_fallback:
             print("[MODEL_INIT] Switching to fallback model.")
             return get_model(use_fallback=True)
         raise Exception(f"All model initialization attempts failed: {e}")
+
+def get_pro_model():
+    """Initialize and return Pro model for quality-critical tasks."""
+    try:
+        # Gemini 3 Preview models need global location
+        vertexai.init(project=PROJECT_ID, location=PREVIEW_LOCATION)
+        # Note: thinking_level requires newer SDK - using default for now
+        model = GenerativeModel(PRO_MODEL_ID)
+        print(f"[MODEL_INIT] Using PRO model: {PRO_MODEL_ID} at {PREVIEW_LOCATION}")
+        return model
+    except Exception as e:
+        print(f"[MODEL_INIT] Pro model failed at {PREVIEW_LOCATION}, falling back: {e}")
+        return get_model(use_fallback=True)  # Fallback to GA model
 
 def call_gemini(model, prompt, history=[]):
     """Simple wrapper for generating content."""
@@ -422,20 +443,26 @@ CRITICAL RULES:
 Write the personalized feedback now:"""
 
             try:
-                model = GenerativeModel(MODEL_ID)
+                print(f"[SESSION_FEEDBACK] Starting with PRO model: {PRO_MODEL_ID}")
+                model = get_pro_model()  # Use PRO model for quality feedback
+                print(f"[SESSION_FEEDBACK] Got model, generating content...")
                 response = model.generate_content(feedback_prompt)
                 feedback_text = response.text.strip()
+                print(f"[SESSION_FEEDBACK] Success! Generated {len(feedback_text)} chars")
                 
                 return (json.dumps({
                     "success": True,
                     "feedback": feedback_text
                 }), 200, headers)
             except Exception as e:
+                import traceback
                 print(f"[SESSION_FEEDBACK_ERROR] {e}")
+                traceback.print_exc()
                 # Fallback generic feedback
                 return (json.dumps({
                     "success": True,
-                    "feedback": f"Great effort today! You achieved {accuracy}% accuracy. Keep practicing daily to improve your fluency!"
+                    "feedback": f"Great effort today! You achieved {accuracy}% accuracy. Keep practicing daily to improve your fluency!",
+                    "error_debug": str(e)  # Include error in response for debugging
                 }), 200, headers)
 
         # --- AI ASSIST - Generate reply suggestions with native context ---
@@ -928,7 +955,7 @@ CRITICAL - ENGLISH ONLY:
 
         # --- ANALYSIS (UNCHANGED) ---
         if req_type == "analyze":
-            model = get_model()
+            model = get_pro_model()  # Use PRO model for accurate battle analysis
             p1_hist = data.get('player1History')
             p2_hist = data.get('player2History')
             room_id = data.get('roomId')
@@ -1274,7 +1301,7 @@ JSON only:"""
                     "strongPoints": [{"category": "Getting Started", "detail": "Complete more sessions to get personalized insights!"}]
                 }), 200, headers)
             
-            model = get_model()
+            model = get_pro_model()  # Use PRO model for nuanced skill insights
             
             # Format corrections for analysis
             corrections_text = "\n".join([

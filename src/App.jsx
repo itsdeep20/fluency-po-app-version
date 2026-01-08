@@ -2071,6 +2071,7 @@ const App = () => {
     }
     console.log('[V7 ACCURACY] Session:', { totalSent, messageAccuracies, sessionAccuracy });
 
+    // SIMULATION MODE ONLY - show feedback card and save session
     if (capturedSession?.type === 'bot') {
       // Store session history to Firestore
       const sessionData = {
@@ -2082,14 +2083,19 @@ const App = () => {
         messagesCount: totalSent,
         correctionsCount: correctionCount,
         corrections: sessionCorrections, // IMPORTANT: Include actual corrections for AI Analysis
+        startTime: serverTimestamp(), // For PDF Study Guide query
         timestamp: serverTimestamp(),
         lastMessage: myMessages[myMessages.length - 1]?.text || ''
       };
+
+      console.log('[DEBUG_SAVE] Session corrections:', sessionCorrections);
+      console.log('[DEBUG_SAVE] Full sessionData:', sessionData);
 
       try {
         // Add to sessions subcollection
         const sessionsRef = collection(db, 'users', user.uid, 'sessions');
         await addDoc(sessionsRef, sessionData);
+        console.log('[DEBUG_SAVE] Session saved successfully!');
       } catch (e) { console.error('Failed to save session:', e); }
 
       // Update stats with cumulative accuracy and streak
@@ -2197,7 +2203,6 @@ const App = () => {
         const token = await user.getIdToken();
         const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
         const data = await res.json();
-        setDualAnalysis(data);
 
         // V8: Prefer per-message battleAccuracies average over AI analysis
         // Bug 2 Fix: Use CAPTURED battleAccuracies (before reset), not state
@@ -2213,6 +2218,69 @@ const App = () => {
           console.log('[V8 BATTLE_SCORE] Fallback to AI analysis:', myScore);
         }
 
+        // PROBABILITY-BASED BOT SCORING (for battle-bot matches)
+        // 70% chance: Bot wins by 10-30% above user score
+        // 30% chance: User wins (bot scores 10-15% below user)
+        // Bot score capped at its TRUE analyzed score from AI
+        // Minimum bot score floor: 50%
+        let botScore;
+        let adjustedData = { ...data };
+
+        if (capturedSession?.type === 'battle-bot') {
+          // Get bot's TRUE score from AI analysis (this is the cap)
+          // Bot messages are AI-generated, so they score high (~85-95%)
+          const botTrueScore = Math.round((data?.player2?.total || 340) / 4); // Convert to 0-100 scale
+          console.log('[PROB_BOT] Bot true analyzed score:', botTrueScore);
+
+          // Roll dice for probability (0-100)
+          const roll = Math.random() * 100;
+          const BOT_FLOOR = 50 + Math.floor(Math.random() * 6); // Dynamic floor: 50-55
+
+          if (roll < 70) {
+            // 70% CHANCE: BOT WINS - scores 10-30% above user
+            const bonusPercent = 0.10 + (Math.random() * 0.20); // 10-30%
+            botScore = Math.round(myScore * (1 + bonusPercent));
+            console.log('[PROB_BOT] Mode: BOT WINS (70%) | Bonus:', Math.round(bonusPercent * 100) + '%');
+          } else {
+            // 30% CHANCE: USER WINS - bot scores 10-15% below user
+            const penaltyPercent = 0.10 + (Math.random() * 0.05); // 10-15%
+            botScore = Math.round(myScore * (1 - penaltyPercent));
+            console.log('[PROB_BOT] Mode: USER WINS (30%) | Penalty:', Math.round(penaltyPercent * 100) + '%');
+          }
+
+          // Apply caps: min floor (50%) and max (bot's true analyzed score)
+          botScore = Math.max(BOT_FLOOR, botScore); // Floor at 50%
+          botScore = Math.min(botTrueScore, botScore); // Cap at bot's true score
+
+          console.log('[PROB_BOT] Final bot score:', botScore, '(User:', myScore, '| Cap:', botTrueScore, '| Floor:', BOT_FLOOR, ')');
+
+          // Override dualAnalysis with fair scores (scale 0-100 to display format)
+          const myDisplayScore = Math.round(myScore * 4); // Scale to ~400 max for display
+          const botDisplayScore = Math.round(botScore * 4);
+
+          // Generate breakdown scores proportionally
+          const generateBreakdown = (total) => {
+            const base = Math.floor(total / 4);
+            const variance = Math.floor(Math.random() * 10) - 5;
+            return {
+              vocab: Math.max(0, Math.min(100, base + variance)),
+              grammar: Math.max(0, Math.min(100, base + Math.floor(Math.random() * 10) - 5)),
+              fluency: Math.max(0, Math.min(100, base + Math.floor(Math.random() * 10) - 5)),
+              sentence: Math.max(0, Math.min(100, base + Math.floor(Math.random() * 10) - 5)),
+              total: total
+            };
+          };
+
+          adjustedData.player1 = { ...generateBreakdown(myDisplayScore), feedback: data?.player1?.feedback || 'Good effort!' };
+          adjustedData.player2 = { ...generateBreakdown(botDisplayScore), feedback: 'Bot opponent' };
+          adjustedData.winner = myDisplayScore > botDisplayScore ? 'player1' : myDisplayScore < botDisplayScore ? 'player2' : 'draw';
+          adjustedData.analyzedBy = user.uid;
+
+          console.log('[PROB_BOT] Final - You:', myDisplayScore, 'Bot:', botDisplayScore, 'Winner:', adjustedData.winner);
+        }
+
+        setDualAnalysis(adjustedData);
+
         // Store competitive session
         try {
           // Determine win correctly based on perspective (same logic as WinnerReveal)
@@ -2224,13 +2292,19 @@ const App = () => {
 
           const sessionsRef = collection(db, 'users', user.uid, 'sessions');
           await addDoc(sessionsRef, {
-            type: '1v1',
+            type: capturedSession.type === 'battle-bot' ? 'battle-bot' : '1v1',
             score: myData?.total || 0,
             opponentName: capturedSession.opponent?.name || 'Opponent',
             opponentAvatar: capturedSession.opponent?.avatar || '👤',
             won: didIWin,
+            corrections: sessionCorrections, // For PDF Study Guide
+            correctionsCount: correctionCount,
+            accuracy: myScore,
+            messagesCount: totalSent,
+            startTime: serverTimestamp(),
             timestamp: serverTimestamp()
           });
+          console.log('[DEBUG_SAVE] Battle session saved with corrections:', sessionCorrections);
         } catch (e) { console.error('Session save error:', e); }
 
 
