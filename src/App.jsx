@@ -4217,7 +4217,7 @@ const App = () => {
                     </select>
                   </div>
 
-                  {/* Download Full Progress Report Button */}
+                  {/* Download Learning Pack Button (Combined) */}
                   {isGeneratingPdf ? (
                     <div className="w-full bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-4 text-center">
                       {/* Animated Step Display */}
@@ -4236,26 +4236,27 @@ const App = () => {
                     </div>
                   ) : (
                     <button
-                      className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity active:scale-98 shadow-lg shadow-emerald-200"
+                      className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity active:scale-98 shadow-lg shadow-emerald-200"
                       onClick={async () => {
                         if (!user) return;
                         setIsGeneratingPdf(true);
                         setPdfProgress(0);
 
-                        // Animated step sequence - AI analysis takes time
+                        // Animated step sequence for combined PDF
                         const steps = [
-                          { text: '🔍 Finding your corrections...', progress: 15 },
-                          { text: '🧠 AI analyzing your mistakes...', progress: 35 },
-                          { text: '💡 Identifying weak points...', progress: 55 },
-                          { text: '⭐ Discovering your strengths...', progress: 70 },
-                          { text: '📝 Creating your personalized report...', progress: 85 },
+                          { text: '📊 Gathering your stats...', progress: 10 },
+                          { text: '🔍 Analyzing corrections...', progress: 25 },
+                          { text: '🧠 AI generating 25 quiz questions...', progress: 45 },
+                          { text: '📚 Creating vocabulary list...', progress: 60 },
+                          { text: '💡 Identifying strengths & weaknesses...', progress: 75 },
+                          { text: '📝 Building 5-page pack...', progress: 90 },
                           { text: '🎨 Adding finishing touches...', progress: 95 }
                         ];
 
                         for (const step of steps) {
                           setPdfGenerationStep(step.text);
                           setPdfProgress(step.progress);
-                          await new Promise(r => setTimeout(r, 1000));
+                          await new Promise(r => setTimeout(r, 1200));
                         }
 
                         try {
@@ -4267,7 +4268,7 @@ const App = () => {
                               'Authorization': `Bearer ${token}`
                             },
                             body: JSON.stringify({
-                              type: 'generate_study_guide',
+                              type: 'generate_learning_pack',
                               userId: user.uid,
                               dateFilter: studyGuideFilter
                             })
@@ -4276,7 +4277,7 @@ const App = () => {
 
                           if (data.pdf) {
                             setPdfProgress(100);
-                            setPdfGenerationStep('🎉 Your report is ready!');
+                            setPdfGenerationStep('🎉 Your Learning Pack is ready!');
                             await new Promise(r => setTimeout(r, 800));
 
                             // Download the PDF
@@ -4290,7 +4291,7 @@ const App = () => {
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
-                            a.download = `fluency-progress-report-${new Date().toISOString().split('T')[0]}.pdf`;
+                            a.download = `fluency-learning-pack-${new Date().toISOString().split('T')[0]}.pdf`;
                             document.body.appendChild(a);
                             a.click();
                             document.body.removeChild(a);
@@ -4319,97 +4320,14 @@ const App = () => {
                         }
                       }}
                     >
-                      <Download size={18} /> Download Full Report 📄
+                      <Download size={20} /> Download Learning Pack 📦
                     </button>
                   )}
-
-                  {/* Practice Workbook Button - Secondary */}
-                  <div className="mt-3 flex justify-center">
-                    {isGeneratingWorkbook ? (
-                      <div className="bg-gradient-to-r from-slate-50 to-gray-50 border border-gray-200 rounded-xl p-3 text-center w-full">
-                        <div className="text-sm font-semibold text-gray-600 mb-2 flex items-center justify-center gap-2">
-                          <Loader2 className="animate-spin" size={16} />
-                          {workbookStep || 'Preparing...'}
-                        </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full transition-all duration-500 ease-out"
-                            style={{ width: `${workbookProgress}%` }}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        className="px-4 py-2 bg-gray-50 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl flex items-center gap-2 hover:bg-gray-100 hover:border-gray-300 transition-all"
-                        onClick={async () => {
-                          if (!user) return;
-                          setIsGeneratingWorkbook(true);
-                          setWorkbookProgress(0);
-
-                          // Animation - longer for 25 questions
-                          const steps = [
-                            { text: '📖 Finding your weak points...', progress: 15 },
-                            { text: '🧠 Creating 25 quiz questions...', progress: 40 },
-                            { text: '✍️ Building exercises...', progress: 65 },
-                            { text: '📚 Adding vocabulary...', progress: 85 },
-                            { text: '🎨 Formatting workbook...', progress: 95 }
-                          ];
-
-                          for (const step of steps) {
-                            setWorkbookStep(step.text);
-                            setWorkbookProgress(step.progress);
-                            await new Promise(r => setTimeout(r, 1200));
-                          }
-
-                          try {
-                            const token = await user.getIdToken();
-                            const res = await fetch(`${BACKEND_URL}`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                              body: JSON.stringify({ type: 'generate_practice_pdf', userId: user.uid })
-                            });
-                            const data = await res.json();
-
-                            if (data.pdf) {
-                              setWorkbookProgress(100);
-                              setWorkbookStep('🎉 Workbook Ready!');
-                              await new Promise(r => setTimeout(r, 800));
-
-                              const byteCharacters = atob(data.pdf);
-                              const byteNumbers = new Array(byteCharacters.length);
-                              for (let i = 0; i < byteCharacters.length; i++) {
-                                byteNumbers[i] = byteCharacters.charCodeAt(i);
-                              }
-                              const byteArray = new Uint8Array(byteNumbers);
-                              const blob = new Blob([byteArray], { type: 'application/pdf' });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = `fluency-workbook-${new Date().toISOString().split('T')[0]}.pdf`;
-                              document.body.appendChild(a);
-                              a.click();
-                              document.body.removeChild(a);
-                              URL.revokeObjectURL(url);
-
-                              setWorkbookStep('✅ Downloaded! 25 exercises ready!');
-                              confetti({ particleCount: 100, spread: 60, origin: { y: 0.7 }, colors: ['#6366f1', '#a855f7'] });
-                              await new Promise(r => setTimeout(r, 2000));
-                            } else {
-                              alert(data.error || 'Could not generate workbook.');
-                            }
-                          } catch (e) {
-                            alert('Error generating workbook.');
-                          } finally {
-                            setIsGeneratingWorkbook(false);
-                            setWorkbookStep('');
-                            setWorkbookProgress(0);
-                          }
-                        }}
-                      >
-                        <BookOpen size={14} /> Practice Workbook (25 Questions)
-                      </button>
-                    )}
+                  <div className="text-center text-xs text-gray-500 mt-2">
+                    5 pages: Stats + 25 Quiz Questions + Vocab + Answers + Corrections
                   </div>
+
+
                 </div>
               </motion.div>
             </motion.div>

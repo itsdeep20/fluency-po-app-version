@@ -1964,6 +1964,375 @@ Return JSON:
                 print(f"[PRACTICE_PDF_ERROR] {e}")
                 return (json.dumps({"error": str(e)}), 500, headers)
 
+        # ========================================
+        # GENERATE LEARNING PACK (Combined PDF)
+        # ========================================
+        if req_type == 'generate_learning_pack':
+            if not REPORTLAB_AVAILABLE:
+                return (json.dumps({"error": "pdf_unavailable"}), 503, headers)
+            
+            user_id = data.get('userId')
+            date_filter = data.get('dateFilter', '7days')
+            if not user_id:
+                return (json.dumps({"error": "userId required"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if not user_doc.exists:
+                    return (json.dumps({"error": "User not found"}), 404, headers)
+                
+                user_data = user_doc.to_dict()
+                stats = user_data.get('stats', {})
+                streak = stats.get('streak', 0)
+                points = stats.get('points', 0)
+                avg_score = stats.get('avgScore', 0)
+                total_sessions = stats.get('sessions', 0)
+                vocab_history = stats.get('vocabHistory', [])
+                
+                # Calculate level
+                if points >= 50000:
+                    level_name, level_icon = "Fluent Speaker", "🏆"
+                elif points >= 20000:
+                    level_name, level_icon = "Advanced", "💎"
+                elif points >= 10000:
+                    level_name, level_icon = "Intermediate", "🥈"
+                elif points >= 5000:
+                    level_name, level_icon = "Developing", "🥉"
+                else:
+                    level_name, level_icon = "Beginner", "🌱"
+                
+                # Date filter
+                now = datetime.now()
+                if date_filter == '3days':
+                    filter_date = now - timedelta(days=3)
+                    filter_label = "Last 3 Days"
+                elif date_filter == '5days':
+                    filter_date = now - timedelta(days=5)
+                    filter_label = "Last 5 Days"
+                elif date_filter == '15days':
+                    filter_date = now - timedelta(days=15)
+                    filter_label = "Last 15 Days"
+                elif date_filter == '30days':
+                    filter_date = now - timedelta(days=30)
+                    filter_label = "Last 30 Days"
+                elif date_filter == 'all':
+                    filter_date = None
+                    filter_label = "All Time"
+                else:
+                    filter_date = now - timedelta(days=7)
+                    filter_label = "Last 7 Days"
+                
+                # Fetch sessions
+                sessions_ref = db.collection('users').document(user_id).collection('sessions')
+                sessions = sessions_ref.order_by('startTime', direction=firestore.Query.DESCENDING).limit(50).stream()
+                
+                all_corrections = []
+                period_sessions = 0
+                period_time_seconds = 0
+                period_accuracy_sum = 0
+                recent_mistakes = []
+                
+                for sess in sessions:
+                    s_data = sess.to_dict()
+                    session_time = s_data.get('startTime')
+                    
+                    # Check date filter
+                    in_period = True
+                    if filter_date and session_time:
+                        if hasattr(session_time, 'timestamp'):
+                            session_dt = datetime.fromtimestamp(session_time.timestamp())
+                        else:
+                            session_dt = session_time
+                        if session_dt < filter_date:
+                            in_period = False
+                    
+                    if in_period:
+                        period_sessions += 1
+                        period_time_seconds += s_data.get('duration', 0)
+                        period_accuracy_sum += s_data.get('accuracy', 0)
+                        
+                        for c in s_data.get('corrections', []):
+                            if isinstance(c, dict):
+                                c['sessionDate'] = session_time
+                                all_corrections.append(c)
+                                recent_mistakes.append(f"{c.get('type', 'General')}: {c.get('original')} -> {c.get('corrected')}")
+                
+                period_avg_accuracy = round(period_accuracy_sum / period_sessions) if period_sessions > 0 else 0
+                period_time_minutes = round(period_time_seconds / 60) if period_time_seconds > 0 else 0
+                
+                if period_time_minutes >= 60:
+                    time_spent_str = f"{period_time_minutes // 60}h {period_time_minutes % 60}m"
+                else:
+                    time_spent_str = f"{period_time_minutes}m" if period_time_minutes > 0 else "0m"
+                
+                # Shield based on accuracy
+                if period_avg_accuracy >= 90:
+                    shield_label = "MASTER"
+                    shield_color = '#FFD700'
+                elif period_avg_accuracy >= 75:
+                    shield_label = "EXPERT"
+                    shield_color = '#C0C0C0'
+                elif period_avg_accuracy >= 60:
+                    shield_label = "SKILLED"
+                    shield_color = '#CD7F32'
+                else:
+                    shield_label = "LEARNER"
+                    shield_color = '#6B7280'
+                
+                # AI Content Generation
+                mistakes_context = "\n".join(recent_mistakes[:30])
+                recent_vocab_str = ", ".join(vocab_history[-50:])
+                
+                ai_prompt = f"""Create a complete English learning pack.
+
+User Mistakes:
+{mistakes_context}
+
+Task 1: AI Analysis
+Analyze the mistakes and provide:
+- 3 weak points (areas to improve)
+- 2 strong points
+
+Task 2: Grammar Quiz
+Create 25 fill-in-the-blank questions based on the user's mistake patterns.
+For each: question (with ______), answer, 4 choices (A/B/C/D), brief explanation.
+
+Task 3: Vocabulary
+Generate 10 C1-level words. AVOID: {recent_vocab_str}
+For each: word, definition, example sentence.
+
+Return JSON:
+{{
+  "insights": {{
+    "weakPoints": [{{"category": "...", "detail": "..."}}],
+    "strongPoints": [{{"category": "...", "detail": "..."}}]
+  }},
+  "quiz": [{{"question": "...", "answer": "...", "choices": ["A) ...", "B) ...", "C) ...", "D) ..."], "explanation": "..."}}],
+  "vocabulary": [{{"word": "...", "definition": "...", "example": "..."}}]
+}}"""
+
+                print("[LEARNING_PACK] Generating AI content...")
+                model = get_pro_model()
+                ai_res = generate_with_pro_model(model, ai_prompt)
+                
+                # Parse JSON
+                start = ai_res.find('{')
+                end = ai_res.rfind('}') + 1
+                content = json.loads(ai_res[start:end])
+                
+                # Update vocab history
+                new_vocab = [v['word'] for v in content.get('vocabulary', [])]
+                if new_vocab:
+                    user_ref.update({"stats.vocabHistory": firestore.ArrayUnion(new_vocab)})
+                
+                # ===== GENERATE PDF =====
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=A4, 
+                                        rightMargin=20*mm, leftMargin=20*mm,
+                                        topMargin=20*mm, bottomMargin=20*mm)
+                
+                styles = getSampleStyleSheet()
+                
+                # Define styles with approved sizes
+                title_style = ParagraphStyle('Title', fontSize=28, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold', spaceAfter=5)
+                subtitle_style = ParagraphStyle('Subtitle', fontSize=14, textColor=colors.HexColor('#6B7280'), alignment=TA_CENTER, spaceAfter=15)
+                section_header = ParagraphStyle('SectionH', fontSize=18, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=15, spaceAfter=10)
+                body_style = ParagraphStyle('Body', fontSize=13, textColor=colors.HexColor('#374151'), spaceAfter=5)
+                small_style = ParagraphStyle('Small', fontSize=11, textColor=colors.HexColor('#6B7280'))
+                question_style = ParagraphStyle('Question', fontSize=14, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=8)
+                options_style = ParagraphStyle('Options', fontSize=12, textColor=colors.HexColor('#6B7280'), leftIndent=15)
+                vocab_word = ParagraphStyle('VocabWord', fontSize=16, textColor=colors.HexColor('#4338CA'), fontName='Helvetica-Bold')
+                vocab_def = ParagraphStyle('VocabDef', fontSize=13, textColor=colors.HexColor('#374151'), leftIndent=10)
+                answer_style = ParagraphStyle('Answer', fontSize=14, textColor=colors.HexColor('#059669'), fontName='Helvetica-Bold')
+                tip_style = ParagraphStyle('Tip', fontSize=12, textColor=colors.HexColor('#7C3AED'), backColor=colors.HexColor('#F3E8FF'), leftIndent=10, spaceBefore=5, spaceAfter=8)
+                footer_style = ParagraphStyle('Footer', fontSize=11, textColor=colors.HexColor('#9CA3AF'), alignment=TA_CENTER)
+                
+                story = []
+                
+                # ===== PAGE 1: Progress Summary =====
+                # 3-Column Header with Shield
+                header_data = [[
+                    Paragraph(f"<font size='42'>🛡️</font><br/><font size='12' color='{shield_color}'><b>{shield_label}</b></font>", 
+                              ParagraphStyle('Shield', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='28' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='14' color='#6B7280'>Complete Learning Pack</font>", 
+                              ParagraphStyle('Title', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='13' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='11' color='#9CA3AF'>{filter_label}</font>", 
+                              ParagraphStyle('Date', alignment=TA_CENTER))
+                ]]
+                header_table = Table(header_data, colWidths=[40*mm, 90*mm, 40*mm])
+                header_table.setStyle(TableStyle([
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+                    ('TOPPADDING', (0, 0), (-1, -1), 15),
+                ]))
+                story.append(header_table)
+                story.append(Spacer(1, 20))
+                
+                # Stats Box
+                stats_data = [
+                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} 🔥"],
+                    ["Sessions", "Time Spent", "Accuracy", "Streak"]
+                ]
+                stats_table = Table(stats_data, colWidths=[40*mm, 45*mm, 40*mm, 40*mm])
+                stats_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F0FDF4')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#047857')),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 26),
+                    ('FONTSIZE', (0, 1), (-1, 1), 11),
+                    ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 15),
+                    ('TOPPADDING', (0, 0), (-1, 0), 15),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
+                ]))
+                story.append(stats_table)
+                story.append(Paragraph(f"{level_icon} Level: {level_name} | Total XP: {points:,.0f}", 
+                                       ParagraphStyle('Level', fontSize=14, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=15)))
+                story.append(Spacer(1, 20))
+                
+                # AI Insights
+                insights = content.get('insights', {})
+                story.append(Paragraph("🧠 AI ANALYSIS", section_header))
+                
+                # Two-column insights
+                weak_points = insights.get('weakPoints', [])
+                strong_points = insights.get('strongPoints', [])
+                
+                weak_text = "<b><font color='#DC2626'>🔴 AREAS TO IMPROVE</font></b><br/>"
+                for wp in weak_points[:3]:
+                    weak_text += f"• <b>{wp.get('category', '')}:</b> {wp.get('detail', '')}<br/>"
+                
+                strong_text = "<b><font color='#16A34A'>🟢 YOUR STRENGTHS</font></b><br/>"
+                for sp in strong_points[:2]:
+                    strong_text += f"• <b>{sp.get('category', '')}:</b> {sp.get('detail', '')}<br/>"
+                
+                insights_data = [[
+                    Paragraph(weak_text, ParagraphStyle('Weak', fontSize=12, textColor=colors.HexColor('#374151'))),
+                    Paragraph(strong_text, ParagraphStyle('Strong', fontSize=12, textColor=colors.HexColor('#374151')))
+                ]]
+                insights_table = Table(insights_data, colWidths=[85*mm, 85*mm])
+                insights_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#FEF2F2')),
+                    ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F0FDF4')),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                ]))
+                story.append(insights_table)
+                story.append(Spacer(1, 15))
+                
+                story.append(Paragraph("<i>\"Every mistake is a step towards mastery. Keep practicing!\"</i> ✨", 
+                                       ParagraphStyle('Quote', fontSize=14, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER, spaceBefore=10)))
+                story.append(Spacer(1, 10))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 1 of 5", footer_style))
+                story.append(PageBreak())
+                
+                # ===== PAGES 2-3: Grammar Challenge =====
+                quiz = content.get('quiz', [])
+                story.append(Paragraph("✍️ PART 1: GRAMMAR CHALLENGE", section_header))
+                story.append(Paragraph("Fill in the blanks with the correct answer. Check the Answer Key on Page 4!", body_style))
+                story.append(Spacer(1, 10))
+                
+                for i, q in enumerate(quiz[:25], 1):
+                    story.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
+                    choices = q.get('choices', [])
+                    choices_text = "   ".join(choices[:4])
+                    story.append(Paragraph(choices_text, options_style))
+                    
+                    # Page break after Q12 for visual balance
+                    if i == 12:
+                        story.append(Spacer(1, 10))
+                        story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 2 of 5", footer_style))
+                        story.append(PageBreak())
+                        story.append(Paragraph("✍️ GRAMMAR CHALLENGE (Continued)", section_header))
+                        story.append(Spacer(1, 10))
+                
+                story.append(Spacer(1, 10))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 3 of 5", footer_style))
+                story.append(PageBreak())
+                
+                # ===== PAGE 4: Vocabulary + Answer Key =====
+                vocab = content.get('vocabulary', [])
+                story.append(Paragraph("📚 PART 2: VOCABULARY BUILDER", section_header))
+                story.append(Paragraph("Master these 10 new words to upgrade your English!", body_style))
+                story.append(Spacer(1, 10))
+                
+                for i, v in enumerate(vocab[:10], 1):
+                    story.append(Paragraph(f"{i}. {v.get('word', '')}", vocab_word))
+                    story.append(Paragraph(f"<b>Definition:</b> {v.get('definition', '')}", vocab_def))
+                    story.append(Paragraph(f"<b>Example:</b> <i>\"{v.get('example', '')}\"</i>", vocab_def))
+                    story.append(Spacer(1, 8))
+                
+                story.append(Spacer(1, 15))
+                story.append(Paragraph("📝 ANSWER KEY", section_header))
+                story.append(Paragraph("Check your answers:", body_style))
+                story.append(Spacer(1, 5))
+                
+                # Answer key in compact format
+                for i, q in enumerate(quiz[:25], 1):
+                    story.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
+                    story.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
+                
+                story.append(Spacer(1, 10))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 4 of 5", footer_style))
+                story.append(PageBreak())
+                
+                # ===== PAGE 5: Recent Corrections =====
+                story.append(Paragraph("📖 YOUR RECENT CORRECTIONS", section_header))
+                story.append(Paragraph("Review these mistakes to avoid repeating them!", body_style))
+                story.append(Spacer(1, 10))
+                
+                for i, corr in enumerate(all_corrections[:10], 1):
+                    original = corr.get('original', '')
+                    corrected = corr.get('corrected', '')
+                    corr_type = corr.get('type', 'General')
+                    explanation = corr.get('explanation', '')
+                    
+                    story.append(Paragraph(f"<b>#{i} | {corr_type}</b>", ParagraphStyle('CorrH', fontSize=11, textColor=colors.HexColor('#9CA3AF'))))
+                    story.append(Paragraph(f"<font color='#DC2626'>❌ YOUR VERSION:</font> \"{original}\"", body_style))
+                    story.append(Paragraph(f"<font color='#059669'>✅ CORRECT:</font> \"{corrected}\"", body_style))
+                    if explanation:
+                        story.append(Paragraph(f"💡 TIP: {explanation}", tip_style))
+                    story.append(Spacer(1, 8))
+                
+                story.append(Spacer(1, 15))
+                story.append(Paragraph("<i>\"Mistakes are proof that you are trying. Keep practicing and you'll master English!\"</i> 🌟", 
+                                       ParagraphStyle('Quote', fontSize=14, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER)))
+                story.append(Spacer(1, 10))
+                story.append(Paragraph("🎉 Great job! Keep learning with Fluency Pro!", 
+                                       ParagraphStyle('End', fontSize=16, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold')))
+                story.append(Spacer(1, 10))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 5 of 5", footer_style))
+                
+                # Build PDF
+                doc.build(story)
+                pdf_bytes = buffer.getvalue()
+                buffer.close()
+                
+                pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                
+                return (json.dumps({
+                    "pdf": pdf_base64,
+                    "pages": 5,
+                    "quizCount": len(quiz),
+                    "vocabCount": len(vocab),
+                    "correctionsCount": len(all_corrections)
+                }), 200, headers)
+                
+            except Exception as e:
+                print(f"[LEARNING_PACK_ERROR] {e}")
+                import traceback
+                traceback.print_exc()
+                return (json.dumps({"error": str(e)}), 500, headers)
+
         return (json.dumps({"error": f"Unknown type: {req_type}"}), 400, headers)
 
     except Exception as e:
