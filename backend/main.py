@@ -2068,31 +2068,23 @@ Return JSON:
                 else:
                     time_spent_str = f"{period_time_minutes}m" if period_time_minutes > 0 else "0m"
                 
-                # Shield based on accuracy - now with image paths
-                import os
-                assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
-                
+                # Shield based on accuracy - Unicode stars approach
                 if period_avg_accuracy >= 90:
                     shield_label = "MASTER"
-                    shield_color = '#FFD700'
-                    shield_image = os.path.join(assets_dir, 'shield_gold.png')
+                    shield_stars = "★★★★"
+                    shield_color = '#FFD700'  # Gold
                 elif period_avg_accuracy >= 75:
                     shield_label = "EXPERT"
-                    shield_color = '#C0C0C0'
-                    shield_image = os.path.join(assets_dir, 'shield_silver.png')
+                    shield_stars = "★★★"
+                    shield_color = '#C0C0C0'  # Silver
                 elif period_avg_accuracy >= 60:
                     shield_label = "SKILLED"
-                    shield_color = '#CD7F32'
-                    shield_image = os.path.join(assets_dir, 'shield_bronze.png')
+                    shield_stars = "★★"
+                    shield_color = '#CD7F32'  # Bronze
                 else:
                     shield_label = "LEARNER"
-                    shield_color = '#6B7280'
-                    shield_image = os.path.join(assets_dir, 'shield_gray.png')
-                
-                # Also get check/x/fire image paths
-                check_img_path = os.path.join(assets_dir, 'check_green.png')
-                x_img_path = os.path.join(assets_dir, 'x_red.png')
-                fire_img_path = os.path.join(assets_dir, 'fire.png')
+                    shield_stars = "★"
+                    shield_color = '#6B7280'  # Gray
                 
                 # AI Content Generation
                 mistakes_context = "\n".join(recent_mistakes[:30])
@@ -2148,57 +2140,48 @@ Return JSON:
                 
                 styles = getSampleStyleSheet()
                 
-                # Define styles with approved sizes - FIXED spacing
-                title_style = ParagraphStyle('Title', fontSize=28, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold', spaceAfter=5)
-                subtitle_style = ParagraphStyle('Subtitle', fontSize=14, textColor=colors.HexColor('#6B7280'), alignment=TA_CENTER, spaceAfter=15)
-                section_header = ParagraphStyle('SectionH', fontSize=18, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=15, spaceAfter=12)
-                body_style = ParagraphStyle('Body', fontSize=13, textColor=colors.HexColor('#374151'), spaceAfter=8, leading=18)
-                small_style = ParagraphStyle('Small', fontSize=11, textColor=colors.HexColor('#6B7280'), spaceAfter=6)
-                question_style = ParagraphStyle('Question', fontSize=13, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=10, spaceAfter=4, leading=16)
-                options_style = ParagraphStyle('Options', fontSize=11, textColor=colors.HexColor('#6B7280'), leftIndent=15, spaceAfter=8, leading=14)
-                vocab_word = ParagraphStyle('VocabWord', fontSize=14, textColor=colors.HexColor('#4338CA'), fontName='Helvetica-Bold', spaceBefore=10, spaceAfter=4)
-                vocab_def = ParagraphStyle('VocabDef', fontSize=12, textColor=colors.HexColor('#374151'), leftIndent=10, spaceAfter=3, leading=15)
-                answer_style = ParagraphStyle('Answer', fontSize=12, textColor=colors.HexColor('#059669'), fontName='Helvetica-Bold', spaceAfter=2)
-                tip_style = ParagraphStyle('Tip', fontSize=11, textColor=colors.HexColor('#7C3AED'), backColor=colors.HexColor('#F3E8FF'), leftIndent=10, spaceBefore=5, spaceAfter=10)
-                footer_style = ParagraphStyle('Footer', fontSize=10, textColor=colors.HexColor('#9CA3AF'), alignment=TA_CENTER, spaceBefore=15)
+                # Define styles - PROPER SPACING (options directly below question)
+                title_style = ParagraphStyle('Title', fontSize=24, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold', spaceAfter=5)
+                subtitle_style = ParagraphStyle('Subtitle', fontSize=12, textColor=colors.HexColor('#6B7280'), alignment=TA_CENTER, spaceAfter=15)
+                section_header = ParagraphStyle('SectionH', fontSize=16, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=20, spaceAfter=12)
+                body_style = ParagraphStyle('Body', fontSize=12, textColor=colors.HexColor('#374151'), spaceAfter=8, leading=16)
+                small_style = ParagraphStyle('Small', fontSize=10, textColor=colors.HexColor('#6B7280'), spaceAfter=4, leading=13)
+                # Questions: minimal space after so options are directly below
+                question_style = ParagraphStyle('Question', fontSize=12, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=12, spaceAfter=2, leading=15)
+                # Options: no space before, starts right after question
+                options_style = ParagraphStyle('Options', fontSize=10, textColor=colors.HexColor('#6B7280'), leftIndent=10, spaceBefore=0, spaceAfter=6, leading=13)
+                vocab_word = ParagraphStyle('VocabWord', fontSize=13, textColor=colors.HexColor('#4338CA'), fontName='Helvetica-Bold', spaceBefore=12, spaceAfter=3)
+                vocab_def = ParagraphStyle('VocabDef', fontSize=11, textColor=colors.HexColor('#374151'), leftIndent=10, spaceAfter=2, leading=14)
+                answer_style = ParagraphStyle('Answer', fontSize=11, textColor=colors.HexColor('#059669'), fontName='Helvetica-Bold', spaceAfter=2, spaceBefore=6)
+                tip_style = ParagraphStyle('Tip', fontSize=10, textColor=colors.HexColor('#7C3AED'), backColor=colors.HexColor('#F3E8FF'), leftIndent=10, spaceBefore=4, spaceAfter=8, leading=13)
+                footer_style = ParagraphStyle('Footer', fontSize=9, textColor=colors.HexColor('#9CA3AF'), alignment=TA_CENTER, spaceBefore=15)
                 
                 story = []
                 
                 # ===== PAGE 1: Progress Summary =====
-                # 3-Column Header with ACTUAL SHIELD IMAGE
-                from reportlab.platypus import Image as RLImage
-                
-                # Create header with shield image
-                try:
-                    shield_img = RLImage(shield_image, width=15*mm, height=18*mm)
-                except:
-                    shield_img = Paragraph(f"<b>{shield_label}</b>", ParagraphStyle('Shield', alignment=TA_CENTER))
-                
+                # 3-Column Header with Unicode stars (sleek border)
                 header_data = [[
-                    Table([
-                        [shield_img],
-                        [Paragraph(f"<font size='10' color='{shield_color}'><b>{shield_label}</b></font>", 
-                                   ParagraphStyle('ShieldLabel', alignment=TA_CENTER))]
-                    ], colWidths=[30*mm]),
-                    Paragraph(f"<font size='24' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='12' color='#6B7280'>Complete Learning Pack</font>", 
+                    Paragraph(f"<font size='18' color='{shield_color}'>{shield_stars}</font><br/><font size='10' color='{shield_color}'><b>{shield_label}</b></font>", 
+                              ParagraphStyle('Shield', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='22' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='11' color='#6B7280'>Complete Learning Pack</font>", 
                               ParagraphStyle('Title', alignment=TA_CENTER)),
-                    Paragraph(f"<font size='12' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='10' color='#9CA3AF'>{filter_label}</font>", 
+                    Paragraph(f"<font size='11' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='9' color='#9CA3AF'>{filter_label}</font>", 
                               ParagraphStyle('Date', alignment=TA_CENTER))
                 ]]
                 header_table = Table(header_data, colWidths=[35*mm, 95*mm, 40*mm])
                 header_table.setStyle(TableStyle([
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
-                    ('TOPPADDING', (0, 0), (-1, -1), 10),
+                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#10B981')),  # Sleeker 1px border
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                    ('TOPPADDING', (0, 0), (-1, -1), 8),
                 ]))
                 story.append(header_table)
-                story.append(Spacer(1, 20))
+                story.append(Spacer(1, 15))
                 
-                # Stats Box with streak
+                # Stats Box - "X days" format for streak
                 stats_data = [
-                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} streak"],
+                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} days"],
                     ["Sessions", "Time Spent", "Accuracy", "Streak"]
                 ]
                 stats_table = Table(stats_data, colWidths=[40*mm, 45*mm, 40*mm, 40*mm])
@@ -2320,27 +2303,9 @@ Return JSON:
                     explanation = corr.get('explanation', '')
                     
                     story.append(Paragraph(f"<b>#{i} | {corr_type}</b>", ParagraphStyle('CorrH', fontSize=11, textColor=colors.HexColor('#9CA3AF'), spaceAfter=4)))
-                    
-                    # Use images for X and checkmark
-                    try:
-                        x_img = RLImage(x_img_path, width=4*mm, height=4*mm)
-                        check_img = RLImage(check_img_path, width=4*mm, height=4*mm)
-                        
-                        # Table layout: [icon] [text]
-                        corr_table = Table([
-                            [x_img, Paragraph(f"<font color='#DC2626'>YOUR VERSION:</font> \"{original}\"", body_style)],
-                            [check_img, Paragraph(f"<font color='#059669'>CORRECT:</font> \"{corrected}\"", body_style)]
-                        ], colWidths=[6*mm, 160*mm])
-                        corr_table.setStyle(TableStyle([
-                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                            ('LEFTPADDING', (0, 0), (0, -1), 0),
-                            ('RIGHTPADDING', (0, 0), (0, -1), 2),
-                        ]))
-                        story.append(corr_table)
-                    except:
-                        # Fallback to text
-                        story.append(Paragraph(f"<font color='#DC2626'><b>X</b> YOUR VERSION:</font> \"{original}\"", body_style))
-                        story.append(Paragraph(f"<font color='#059669'><b>OK</b> CORRECT:</font> \"{corrected}\"", body_style))
+                    # Use Unicode symbols for X and checkmark
+                    story.append(Paragraph(f"<font color='#DC2626'><b>✗</b> YOUR VERSION:</font> \"{original}\"", body_style))
+                    story.append(Paragraph(f"<font color='#059669'><b>✓</b> CORRECT:</font> \"{corrected}\"", body_style))
                     
                     if explanation:
                         story.append(Paragraph(f"TIP: {explanation}", tip_style))
