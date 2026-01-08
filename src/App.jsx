@@ -404,6 +404,9 @@ const App = () => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfGenerationStep, setPdfGenerationStep] = useState(''); // Current animation step
   const [pdfProgress, setPdfProgress] = useState(0); // Progress percentage 0-100
+  const [isGeneratingWorkbook, setIsGeneratingWorkbook] = useState(false); // State for practice workbook
+  const [workbookStep, setWorkbookStep] = useState('');
+  const [workbookProgress, setWorkbookProgress] = useState(0);
   const [sessionStartTime, setSessionStartTime] = useState(null); // Track session start for duration
   const [lastPdfDownload, setLastPdfDownload] = useState(null);
   const [progressGraphMode, setProgressGraphMode] = useState('accuracy'); // 'accuracy' or 'time'
@@ -4017,7 +4020,9 @@ const App = () => {
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <TrendingUp size={14} className="text-emerald-500" />
-                          <span className="text-xs font-bold text-gray-700">Last 10 Sessions</span>
+                          <span className="text-xs font-bold text-gray-700">
+                            {progressGraphMode === 'accuracy' ? 'Last 10 Sessions' : 'Last 10 Days'}
+                          </span>
                         </div>
                         {/* Toggle Buttons */}
                         <div className="flex bg-white rounded-lg p-0.5 shadow-sm border">
@@ -4037,26 +4042,24 @@ const App = () => {
                               : 'text-gray-500 hover:bg-gray-100'
                               }`}
                           >
-                            ⏱️ Time
+                            ⏱️ Daily Time
                           </button>
                         </div>
                       </div>
 
                       {/* Graph Bars */}
                       <div className="flex items-end gap-1 h-24">
-                        {sessionHistory.slice(-10).map((s, i, arr) => {
-                          const colors = ['#10b981', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16'];
-                          const color = colors[i % colors.length];
-
-                          if (progressGraphMode === 'accuracy') {
+                        {progressGraphMode === 'accuracy' ? (
+                          // Accuracy: Per session (last 10 sessions)
+                          sessionHistory.slice(-10).map((s, i) => {
+                            const colors = ['#10b981', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16'];
+                            const color = colors[i % colors.length];
                             const acc = s.accuracy || s.score || 50;
                             return (
                               <div key={i} className="flex-1 flex flex-col items-center group relative">
-                                {/* Tooltip */}
                                 <div className="absolute -top-8 bg-gray-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
                                   {acc}%
                                 </div>
-                                {/* Bar */}
                                 <div
                                   className="w-full rounded-t transition-all group-hover:opacity-80"
                                   style={{
@@ -4064,42 +4067,63 @@ const App = () => {
                                     backgroundColor: color
                                   }}
                                 />
-                                {/* Value */}
                                 <div className="text-[8px] font-bold mt-1" style={{ color }}>{acc}%</div>
                               </div>
                             );
-                          } else {
-                            // Time view
-                            const duration = s.duration || 0; // seconds
-                            const mins = Math.round(duration / 60);
-                            const maxTime = Math.max(...arr.map(x => x.duration || 1), 1);
-                            return (
-                              <div key={i} className="flex-1 flex flex-col items-center group relative">
-                                {/* Tooltip */}
-                                <div className="absolute -top-8 bg-gray-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                  {mins > 0 ? `${mins}m ${duration % 60}s` : `${duration}s`}
+                          })
+                        ) : (
+                          // Time: Aggregate by day (last 10 days)
+                          (() => {
+                            const colors = ['#3b82f6', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#10b981'];
+                            // Group sessions by day
+                            const dailyData = {};
+                            const today = new Date();
+                            for (let i = 9; i >= 0; i--) {
+                              const d = new Date(today);
+                              d.setDate(d.getDate() - i);
+                              const key = d.toISOString().split('T')[0];
+                              dailyData[key] = { date: d, duration: 0, label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+                            }
+                            // Sum durations per day
+                            sessionHistory.forEach(s => {
+                              if (s.startTime) {
+                                const dateKey = new Date(s.startTime?.seconds ? s.startTime.seconds * 1000 : s.startTime).toISOString().split('T')[0];
+                                if (dailyData[dateKey]) {
+                                  dailyData[dateKey].duration += s.duration || 0;
+                                }
+                              }
+                            });
+                            const days = Object.values(dailyData);
+                            const maxTime = Math.max(...days.map(d => d.duration), 1);
+
+                            return days.map((day, i) => {
+                              const mins = Math.round(day.duration / 60);
+                              const color = colors[i % colors.length];
+                              return (
+                                <div key={i} className="flex-1 flex flex-col items-center group relative">
+                                  <div className="absolute -top-8 bg-gray-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                                    {mins > 0 ? `${mins}m` : `${day.duration}s`} - {day.label}
+                                  </div>
+                                  <div
+                                    className="w-full rounded-t transition-all group-hover:opacity-80"
+                                    style={{
+                                      height: `${Math.min(60, Math.max(4, (day.duration / maxTime) * 60))}px`,
+                                      backgroundColor: day.duration > 0 ? color : '#e5e7eb'
+                                    }}
+                                  />
+                                  <div className="text-[6px] font-bold mt-1 text-gray-500 truncate w-full text-center">
+                                    {day.label.split(' ')[1]}
+                                  </div>
                                 </div>
-                                {/* Bar */}
-                                <div
-                                  className="w-full rounded-t transition-all group-hover:opacity-80"
-                                  style={{
-                                    height: `${Math.min(60, Math.max(8, (duration / maxTime) * 60))}px`,
-                                    backgroundColor: color
-                                  }}
-                                />
-                                {/* Value */}
-                                <div className="text-[8px] font-bold mt-1" style={{ color }}>
-                                  {mins > 0 ? `${mins}m` : `${duration}s`}
-                                </div>
-                              </div>
-                            );
-                          }
-                        })}
+                              );
+                            });
+                          })()
+                        )}
                       </div>
                       <div className="text-[10px] text-gray-400 text-center mt-2">
                         {progressGraphMode === 'accuracy'
                           ? '📈 Your accuracy is improving - keep it up! 💪'
-                          : '⏱️ More practice = better fluency! Keep chatting! 🗣️'}
+                          : '⏱️ Daily practice builds fluency! Keep chatting! 🗣️'}
                       </div>
                     </div>
                   ) : (
@@ -4298,6 +4322,94 @@ const App = () => {
                       <Download size={18} /> Download Full Report 📄
                     </button>
                   )}
+
+                  {/* Practice Workbook Button */}
+                  <div className="mt-3">
+                    {isGeneratingWorkbook ? (
+                      <div className="w-full bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl p-4 text-center">
+                        <div className="text-lg font-bold text-indigo-700 mb-2 flex items-center justify-center gap-2">
+                          <Loader2 className="animate-spin" size={20} />
+                          {workbookStep || 'Preparing...'}
+                        </div>
+                        <div className="w-full bg-indigo-100 rounded-full h-3 mb-2 overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500 ease-out"
+                            style={{ width: `${workbookProgress}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-indigo-600">{workbookProgress}% complete</div>
+                      </div>
+                    ) : (
+                      <button
+                        className="w-full py-3 bg-white border-2 border-indigo-100 text-indigo-600 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors active:scale-98"
+                        onClick={async () => {
+                          if (!user) return;
+                          setIsGeneratingWorkbook(true);
+                          setWorkbookProgress(0);
+
+                          // Animation
+                          const steps = [
+                            { text: '📖 Analyzing vocab needs...', progress: 20 },
+                            { text: '🧠 Generating unique quiz...', progress: 45 },
+                            { text: '✍️ Creating exercises...', progress: 70 },
+                            { text: '🎨 Formatting workbook...', progress: 90 }
+                          ];
+
+                          for (const step of steps) {
+                            setWorkbookStep(step.text);
+                            setWorkbookProgress(step.progress);
+                            await new Promise(r => setTimeout(r, 1000));
+                          }
+
+                          try {
+                            const token = await user.getIdToken();
+                            const res = await fetch(`${BACKEND_URL}`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                              body: JSON.stringify({ type: 'generate_practice_pdf', userId: user.uid })
+                            });
+                            const data = await res.json();
+
+                            if (data.pdf) {
+                              setWorkbookProgress(100);
+                              setWorkbookStep('🎉 Workbook Ready!');
+                              await new Promise(r => setTimeout(r, 800));
+
+                              const byteCharacters = atob(data.pdf);
+                              const byteNumbers = new Array(byteCharacters.length);
+                              for (let i = 0; i < byteCharacters.length; i++) {
+                                byteNumbers[i] = byteCharacters.charCodeAt(i);
+                              }
+                              const byteArray = new Uint8Array(byteNumbers);
+                              const blob = new Blob([byteArray], { type: 'application/pdf' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `fluency-workbook-${new Date().toISOString().split('T')[0]}.pdf`;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+
+                              setWorkbookStep('✅ Downloaded! Start practicing! ✍️');
+                              confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ['#6366f1', '#a855f7'] });
+                              await new Promise(r => setTimeout(r, 2000));
+                            } else {
+                              alert(data.error || 'Could not generate workbook.');
+                            }
+                          } catch (e) {
+                            alert('Error generating workbook.');
+                          } finally {
+                            setIsGeneratingWorkbook(false);
+                            setWorkbookStep('');
+                            setWorkbookProgress(0);
+                          }
+                        }}
+                      >
+                        <BookOpen size={18} /> Download Practice Workbook ✍️
+                      </button>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             </motion.div>

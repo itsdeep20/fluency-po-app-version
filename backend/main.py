@@ -1751,7 +1751,162 @@ Max 3 weak points, 2 strong points. Be encouraging."""
                 traceback.print_exc()
                 return (json.dumps({"error": str(e)}), 500, headers)
 
-        return (json.dumps({"error": f"Unknown type: {req_type}, keys: {list(data.keys())}"}), 400, headers)
+                return (json.dumps({"error": str(e)}), 500, headers)
+
+        # ========================================
+        # GENERATE PRACTICE PDF (Workbook)
+        # ========================================
+        if req_type == 'generate_practice_pdf':
+            if not REPORTLAB_AVAILABLE:
+                return (json.dumps({"error": "pdf_unavailable", "message": "PDF generation unavailable."}), 503, headers)
+            
+            user_id = data.get('userId')
+            if not user_id:
+                return (json.dumps({"error": "userId required"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                user_ref = db.collection('users').document(user_id)
+                user_doc = user_ref.get()
+                
+                if not user_doc.exists:
+                    return (json.dumps({"error": "User not found"}), 404, headers)
+                
+                user_data = user_doc.to_dict()
+                stats = user_data.get('stats', {})
+                vocab_history = stats.get('vocabHistory', [])
+                
+                # Fetch recent corrections for context
+                sessions_ref = db.collection('users').document(user_id).collection('sessions')
+                # Last 20 sessions for ample context
+                sessions = sessions_ref.order_by('startTime', direction=firestore.Query.DESCENDING).limit(20).stream()
+                
+                recent_mistakes = []
+                for s in sessions:
+                    s_data = s.to_dict()
+                    for c in s_data.get('corrections', []):
+                        if isinstance(c, dict):
+                           recent_mistakes.append(f"{c.get('type', 'General')}: {c.get('original')} -> {c.get('corrected')}")
+                
+                # Limit mistakes context
+                mistakes_context = "\n".join(recent_mistakes[:30])
+                recent_vocab_str = ", ".join(vocab_history[-50:]) # Avoid last 50 words
+                
+                # AI Prompt
+                prompt = f"""Create a personalized English practice workbook.
+User's Recent Mistakes:
+{mistakes_context}
+
+Task 1: Vocabulary
+Generate 10 advanced English words (B2/C1 level) useful for this user. 
+AVOID these words: {recent_vocab_str}
+For each word provide: word, definition, example_sentence.
+
+Task 2: Grammar Quiz
+Generate 10 Fill-in-the-blank questions focusing on the user's recent mistakes (especially {', '.join(set([m.split(':')[0] for m in recent_mistakes[:5]]))}).
+For each question provide: question (with ______), correct_answer, choices (list of 3 options), explanation.
+
+Return JSON:
+{{
+  "vocabulary": [{{"word": "...", "definition": "...", "example": "..."}}],
+  "quiz": [{{"question": "...", "answer": "...", "choices": ["...", "..."], "explanation": "..."}}]
+}}"""
+
+                print("[PRACTICE_PDF] Generating content with AI...")
+                model = get_pro_model()
+                ai_res = generate_with_pro_model(model, prompt)
+                
+                # Parse JSON
+                start = ai_res.find('{')
+                end = ai_res.rfind('}') + 1
+                content = json.loads(ai_res[start:end])
+                
+                # Update Vocab History
+                new_vocab_words = [v['word'] for v in content.get('vocabulary', [])]
+                if new_vocab_words:
+                    # Update stats.vocabHistory atomically
+                    # Note: stats is a map, so we update the field "stats.vocabHistory"
+                    # Using arrayUnion to add new words
+                    user_ref.update({
+                        "stats.vocabHistory": firestore.ArrayUnion(new_vocab_words)
+                    })
+                
+                # Generate PDF
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=A4, 
+                                        rightMargin=20*mm, leftMargin=20*mm,
+                                        topMargin=20*mm, bottomMargin=20*mm)
+                
+                styles = getSampleStyleSheet()
+                # Define styles (reusing logic or redefining short versions)
+                title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#059669'), alignment=TA_CENTER, spaceAfter=20)
+                h2_style = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=16, textColor=colors.HexColor('#1F2937'), spaceBefore=15, spaceAfter=10)
+                vocab_word_style = ParagraphStyle('VocabWord', parent=styles['Normal'], fontSize=12, textColor=colors.HexColor('#4338CA'), fontName='Helvetica-Bold')
+                text_style = ParagraphStyle('Text', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#374151'))
+                quiz_q_style = ParagraphStyle('QuizQ', parent=styles['Normal'], fontSize=11, fontName='Helvetica-Bold', spaceBefore=10)
+                
+                story = []
+                now = datetime.now()
+                
+                # Title Page
+                story.append(Paragraph("FLUENCY PRO", title_style))
+                story.append(Paragraph("PRACTICE WORKBOOK", ParagraphStyle('Sub', parent=styles['Heading2'], alignment=TA_CENTER, textColor=colors.gray)))
+                story.append(Paragraph(f"Generated: {now.strftime('%B %d, %Y')}", ParagraphStyle('Date', parent=styles['Normal'], alignment=TA_CENTER, textColor=colors.gray)))
+                story.append(Spacer(1, 30))
+                
+                # Vocabulary Section
+                if content.get('vocabulary'):
+                    story.append(Paragraph("PART 1: VOCABULARY BUILDER", h2_style))
+                    story.append(Paragraph("Learn these new words to upgrade your speech:", text_style))
+                    story.append(Spacer(1, 10))
+                    
+                    for i, v in enumerate(content['vocabulary'], 1):
+                        story.append(Paragraph(f"{i}. {v['word']}", vocab_word_style))
+                        story.append(Paragraph(f"   <b>Definition:</b> {v['definition']}", text_style))
+                        story.append(Paragraph(f"   <b>Example:</b> <i>{v['example']}</i>", text_style))
+                        story.append(Spacer(1, 8))
+                    
+                    story.append(PageBreak())
+                
+                # Quiz Section
+                if content.get('quiz'):
+                    story.append(Paragraph("PART 2: GRAMMAR CHALLENGE", h2_style))
+                    story.append(Paragraph("Fill in the blanks. Choose the best option.", text_style))
+                    story.append(Spacer(1, 10))
+                    
+                    for i, q in enumerate(content['quiz'], 1):
+                        story.append(Paragraph(f"Q{i}: {q['question']}", quiz_q_style))
+                        options = ", ".join([f"({opt})" for opt in q.get('choices', [])])
+                        story.append(Paragraph(f"Options: {options}", text_style))
+                        story.append(Spacer(1, 10))
+                    
+                    story.append(PageBreak())
+                    
+                    # Answer Key
+                    story.append(Paragraph("ANSWER KEY", h2_style))
+                    story.append(Spacer(1, 10))
+                    for i, q in enumerate(content['quiz'], 1):
+                        story.append(Paragraph(f"<b>Q{i}: {q['answer']}</b>", text_style))
+                        story.append(Paragraph(f"<i>Why? {q['explanation']}</i>", ParagraphStyle('Expl', parent=styles['Normal'], fontSize=9, textColor=colors.gray, leftIndent=10)))
+                        story.append(Spacer(1, 5))
+                
+                doc.build(story)
+                pdf_bytes = buffer.getvalue()
+                buffer.close()
+                
+                pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                
+                return (json.dumps({
+                    "pdf": pdf_base64,
+                    "vocabCount": len(new_vocab_words),
+                    "quizCount": len(content.get('quiz', []))
+                }), 200, headers)
+                
+            except Exception as e:
+                print(f"[PRACTICE_PDF_ERROR] {e}")
+                return (json.dumps({"error": str(e)}), 500, headers)
+
+        return (json.dumps({"error": f"Unknown type: {req_type}"}), 400, headers)
 
     except Exception as e:
         print(f"[GLOBAL_ERR] Type: {req_type}, Error: {e}")
