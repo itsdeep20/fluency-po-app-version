@@ -236,17 +236,55 @@ def get_model(use_fallback=False):
         raise Exception(f"All model initialization attempts failed: {e}")
 
 def get_pro_model():
-    """Initialize and return Pro model for quality-critical tasks."""
+    """Initialize and return Pro model for quality-critical tasks with MINIMAL thinking."""
     try:
-        # Gemini 3 Preview models need global location
-        vertexai.init(project=PROJECT_ID, location=PREVIEW_LOCATION)
-        # Note: thinking_level requires newer SDK - using default for now
-        model = GenerativeModel(PRO_MODEL_ID)
-        print(f"[MODEL_INIT] Using PRO model: {PRO_MODEL_ID} at {PREVIEW_LOCATION}")
-        return model
+        # Try new google-genai SDK with thinking level support
+        from google import genai
+        from google.genai import types
+        
+        client = genai.Client(
+            vertexai=True, 
+            project=PROJECT_ID, 
+            location=PREVIEW_LOCATION
+        )
+        print(f"[MODEL_INIT] Using PRO model: {PRO_MODEL_ID} at {PREVIEW_LOCATION} (MINIMAL thinking via genai SDK)")
+        return {"client": client, "model": PRO_MODEL_ID, "use_genai": True}
     except Exception as e:
-        print(f"[MODEL_INIT] Pro model failed at {PREVIEW_LOCATION}, falling back: {e}")
-        return get_model(use_fallback=True)  # Fallback to GA model
+        print(f"[MODEL_INIT] genai SDK failed, falling back to vertexai: {e}")
+        # Fallback to standard Vertex AI SDK
+        try:
+            vertexai.init(project=PROJECT_ID, location=PREVIEW_LOCATION)
+            model = GenerativeModel(PRO_MODEL_ID)
+            print(f"[MODEL_INIT] Using PRO model: {PRO_MODEL_ID} at {PREVIEW_LOCATION} (default thinking)")
+            return model
+        except Exception as e2:
+            print(f"[MODEL_INIT] Pro model failed at {PREVIEW_LOCATION}, falling back: {e2}")
+            return get_model(use_fallback=True)  # Fallback to GA model
+
+def generate_with_pro_model(model_or_config, prompt):
+    """Generate content using Pro model, handling both SDK types."""
+    try:
+        if isinstance(model_or_config, dict) and model_or_config.get("use_genai"):
+            # Use new genai SDK with minimal thinking
+            from google.genai import types
+            client = model_or_config["client"]
+            model_name = model_or_config["model"]
+            
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_level="minimal")
+                )
+            )
+            return response.text
+        else:
+            # Use standard Vertex AI SDK
+            response = model_or_config.generate_content(prompt)
+            return response.text.strip()
+    except Exception as e:
+        print(f"[PRO_MODEL_ERROR] {e}")
+        raise e
 
 def call_gemini(model, prompt, history=[]):
     """Simple wrapper for generating content."""
@@ -445,9 +483,8 @@ Write the personalized feedback now:"""
             try:
                 print(f"[SESSION_FEEDBACK] Starting with PRO model: {PRO_MODEL_ID}")
                 model = get_pro_model()  # Use PRO model for quality feedback
-                print(f"[SESSION_FEEDBACK] Got model, generating content...")
-                response = model.generate_content(feedback_prompt)
-                feedback_text = response.text.strip()
+                print(f"[SESSION_FEEDBACK] Got model, generating content with MINIMAL thinking...")
+                feedback_text = generate_with_pro_model(model, feedback_prompt)
                 print(f"[SESSION_FEEDBACK] Success! Generated {len(feedback_text)} chars")
                 
                 return (json.dumps({
@@ -996,7 +1033,7 @@ CRITICAL - ENGLISH ONLY:
                     "}"
                 )
                 try:
-                    res = model.generate_content(prompt).text
+                    res = generate_with_pro_model(model, prompt)
                     # Clean JSON
                     start = res.find('{')
                     end = res.rfind('}') + 1
@@ -1335,8 +1372,7 @@ Be encouraging but honest. If there aren't enough patterns to identify, provide 
 JSON only:"""
 
             try:
-                response = model.generate_content(prompt)
-                response_text = response.text.strip()
+                response_text = generate_with_pro_model(model, prompt)
                 
                 # Clean and parse JSON
                 start = response_text.find('{')

@@ -402,7 +402,11 @@ const App = () => {
   const [showStudyGuideModal, setShowStudyGuideModal] = useState(false); // Study Guide PDF modal
   const [studyGuideFilter, setStudyGuideFilter] = useState('new'); // 'new', '7days', '30days', 'all'
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfGenerationStep, setPdfGenerationStep] = useState(''); // Current animation step
+  const [pdfProgress, setPdfProgress] = useState(0); // Progress percentage 0-100
+  const [sessionStartTime, setSessionStartTime] = useState(null); // Track session start for duration
   const [lastPdfDownload, setLastPdfDownload] = useState(null);
+  const [progressGraphMode, setProgressGraphMode] = useState('accuracy'); // 'accuracy' or 'time'
   const prevLevelRef = useRef(null); // Track previous level for badge unlock detection
   const prevStreakRef = useRef(0); // Track previous streak for milestone detection
   const isEndingRef = useRef(false);
@@ -1739,6 +1743,7 @@ const App = () => {
       topic: sim.desc,
       simulation: sim // Include full simulation data for stage tracking
     });
+    setSessionStartTime(Date.now()); // Track session start for duration calculation
     // Reset typing status for bots
     setIsOpponentTyping(false);
 
@@ -2074,6 +2079,7 @@ const App = () => {
     // SIMULATION MODE ONLY - show feedback card and save session
     if (capturedSession?.type === 'bot') {
       // Store session history to Firestore
+      const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0; // Duration in seconds
       const sessionData = {
         simId: capturedSession.id,
         simName: capturedSession.opponent?.name || 'Simulation',
@@ -2083,6 +2089,7 @@ const App = () => {
         messagesCount: totalSent,
         correctionsCount: correctionCount,
         corrections: sessionCorrections, // IMPORTANT: Include actual corrections for AI Analysis
+        duration: sessionDuration, // Session duration in seconds for time tracking
         startTime: serverTimestamp(), // For PDF Study Guide query
         timestamp: serverTimestamp(),
         lastMessage: myMessages[myMessages.length - 1]?.text || ''
@@ -4003,30 +4010,96 @@ const App = () => {
                     </div>
                   </div>
 
-                  {/* Accuracy Trend - Only show after 2+ sessions */}
+                  {/* Progress Graph - Toggle between Accuracy and Time */}
                   {(stats.sessions || 0) >= 2 && sessionHistory.length > 0 ? (
                     <div className="bg-gray-50 rounded-2xl p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <TrendingUp size={14} className="text-emerald-500" />
-                        <span className="text-xs font-bold text-gray-700">Accuracy per Session</span>
+                      {/* Toggle Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <TrendingUp size={14} className="text-emerald-500" />
+                          <span className="text-xs font-bold text-gray-700">Last 10 Sessions</span>
+                        </div>
+                        {/* Toggle Buttons */}
+                        <div className="flex bg-white rounded-lg p-0.5 shadow-sm border">
+                          <button
+                            onClick={() => setProgressGraphMode('accuracy')}
+                            className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${progressGraphMode === 'accuracy'
+                              ? 'bg-emerald-500 text-white'
+                              : 'text-gray-500 hover:bg-gray-100'
+                              }`}
+                          >
+                            📊 Accuracy
+                          </button>
+                          <button
+                            onClick={() => setProgressGraphMode('time')}
+                            className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${progressGraphMode === 'time'
+                              ? 'bg-blue-500 text-white'
+                              : 'text-gray-500 hover:bg-gray-100'
+                              }`}
+                          >
+                            ⏱️ Time
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-end gap-1 h-16">
-                        {sessionHistory.slice(-10).map((s, i) => {
-                          const acc = s.accuracy || s.score || 50;
-                          return (
-                            <div key={i} className="flex-1 flex flex-col items-center">
-                              <div
-                                className={`w-full rounded-t transition-all ${acc >= 80 ? 'bg-emerald-400' :
-                                  acc >= 60 ? 'bg-amber-400' : 'bg-rose-400'
-                                  }`}
-                                style={{ height: `${Math.min(40, Math.max(6, acc * 0.35))}px` }}
-                              />
-                            </div>
-                          );
+
+                      {/* Graph Bars */}
+                      <div className="flex items-end gap-1 h-24">
+                        {sessionHistory.slice(-10).map((s, i, arr) => {
+                          const colors = ['#10b981', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16'];
+                          const color = colors[i % colors.length];
+
+                          if (progressGraphMode === 'accuracy') {
+                            const acc = s.accuracy || s.score || 50;
+                            return (
+                              <div key={i} className="flex-1 flex flex-col items-center group relative">
+                                {/* Tooltip */}
+                                <div className="absolute -top-8 bg-gray-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                                  {acc}%
+                                </div>
+                                {/* Bar */}
+                                <div
+                                  className="w-full rounded-t transition-all group-hover:opacity-80"
+                                  style={{
+                                    height: `${Math.min(60, Math.max(8, acc * 0.6))}px`,
+                                    backgroundColor: color
+                                  }}
+                                />
+                                {/* Value */}
+                                <div className="text-[8px] font-bold mt-1" style={{ color }}>{acc}%</div>
+                              </div>
+                            );
+                          } else {
+                            // Time view
+                            const duration = s.duration || 0; // seconds
+                            const mins = Math.round(duration / 60);
+                            const maxTime = Math.max(...arr.map(x => x.duration || 1), 1);
+                            return (
+                              <div key={i} className="flex-1 flex flex-col items-center group relative">
+                                {/* Tooltip */}
+                                <div className="absolute -top-8 bg-gray-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                                  {mins > 0 ? `${mins}m ${duration % 60}s` : `${duration}s`}
+                                </div>
+                                {/* Bar */}
+                                <div
+                                  className="w-full rounded-t transition-all group-hover:opacity-80"
+                                  style={{
+                                    height: `${Math.min(60, Math.max(8, (duration / maxTime) * 60))}px`,
+                                    backgroundColor: color
+                                  }}
+                                />
+                                {/* Value */}
+                                <div className="text-[8px] font-bold mt-1" style={{ color }}>
+                                  {mins > 0 ? `${mins}m` : `${duration}s`}
+                                </div>
+                              </div>
+                            );
+                          }
                         })}
                       </div>
                       <div className="text-[10px] text-gray-400 text-center mt-2">
-                        Last {Math.min(10, sessionHistory.length)} sessions • Keep going! 💪
+                        {progressGraphMode === 'accuracy'
+                          ? '📈 Your accuracy is improving - keep it up! 💪'
+                          : '⏱️ More practice = better fluency! Keep chatting! 🗣️'}
                       </div>
                     </div>
                   ) : (
@@ -4103,17 +4176,102 @@ const App = () => {
                     )}
                   </div>
 
-                  {/* Download PDF Button - Placeholder */}
-                  <button
-                    className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-                    onClick={() => {
-                      // PDF generation will be added in Phase 3
-                      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-                      alert('PDF feature coming soon! 📄');
-                    }}
-                  >
-                    <Download size={18} /> Download Practice PDF
-                  </button>
+                  {/* Download Full Progress Report Button */}
+                  {isGeneratingPdf ? (
+                    <div className="w-full bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-4 text-center">
+                      {/* Animated Step Display */}
+                      <div className="text-lg font-bold text-emerald-700 mb-2 flex items-center justify-center gap-2">
+                        <Loader2 className="animate-spin" size={20} />
+                        {pdfGenerationStep || 'Preparing...'}
+                      </div>
+                      {/* Progress Bar */}
+                      <div className="w-full bg-emerald-100 rounded-full h-3 mb-2 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${pdfProgress}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-emerald-600">{pdfProgress}% complete</div>
+                    </div>
+                  ) : (
+                    <button
+                      className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity active:scale-98 shadow-lg shadow-emerald-200"
+                      onClick={async () => {
+                        if (!user) return;
+                        setIsGeneratingPdf(true);
+                        setPdfProgress(0);
+
+                        // Animated step sequence
+                        const steps = [
+                          { text: '🔍 Finding your mistakes...', progress: 20 },
+                          { text: '📊 Analyzing patterns...', progress: 45 },
+                          { text: '📝 Creating your report...', progress: 70 },
+                          { text: '🎨 Adding finishing touches...', progress: 90 }
+                        ];
+
+                        for (const step of steps) {
+                          setPdfGenerationStep(step.text);
+                          setPdfProgress(step.progress);
+                          await new Promise(r => setTimeout(r, 800));
+                        }
+
+                        try {
+                          const token = await user.getIdToken();
+                          const res = await fetch(`${BACKEND_URL}`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                              type: 'generate_study_guide',
+                              filter: 'all'
+                            })
+                          });
+                          const data = await res.json();
+
+                          if (data.pdf) {
+                            setPdfProgress(100);
+                            setPdfGenerationStep('🎉 Your report is ready!');
+                            await new Promise(r => setTimeout(r, 500));
+
+                            // Download the PDF
+                            const byteCharacters = atob(data.pdf);
+                            const byteNumbers = new Array(byteCharacters.length);
+                            for (let i = 0; i < byteCharacters.length; i++) {
+                              byteNumbers[i] = byteCharacters.charCodeAt(i);
+                            }
+                            const byteArray = new Uint8Array(byteNumbers);
+                            const blob = new Blob([byteArray], { type: 'application/pdf' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `fluency-progress-report-${new Date().toISOString().split('T')[0]}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+
+                            // Celebration!
+                            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                          } else if (data.error === 'no_corrections') {
+                            alert('Complete a few more sessions to generate your report! Keep practicing! 💪');
+                          } else {
+                            alert(data.error || 'Could not generate PDF. Try again later!');
+                          }
+                        } catch (e) {
+                          console.error('PDF error:', e);
+                          alert('Something went wrong. Please try again!');
+                        } finally {
+                          setIsGeneratingPdf(false);
+                          setPdfGenerationStep('');
+                          setPdfProgress(0);
+                        }
+                      }}
+                    >
+                      <Download size={18} /> Download Full Report 📄
+                    </button>
+                  )}
                 </div>
               </motion.div>
             </motion.div>
