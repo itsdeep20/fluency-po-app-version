@@ -2068,19 +2068,31 @@ Return JSON:
                 else:
                     time_spent_str = f"{period_time_minutes}m" if period_time_minutes > 0 else "0m"
                 
-                # Shield based on accuracy
+                # Shield based on accuracy - now with image paths
+                import os
+                assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
+                
                 if period_avg_accuracy >= 90:
                     shield_label = "MASTER"
                     shield_color = '#FFD700'
+                    shield_image = os.path.join(assets_dir, 'shield_gold.png')
                 elif period_avg_accuracy >= 75:
                     shield_label = "EXPERT"
                     shield_color = '#C0C0C0'
+                    shield_image = os.path.join(assets_dir, 'shield_silver.png')
                 elif period_avg_accuracy >= 60:
                     shield_label = "SKILLED"
                     shield_color = '#CD7F32'
+                    shield_image = os.path.join(assets_dir, 'shield_bronze.png')
                 else:
                     shield_label = "LEARNER"
                     shield_color = '#6B7280'
+                    shield_image = os.path.join(assets_dir, 'shield_gray.png')
+                
+                # Also get check/x/fire image paths
+                check_img_path = os.path.join(assets_dir, 'check_green.png')
+                x_img_path = os.path.join(assets_dir, 'x_red.png')
+                fire_img_path = os.path.join(assets_dir, 'fire.png')
                 
                 # AI Content Generation
                 mistakes_context = "\n".join(recent_mistakes[:30])
@@ -2153,10 +2165,21 @@ Return JSON:
                 story = []
                 
                 # ===== PAGE 1: Progress Summary =====
-                # 3-Column Header - NO EMOJIS (they render as black boxes)
+                # 3-Column Header with ACTUAL SHIELD IMAGE
+                from reportlab.platypus import Image as RLImage
+                
+                # Create header with shield image
+                try:
+                    shield_img = RLImage(shield_image, width=15*mm, height=18*mm)
+                except:
+                    shield_img = Paragraph(f"<b>{shield_label}</b>", ParagraphStyle('Shield', alignment=TA_CENTER))
+                
                 header_data = [[
-                    Paragraph(f"<font size='14' color='{shield_color}'><b>{shield_label}</b></font>", 
-                              ParagraphStyle('Shield', alignment=TA_CENTER, backColor=colors.HexColor('#1F2937'))),
+                    Table([
+                        [shield_img],
+                        [Paragraph(f"<font size='10' color='{shield_color}'><b>{shield_label}</b></font>", 
+                                   ParagraphStyle('ShieldLabel', alignment=TA_CENTER))]
+                    ], colWidths=[30*mm]),
                     Paragraph(f"<font size='24' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='12' color='#6B7280'>Complete Learning Pack</font>", 
                               ParagraphStyle('Title', alignment=TA_CENTER)),
                     Paragraph(f"<font size='12' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='10' color='#9CA3AF'>{filter_label}</font>", 
@@ -2166,18 +2189,16 @@ Return JSON:
                 header_table.setStyle(TableStyle([
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#1F2937')),
-                    ('TEXTCOLOR', (0, 0), (0, 0), colors.white),
                     ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                    ('TOPPADDING', (0, 0), (-1, -1), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 10),
                 ]))
                 story.append(header_table)
                 story.append(Spacer(1, 20))
                 
-                # Stats Box - NO EMOJIS
+                # Stats Box with streak
                 stats_data = [
-                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak}"],
+                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} streak"],
                     ["Sessions", "Time Spent", "Accuracy", "Streak"]
                 ]
                 stats_table = Table(stats_data, colWidths=[40*mm, 45*mm, 40*mm, 40*mm])
@@ -2299,8 +2320,28 @@ Return JSON:
                     explanation = corr.get('explanation', '')
                     
                     story.append(Paragraph(f"<b>#{i} | {corr_type}</b>", ParagraphStyle('CorrH', fontSize=11, textColor=colors.HexColor('#9CA3AF'), spaceAfter=4)))
-                    story.append(Paragraph(f"<font color='#DC2626'><b>X</b> YOUR VERSION:</font> \"{original}\"", body_style))
-                    story.append(Paragraph(f"<font color='#059669'><b>OK</b> CORRECT:</font> \"{corrected}\"", body_style))
+                    
+                    # Use images for X and checkmark
+                    try:
+                        x_img = RLImage(x_img_path, width=4*mm, height=4*mm)
+                        check_img = RLImage(check_img_path, width=4*mm, height=4*mm)
+                        
+                        # Table layout: [icon] [text]
+                        corr_table = Table([
+                            [x_img, Paragraph(f"<font color='#DC2626'>YOUR VERSION:</font> \"{original}\"", body_style)],
+                            [check_img, Paragraph(f"<font color='#059669'>CORRECT:</font> \"{corrected}\"", body_style)]
+                        ], colWidths=[6*mm, 160*mm])
+                        corr_table.setStyle(TableStyle([
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                            ('LEFTPADDING', (0, 0), (0, -1), 0),
+                            ('RIGHTPADDING', (0, 0), (0, -1), 2),
+                        ]))
+                        story.append(corr_table)
+                    except:
+                        # Fallback to text
+                        story.append(Paragraph(f"<font color='#DC2626'><b>X</b> YOUR VERSION:</font> \"{original}\"", body_style))
+                        story.append(Paragraph(f"<font color='#059669'><b>OK</b> CORRECT:</font> \"{corrected}\"", body_style))
+                    
                     if explanation:
                         story.append(Paragraph(f"TIP: {explanation}", tip_style))
                     story.append(Spacer(1, 12))
