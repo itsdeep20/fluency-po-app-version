@@ -1594,14 +1594,44 @@ JSON only:"""
                 
                 story = []
                 
-                # Header
-                story.append(Paragraph("FLUENCY PRO", title_style))
-                story.append(Paragraph("Study Guide - Your Personalized Learning Summary", subtitle_style))
-                story.append(Paragraph(f"Generated: {now.strftime('%B %d, %Y')} | {filter_label} | {len(all_corrections)} Corrections", 
-                                       ParagraphStyle('DateLine', parent=styles['Normal'], fontSize=9, textColor=colors.gray, alignment=TA_CENTER)))
+                # Determine accuracy shield based on period_avg_accuracy
+                if period_avg_accuracy >= 90:
+                    shield_emoji = "🛡️"
+                    shield_label = "Master"
+                    shield_color = '#FFD700'  # Gold
+                elif period_avg_accuracy >= 75:
+                    shield_emoji = "🛡️"
+                    shield_label = "Expert"
+                    shield_color = '#C0C0C0'  # Silver
+                elif period_avg_accuracy >= 60:
+                    shield_emoji = "🛡️"
+                    shield_label = "Skilled"
+                    shield_color = '#CD7F32'  # Bronze
+                else:
+                    shield_emoji = "🛡️"
+                    shield_label = "Learner"
+                    shield_color = '#6B7280'  # Gray
+                
+                # Premium 3-Column Header
+                header_data = [[
+                    Paragraph(f"<font size='28'>{shield_emoji}</font><br/><font size='8' color='{shield_color}'><b>{shield_label}</b></font>", 
+                              ParagraphStyle('Shield', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='22' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='10' color='#6B7280'>Progress Report</font>", 
+                              ParagraphStyle('Title', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='9' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='8' color='#6B7280'>{filter_label}</font>", 
+                              ParagraphStyle('Date', alignment=TA_CENTER))
+                ]]
+                header_table = Table(header_data, colWidths=[35*mm, 100*mm, 35*mm])
+                header_table.setStyle(TableStyle([
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 10),
+                ]))
+                story.append(header_table)
                 story.append(Spacer(1, 15))
                 
-                # Stats Table - Period specific data
+                # Stats Summary - Premium bordered box
                 stats_data = [
                     [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} 🔥"],
                     ["Sessions", "Time Spent", "Accuracy", "Streak"]
@@ -1617,8 +1647,8 @@ JSON only:"""
                     ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                     ('TOPPADDING', (0, 0), (-1, 0), 12),
-                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#D1FAE5')),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1FAE5')),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
+                    ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#D1FAE5')),
                 ]))
                 story.append(stats_table)
                 story.append(Paragraph(f"Level: {level_icon} {level_name} | Total XP: {points:,.0f}", 
@@ -1792,24 +1822,25 @@ Max 3 weak points, 2 strong points. Be encouraging."""
                 mistakes_context = "\n".join(recent_mistakes[:30])
                 recent_vocab_str = ", ".join(vocab_history[-50:]) # Avoid last 50 words
                 
-                # AI Prompt
+                # AI Prompt - 25 questions, vocab after
                 prompt = f"""Create a personalized English practice workbook.
 User's Recent Mistakes:
 {mistakes_context}
 
-Task 1: Vocabulary
+Task 1: Grammar Quiz (MOST IMPORTANT)
+Generate 25 Fill-in-the-blank questions focusing on the user's recent mistakes.
+Cover these error types: {', '.join(set([m.split(':')[0] for m in recent_mistakes[:10]]))}.
+For each question provide: question (with ______), correct_answer, choices (list of 4 options), explanation.
+
+Task 2: Vocabulary
 Generate 10 advanced English words (B2/C1 level) useful for this user. 
 AVOID these words: {recent_vocab_str}
 For each word provide: word, definition, example_sentence.
 
-Task 2: Grammar Quiz
-Generate 10 Fill-in-the-blank questions focusing on the user's recent mistakes (especially {', '.join(set([m.split(':')[0] for m in recent_mistakes[:5]]))}).
-For each question provide: question (with ______), correct_answer, choices (list of 3 options), explanation.
-
 Return JSON:
 {{
-  "vocabulary": [{{"word": "...", "definition": "...", "example": "..."}}],
-  "quiz": [{{"question": "...", "answer": "...", "choices": ["...", "..."], "explanation": "..."}}]
+  "quiz": [{{"question": "...", "answer": "...", "choices": ["...", "..."], "explanation": "..."}}],
+  "vocabulary": [{{"word": "...", "definition": "...", "example": "..."}}]
 }}"""
 
                 print("[PRACTICE_PDF] Generating content with AI...")
@@ -1848,47 +1879,74 @@ Return JSON:
                 story = []
                 now = datetime.now()
                 
-                # Title Page
-                story.append(Paragraph("FLUENCY PRO", title_style))
-                story.append(Paragraph("PRACTICE WORKBOOK", ParagraphStyle('Sub', parent=styles['Heading2'], alignment=TA_CENTER, textColor=colors.gray)))
-                story.append(Paragraph(f"Generated: {now.strftime('%B %d, %Y')}", ParagraphStyle('Date', parent=styles['Normal'], alignment=TA_CENTER, textColor=colors.gray)))
-                story.append(Spacer(1, 30))
+                # Get user's accuracy for shield (from stats)
+                avg_accuracy = stats.get('avgScore', 70)
+                if avg_accuracy >= 90:
+                    shield_emoji, shield_label = "🛡️", "Master"
+                elif avg_accuracy >= 75:
+                    shield_emoji, shield_label = "🛡️", "Expert"
+                elif avg_accuracy >= 60:
+                    shield_emoji, shield_label = "🛡️", "Skilled"
+                else:
+                    shield_emoji, shield_label = "🛡️", "Learner"
                 
-                # Vocabulary Section
-                if content.get('vocabulary'):
-                    story.append(Paragraph("PART 1: VOCABULARY BUILDER", h2_style))
-                    story.append(Paragraph("Learn these new words to upgrade your speech:", text_style))
+                # Premium Header with Shield Badge
+                header_data = [[
+                    Paragraph(f"<font size='24'>{shield_emoji}</font><br/><font size='8' color='#6366F1'><b>{shield_label}</b></font>", 
+                              ParagraphStyle('Shield', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='20' color='#6366F1'><b>FLUENCY PRO</b></font><br/><font size='12' color='#9CA3AF'>Practice Workbook</font>", 
+                              ParagraphStyle('Title', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='9' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='8' color='#6B7280'>25 Questions</font>", 
+                              ParagraphStyle('Date', alignment=TA_CENTER))
+                ]]
+                header_table = Table(header_data, colWidths=[35*mm, 100*mm, 35*mm])
+                header_table.setStyle(TableStyle([
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 10),
+                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#E5E7EB')),
+                ]))
+                story.append(header_table)
+                story.append(Spacer(1, 20))
+                
+                # PART 1: Grammar Challenge (QUIZ FIRST)
+                if content.get('quiz'):
+                    story.append(Paragraph("PART 1: GRAMMAR CHALLENGE", h2_style))
+                    story.append(Paragraph("Fill in the blanks. Choose the best option. Answers at the end!", text_style))
                     story.append(Spacer(1, 10))
                     
-                    for i, v in enumerate(content['vocabulary'], 1):
-                        story.append(Paragraph(f"{i}. {v['word']}", vocab_word_style))
-                        story.append(Paragraph(f"   <b>Definition:</b> {v['definition']}", text_style))
-                        story.append(Paragraph(f"   <b>Example:</b> <i>{v['example']}</i>", text_style))
+                    for i, q in enumerate(content['quiz'], 1):
+                        story.append(Paragraph(f"<b>Q{i}.</b> {q['question']}", quiz_q_style))
+                        options = "   ".join([f"({chr(65+j)}) {opt}" for j, opt in enumerate(q.get('choices', []))])
+                        story.append(Paragraph(f"<font size='9' color='#6B7280'>{options}</font>", text_style))
                         story.append(Spacer(1, 8))
                     
                     story.append(PageBreak())
                 
-                # Quiz Section
-                if content.get('quiz'):
-                    story.append(Paragraph("PART 2: GRAMMAR CHALLENGE", h2_style))
-                    story.append(Paragraph("Fill in the blanks. Choose the best option.", text_style))
+                # PART 2: Vocabulary Builder (AFTER QUIZ)
+                if content.get('vocabulary'):
+                    story.append(Paragraph("PART 2: VOCABULARY BUILDER", h2_style))
+                    story.append(Paragraph("Master these 10 new words:", text_style))
                     story.append(Spacer(1, 10))
                     
-                    for i, q in enumerate(content['quiz'], 1):
-                        story.append(Paragraph(f"Q{i}: {q['question']}", quiz_q_style))
-                        options = ", ".join([f"({opt})" for opt in q.get('choices', [])])
-                        story.append(Paragraph(f"Options: {options}", text_style))
+                    for i, v in enumerate(content['vocabulary'], 1):
+                        story.append(Paragraph(f"<font size='12' color='#4338CA'><b>{i}. {v['word']}</b></font>", vocab_word_style))
+                        story.append(Paragraph(f"   <b>Definition:</b> {v['definition']}", text_style))
+                        story.append(Paragraph(f"   <b>Example:</b> <i>\"{v['example']}\"</i>", text_style))
                         story.append(Spacer(1, 10))
                     
                     story.append(PageBreak())
-                    
-                    # Answer Key
+                
+                # Answer Key
+                if content.get('quiz'):
                     story.append(Paragraph("ANSWER KEY", h2_style))
+                    story.append(Paragraph("Check your answers:", text_style))
                     story.append(Spacer(1, 10))
                     for i, q in enumerate(content['quiz'], 1):
                         story.append(Paragraph(f"<b>Q{i}: {q['answer']}</b>", text_style))
-                        story.append(Paragraph(f"<i>Why? {q['explanation']}</i>", ParagraphStyle('Expl', parent=styles['Normal'], fontSize=9, textColor=colors.gray, leftIndent=10)))
-                        story.append(Spacer(1, 5))
+                        story.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", ParagraphStyle('Expl', parent=styles['Normal'], fontSize=9, textColor=colors.gray, leftIndent=10)))
+                        story.append(Spacer(1, 4))
                 
                 doc.build(story)
                 pdf_bytes = buffer.getvalue()

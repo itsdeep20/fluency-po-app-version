@@ -4323,42 +4323,42 @@ const App = () => {
                     </button>
                   )}
 
-                  {/* Practice Workbook Button */}
-                  <div className="mt-3">
+                  {/* Practice Workbook Button - Secondary */}
+                  <div className="mt-3 flex justify-center">
                     {isGeneratingWorkbook ? (
-                      <div className="w-full bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl p-4 text-center">
-                        <div className="text-lg font-bold text-indigo-700 mb-2 flex items-center justify-center gap-2">
-                          <Loader2 className="animate-spin" size={20} />
+                      <div className="bg-gradient-to-r from-slate-50 to-gray-50 border border-gray-200 rounded-xl p-3 text-center w-full">
+                        <div className="text-sm font-semibold text-gray-600 mb-2 flex items-center justify-center gap-2">
+                          <Loader2 className="animate-spin" size={16} />
                           {workbookStep || 'Preparing...'}
                         </div>
-                        <div className="w-full bg-indigo-100 rounded-full h-3 mb-2 overflow-hidden">
+                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
                           <div
-                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500 ease-out"
+                            className="h-full bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full transition-all duration-500 ease-out"
                             style={{ width: `${workbookProgress}%` }}
                           />
                         </div>
-                        <div className="text-xs text-indigo-600">{workbookProgress}% complete</div>
                       </div>
                     ) : (
                       <button
-                        className="w-full py-3 bg-white border-2 border-indigo-100 text-indigo-600 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors active:scale-98"
+                        className="px-4 py-2 bg-gray-50 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl flex items-center gap-2 hover:bg-gray-100 hover:border-gray-300 transition-all"
                         onClick={async () => {
                           if (!user) return;
                           setIsGeneratingWorkbook(true);
                           setWorkbookProgress(0);
 
-                          // Animation
+                          // Animation - longer for 25 questions
                           const steps = [
-                            { text: '📖 Analyzing vocab needs...', progress: 20 },
-                            { text: '🧠 Generating unique quiz...', progress: 45 },
-                            { text: '✍️ Creating exercises...', progress: 70 },
-                            { text: '🎨 Formatting workbook...', progress: 90 }
+                            { text: '📖 Finding your weak points...', progress: 15 },
+                            { text: '🧠 Creating 25 quiz questions...', progress: 40 },
+                            { text: '✍️ Building exercises...', progress: 65 },
+                            { text: '📚 Adding vocabulary...', progress: 85 },
+                            { text: '🎨 Formatting workbook...', progress: 95 }
                           ];
 
                           for (const step of steps) {
                             setWorkbookStep(step.text);
                             setWorkbookProgress(step.progress);
-                            await new Promise(r => setTimeout(r, 1000));
+                            await new Promise(r => setTimeout(r, 1200));
                           }
 
                           try {
@@ -4391,8 +4391,8 @@ const App = () => {
                               document.body.removeChild(a);
                               URL.revokeObjectURL(url);
 
-                              setWorkbookStep('✅ Downloaded! Start practicing! ✍️');
-                              confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ['#6366f1', '#a855f7'] });
+                              setWorkbookStep('✅ Downloaded! 25 exercises ready!');
+                              confetti({ particleCount: 100, spread: 60, origin: { y: 0.7 }, colors: ['#6366f1', '#a855f7'] });
                               await new Promise(r => setTimeout(r, 2000));
                             } else {
                               alert(data.error || 'Could not generate workbook.');
@@ -4406,7 +4406,7 @@ const App = () => {
                           }
                         }}
                       >
-                        <BookOpen size={18} /> Download Practice Workbook ✍️
+                        <BookOpen size={14} /> Practice Workbook (25 Questions)
                       </button>
                     )}
                   </div>
