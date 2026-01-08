@@ -4176,6 +4176,23 @@ const App = () => {
                     )}
                   </div>
 
+                  {/* Date Range Selector */}
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3 mb-3">
+                    <span className="text-sm font-semibold text-gray-700">📅 Report Period:</span>
+                    <select
+                      value={studyGuideFilter}
+                      onChange={(e) => setStudyGuideFilter(e.target.value)}
+                      className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    >
+                      <option value="3days">Last 3 Days</option>
+                      <option value="5days">Last 5 Days</option>
+                      <option value="7days">Last 7 Days</option>
+                      <option value="15days">Last 15 Days</option>
+                      <option value="30days">Last 30 Days</option>
+                      <option value="all">All Time</option>
+                    </select>
+                  </div>
+
                   {/* Download Full Progress Report Button */}
                   {isGeneratingPdf ? (
                     <div className="w-full bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-4 text-center">
@@ -4201,18 +4218,20 @@ const App = () => {
                         setIsGeneratingPdf(true);
                         setPdfProgress(0);
 
-                        // Animated step sequence
+                        // Animated step sequence - AI analysis takes time
                         const steps = [
-                          { text: '🔍 Finding your mistakes...', progress: 20 },
-                          { text: '📊 Analyzing patterns...', progress: 45 },
-                          { text: '📝 Creating your report...', progress: 70 },
-                          { text: '🎨 Adding finishing touches...', progress: 90 }
+                          { text: '🔍 Finding your corrections...', progress: 15 },
+                          { text: '🧠 AI analyzing your mistakes...', progress: 35 },
+                          { text: '💡 Identifying weak points...', progress: 55 },
+                          { text: '⭐ Discovering your strengths...', progress: 70 },
+                          { text: '📝 Creating your personalized report...', progress: 85 },
+                          { text: '🎨 Adding finishing touches...', progress: 95 }
                         ];
 
                         for (const step of steps) {
                           setPdfGenerationStep(step.text);
                           setPdfProgress(step.progress);
-                          await new Promise(r => setTimeout(r, 800));
+                          await new Promise(r => setTimeout(r, 1000));
                         }
 
                         try {
@@ -4225,7 +4244,8 @@ const App = () => {
                             },
                             body: JSON.stringify({
                               type: 'generate_study_guide',
-                              filter: 'all'
+                              userId: user.uid,
+                              dateFilter: studyGuideFilter
                             })
                           });
                           const data = await res.json();
@@ -4233,7 +4253,7 @@ const App = () => {
                           if (data.pdf) {
                             setPdfProgress(100);
                             setPdfGenerationStep('🎉 Your report is ready!');
-                            await new Promise(r => setTimeout(r, 500));
+                            await new Promise(r => setTimeout(r, 800));
 
                             // Download the PDF
                             const byteCharacters = atob(data.pdf);
@@ -4252,11 +4272,17 @@ const App = () => {
                             document.body.removeChild(a);
                             URL.revokeObjectURL(url);
 
+                            // Success message!
+                            setPdfGenerationStep('✅ Downloaded! Open it and practice daily! 📖');
+
                             // Celebration!
-                            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                            confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+                            await new Promise(r => setTimeout(r, 2000)); // Show success message
                           } else if (data.error === 'no_corrections') {
+                            setPdfGenerationStep('');
                             alert('Complete a few more sessions to generate your report! Keep practicing! 💪');
                           } else {
+                            setPdfGenerationStep('');
                             alert(data.error || 'Could not generate PDF. Try again later!');
                           }
                         } catch (e) {

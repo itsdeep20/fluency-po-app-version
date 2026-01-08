@@ -1417,9 +1417,12 @@ JSON only:"""
                     return (json.dumps({"error": "User not found"}), 404, headers)
                 
                 user_data = user_doc.to_dict()
-                streak = user_data.get('streak', 0)
-                points = user_data.get('points', 0)
-                avg_score = user_data.get('avgScore', 0)
+                # Stats are stored in nested 'stats' object
+                stats = user_data.get('stats', {})
+                streak = stats.get('streak', 0) if stats else 0
+                points = stats.get('points', 0) if stats else 0
+                avg_score = stats.get('avgScore', 0) if stats else 0
+                total_sessions = stats.get('sessions', 0) if stats else 0
                 last_pdf_download = user_data.get('lastPdfDownload')
                 
                 # Determine level from accuracy
@@ -1434,14 +1437,23 @@ JSON only:"""
                 else:
                     level_name, level_icon = 'Starter', '-'
                 
-                # Calculate date filter
+                # Calculate date filter - more options
                 now = datetime.now(timezone.utc)
                 filter_date = None
                 filter_label = "All Time"
                 
-                if date_filter == '7days':
+                if date_filter == '3days':
+                    filter_date = now - timedelta(days=3)
+                    filter_label = "Last 3 Days"
+                elif date_filter == '5days':
+                    filter_date = now - timedelta(days=5)
+                    filter_label = "Last 5 Days"
+                elif date_filter == '7days':
                     filter_date = now - timedelta(days=7)
                     filter_label = "Last 7 Days"
+                elif date_filter == '15days':
+                    filter_date = now - timedelta(days=15)
+                    filter_label = "Last 15 Days"
                 elif date_filter == '30days':
                     filter_date = now - timedelta(days=30)
                     filter_label = "Last 30 Days"
@@ -1462,6 +1474,11 @@ JSON only:"""
                 sessions = sessions_query.stream()
                 
                 all_corrections = []
+                period_sessions = 0
+                period_time_seconds = 0
+                period_accuracy_sum = 0
+                period_points = 0
+                
                 for session in sessions:
                     session_data = session.to_dict()
                     session_date = session_data.get('startTime')
@@ -1479,11 +1496,31 @@ JSON only:"""
                         except:
                             pass
                     
+                    # Track period-specific stats
+                    period_sessions += 1
+                    period_time_seconds += session_data.get('duration', 0)
+                    period_accuracy_sum += session_data.get('accuracy', 0)
+                    period_points += session_data.get('points', 0)
+                    
                     corrections = session_data.get('corrections', [])
                     for corr in corrections:
                         if isinstance(corr, dict):
                             corr['sessionDate'] = session_data.get('startTime')
                             all_corrections.append(corr)
+                
+                # Calculate period averages
+                period_avg_accuracy = round(period_accuracy_sum / period_sessions) if period_sessions > 0 else 0
+                period_time_minutes = round(period_time_seconds / 60) if period_time_seconds > 0 else 0
+                period_time_hours = period_time_minutes // 60
+                period_time_remaining_mins = period_time_minutes % 60
+                
+                # Format time string
+                if period_time_hours > 0:
+                    time_spent_str = f"{period_time_hours}h {period_time_remaining_mins}m"
+                elif period_time_minutes > 0:
+                    time_spent_str = f"{period_time_minutes} min"
+                else:
+                    time_spent_str = f"{period_time_seconds} sec"
                 
                 # Limit to 50 corrections max
                 all_corrections = all_corrections[:50]
@@ -1564,29 +1601,81 @@ JSON only:"""
                                        ParagraphStyle('DateLine', parent=styles['Normal'], fontSize=9, textColor=colors.gray, alignment=TA_CENTER)))
                 story.append(Spacer(1, 15))
                 
-                # Stats Table
+                # Stats Table - Period specific data
                 stats_data = [
-                    [f"Streak: {streak}", f"XP: {points:,.0f}", f"Accuracy: {avg_score}%"],
-                    ["Day Streak", "XP Points", "Accuracy"]
+                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} 🔥"],
+                    ["Sessions", "Time Spent", "Accuracy", "Streak"]
                 ]
-                stats_table = Table(stats_data, colWidths=[55*mm, 55*mm, 55*mm])
+                stats_table = Table(stats_data, colWidths=[40*mm, 45*mm, 40*mm, 40*mm])
                 stats_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F0FDF4')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#047857')),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('FONTSIZE', (0, 1), (-1, 1), 9),
+                    ('FONTSIZE', (0, 0), (-1, 0), 14),
+                    ('FONTSIZE', (0, 1), (-1, 1), 8),
                     ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                    ('TOPPADDING', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('TOPPADDING', (0, 0), (-1, 0), 12),
                     ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#D1FAE5')),
                     ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1FAE5')),
                 ]))
                 story.append(stats_table)
-                story.append(Paragraph(f"Level: {level_icon} {level_name}", 
+                story.append(Paragraph(f"Level: {level_icon} {level_name} | Total XP: {points:,.0f}", 
                                        ParagraphStyle('Level', fontSize=11, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=10)))
                 story.append(Spacer(1, 15))
+                
+                # AI Analysis Section - Weaknesses and Strengths
+                ai_insights = None
+                try:
+                    print("[PDF_AI] Generating AI insights for PDF...")
+                    model = get_pro_model()
+                    
+                    corrections_text = "\n".join([
+                        f"- '{c.get('original', '')}' -> '{c.get('corrected', '')}' ({c.get('type', 'General')})"
+                        for c in all_corrections[:20]
+                    ])
+                    
+                    ai_prompt = f"""Analyze these English corrections and identify patterns:
+{corrections_text}
+
+Return ONLY valid JSON:
+{{"weakPoints": [{{"category": "Grammar", "detail": "Brief issue"}}, ...], "strongPoints": [{{"category": "Vocabulary", "detail": "Brief strength"}}, ...]}}
+Max 3 weak points, 2 strong points. Be encouraging."""
+                    
+                    ai_response = generate_with_pro_model(model, ai_prompt)
+                    # Parse JSON from response
+                    start_idx = ai_response.find('{')
+                    end_idx = ai_response.rfind('}') + 1
+                    if start_idx != -1 and end_idx > start_idx:
+                        ai_insights = json.loads(ai_response[start_idx:end_idx])
+                        print(f"[PDF_AI] Success! Insights: {ai_insights}")
+                except Exception as e:
+                    print(f"[PDF_AI] AI analysis failed: {e}")
+                
+                # Add AI Insights to PDF if available
+                if ai_insights:
+                    # Weak Points
+                    if ai_insights.get('weakPoints'):
+                        story.append(Paragraph("🔴 AREAS TO IMPROVE", 
+                            ParagraphStyle('WeakHeader', fontSize=12, textColor=colors.HexColor('#DC2626'), 
+                                         spaceBefore=10, spaceAfter=5, fontName='Helvetica-Bold')))
+                        for wp in ai_insights['weakPoints'][:3]:
+                            story.append(Paragraph(f"• <b>{wp.get('category', 'General')}:</b> {wp.get('detail', '')}", 
+                                ParagraphStyle('WeakItem', fontSize=10, textColor=colors.HexColor('#7F1D1D'),
+                                             leftIndent=15, spaceAfter=3, backColor=colors.HexColor('#FEF2F2'))))
+                    
+                    # Strong Points
+                    if ai_insights.get('strongPoints'):
+                        story.append(Paragraph("🟢 YOUR STRENGTHS", 
+                            ParagraphStyle('StrongHeader', fontSize=12, textColor=colors.HexColor('#059669'), 
+                                         spaceBefore=15, spaceAfter=5, fontName='Helvetica-Bold')))
+                        for sp in ai_insights['strongPoints'][:2]:
+                            story.append(Paragraph(f"• <b>{sp.get('category', 'General')}:</b> {sp.get('detail', '')}", 
+                                ParagraphStyle('StrongItem', fontSize=10, textColor=colors.HexColor('#065F46'),
+                                             leftIndent=15, spaceAfter=3, backColor=colors.HexColor('#ECFDF5'))))
+                    
+                    story.append(Spacer(1, 15))
                 
                 # Focus Areas
                 if focus_areas:
