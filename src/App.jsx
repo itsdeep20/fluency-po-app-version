@@ -4242,26 +4242,21 @@ const App = () => {
                         setIsGeneratingPdf(true);
                         setPdfProgress(0);
 
-                        // Animated step sequence for combined PDF
+                        // Animated step sequence for combined PDF - runs in PARALLEL with API call
                         const steps = [
-                          { text: '📊 Gathering your stats...', progress: 10 },
-                          { text: '🔍 Analyzing corrections...', progress: 25 },
-                          { text: '🧠 AI generating 25 quiz questions...', progress: 45 },
-                          { text: '📚 Creating vocabulary list...', progress: 60 },
-                          { text: '💡 Identifying strengths & weaknesses...', progress: 75 },
-                          { text: '📝 Building 5-page pack...', progress: 90 },
-                          { text: '🎨 Adding finishing touches...', progress: 95 }
+                          { text: '📊 Gathering your stats...', progress: 10, delay: 800 },
+                          { text: '🔍 Analyzing corrections...', progress: 20, delay: 1000 },
+                          { text: '🧠 AI generating 25 quiz questions...', progress: 35, delay: 1500 },
+                          { text: '📚 Creating vocabulary list...', progress: 50, delay: 1200 },
+                          { text: '💡 Identifying strengths & weaknesses...', progress: 65, delay: 1200 },
+                          { text: '📝 Building 6-page pack...', progress: 80, delay: 1500 },
+                          { text: '🎨 Adding finishing touches...', progress: 90, delay: 2000 }
                         ];
 
-                        for (const step of steps) {
-                          setPdfGenerationStep(step.text);
-                          setPdfProgress(step.progress);
-                          await new Promise(r => setTimeout(r, 1200));
-                        }
-
                         try {
+                          // Start API call IMMEDIATELY (in parallel with animation)
                           const token = await user.getIdToken();
-                          const res = await fetch(`${BACKEND_URL}`, {
+                          const apiPromise = fetch(`${BACKEND_URL}`, {
                             method: 'POST',
                             headers: {
                               'Content-Type': 'application/json',
@@ -4272,8 +4267,21 @@ const App = () => {
                               userId: user.uid,
                               dateFilter: studyGuideFilter
                             })
-                          });
-                          const data = await res.json();
+                          }).then(res => res.json());
+
+                          // Run animation steps while API is processing
+                          let apiFinished = false;
+                          apiPromise.then(() => { apiFinished = true; });
+
+                          for (const step of steps) {
+                            if (apiFinished) break; // API finished early, stop animation
+                            setPdfGenerationStep(step.text);
+                            setPdfProgress(step.progress);
+                            await new Promise(r => setTimeout(r, step.delay));
+                          }
+
+                          // Wait for API to complete
+                          const data = await apiPromise;
 
                           if (data.pdf) {
                             setPdfProgress(100);
