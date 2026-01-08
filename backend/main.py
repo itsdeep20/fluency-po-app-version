@@ -2140,21 +2140,21 @@ Return JSON:
                 
                 styles = getSampleStyleSheet()
                 
-                # Define styles - PROPER SPACING (options directly below question)
-                title_style = ParagraphStyle('Title', fontSize=24, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold', spaceAfter=5)
-                subtitle_style = ParagraphStyle('Subtitle', fontSize=12, textColor=colors.HexColor('#6B7280'), alignment=TA_CENTER, spaceAfter=15)
-                section_header = ParagraphStyle('SectionH', fontSize=16, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=20, spaceAfter=12)
-                body_style = ParagraphStyle('Body', fontSize=12, textColor=colors.HexColor('#374151'), spaceAfter=8, leading=16)
-                small_style = ParagraphStyle('Small', fontSize=10, textColor=colors.HexColor('#6B7280'), spaceAfter=4, leading=13)
-                # Questions: minimal space after so options are directly below
-                question_style = ParagraphStyle('Question', fontSize=12, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=12, spaceAfter=2, leading=15)
-                # Options: no space before, starts right after question
-                options_style = ParagraphStyle('Options', fontSize=10, textColor=colors.HexColor('#6B7280'), leftIndent=10, spaceBefore=0, spaceAfter=6, leading=13)
-                vocab_word = ParagraphStyle('VocabWord', fontSize=13, textColor=colors.HexColor('#4338CA'), fontName='Helvetica-Bold', spaceBefore=12, spaceAfter=3)
-                vocab_def = ParagraphStyle('VocabDef', fontSize=11, textColor=colors.HexColor('#374151'), leftIndent=10, spaceAfter=2, leading=14)
-                answer_style = ParagraphStyle('Answer', fontSize=11, textColor=colors.HexColor('#059669'), fontName='Helvetica-Bold', spaceAfter=2, spaceBefore=6)
-                tip_style = ParagraphStyle('Tip', fontSize=10, textColor=colors.HexColor('#7C3AED'), backColor=colors.HexColor('#F3E8FF'), leftIndent=10, spaceBefore=4, spaceAfter=8, leading=13)
-                footer_style = ParagraphStyle('Footer', fontSize=9, textColor=colors.HexColor('#9CA3AF'), alignment=TA_CENTER, spaceBefore=15)
+                # Define styles - TRULY NO GAP between question and options
+                title_style = ParagraphStyle('Title', fontSize=22, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold', spaceAfter=5)
+                subtitle_style = ParagraphStyle('Subtitle', fontSize=11, textColor=colors.HexColor('#6B7280'), alignment=TA_CENTER, spaceAfter=10)
+                section_header = ParagraphStyle('SectionH', fontSize=16, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=25, spaceAfter=15)
+                body_style = ParagraphStyle('Body', fontSize=11, textColor=colors.HexColor('#374151'), spaceAfter=6, leading=15)
+                small_style = ParagraphStyle('Small', fontSize=10, textColor=colors.HexColor('#6B7280'), spaceAfter=3, leading=13)
+                # Question: spaceAfter=0 so options start IMMEDIATELY below
+                question_style = ParagraphStyle('Question', fontSize=11, textColor=colors.HexColor('#1F2937'), fontName='Helvetica-Bold', spaceBefore=10, spaceAfter=0, leading=14)
+                # Options: spaceBefore=0, directly after question
+                options_style = ParagraphStyle('Options', fontSize=10, textColor=colors.HexColor('#6B7280'), leftIndent=5, spaceBefore=0, spaceAfter=4, leading=12)
+                vocab_word = ParagraphStyle('VocabWord', fontSize=12, textColor=colors.HexColor('#4338CA'), fontName='Helvetica-Bold', spaceBefore=15, spaceAfter=3)
+                vocab_def = ParagraphStyle('VocabDef', fontSize=10, textColor=colors.HexColor('#374151'), leftIndent=8, spaceAfter=2, leading=13)
+                answer_style = ParagraphStyle('Answer', fontSize=10, textColor=colors.HexColor('#059669'), fontName='Helvetica-Bold', spaceAfter=1, spaceBefore=4)
+                tip_style = ParagraphStyle('Tip', fontSize=10, textColor=colors.HexColor('#7C3AED'), backColor=colors.HexColor('#F3E8FF'), leftIndent=8, spaceBefore=3, spaceAfter=6, leading=12)
+                footer_style = ParagraphStyle('Footer', fontSize=9, textColor=colors.HexColor('#9CA3AF'), alignment=TA_CENTER, spaceBefore=20)
                 
                 story = []
                 
@@ -2275,20 +2275,24 @@ Return JSON:
                     story.append(Paragraph(f"{i}. {v.get('word', '')}", vocab_word))
                     story.append(Paragraph(f"<b>Definition:</b> {v.get('definition', '')}", vocab_def))
                     story.append(Paragraph(f"<b>Example:</b> <i>\"{v.get('example', '')}\"</i>", vocab_def))
-                    story.append(Spacer(1, 8))
+                    story.append(Spacer(1, 12))  # More spacing between vocab items
                 
-                story.append(Spacer(1, 20))
+                story.append(Spacer(1, 15))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 4 of 6", footer_style))
+                story.append(PageBreak())  # NEW PAGE FOR ANSWER KEY
+                
+                # ===== PAGE 5: Answer Key =====
                 story.append(Paragraph("<b>ANSWER KEY</b>", section_header))
                 story.append(Paragraph("Check your answers:", body_style))
-                story.append(Spacer(1, 5))
+                story.append(Spacer(1, 10))
                 
                 # Answer key in compact format
                 for i, q in enumerate(quiz[:25], 1):
                     story.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
                     story.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
                 
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 4 of 5", footer_style))
+                story.append(Spacer(1, 15))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 5 of 6", footer_style))
                 story.append(PageBreak())
                 
                 # ===== PAGE 5: Recent Corrections =====
@@ -2318,7 +2322,7 @@ Return JSON:
                 story.append(Paragraph("Great job! Keep learning with Fluency Pro!", 
                                        ParagraphStyle('End', fontSize=15, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold')))
                 story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 5 of 5", footer_style))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 6 of 6", footer_style))
                 
                 # Build PDF
                 doc.build(story)
