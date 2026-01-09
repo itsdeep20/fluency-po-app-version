@@ -408,6 +408,7 @@ const App = () => {
   const [showPdfHistory, setShowPdfHistory] = useState(false); // Toggle history section
   const [loadingHistory, setLoadingHistory] = useState(false); // Loading PDF history
   const [downloadingPdfId, setDownloadingPdfId] = useState(null); // ID of PDF being re-downloaded
+  const [showBattleTips, setShowBattleTips] = useState(false); // Battle mode: show corrections toggle (default OFF)
   const [isGeneratingWorkbook, setIsGeneratingWorkbook] = useState(false); // State for practice workbook
   const [workbookStep, setWorkbookStep] = useState('');
   const [workbookProgress, setWorkbookProgress] = useState(0);
@@ -609,6 +610,38 @@ const App = () => {
         await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'pdf'), {
           totalDownloads: increment(1),
           [`downloads.${today}`]: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      if (eventType === 'tips_toggled') {
+        await setDoc(doc(db, 'users', user.uid, 'analytics', 'features'), {
+          tipsToggles: increment(1),
+          lastTipsSetting: eventData.enabled,
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      if (eventType === 'ai_assist_used') {
+        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'aiAssist'), {
+          totalUsage: increment(1),
+          [`usagePerDay.${today}`]: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+        await setDoc(doc(db, 'users', user.uid, 'analytics', 'features'), {
+          aiAssistCount: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      if (eventType === 'hindi_translate_used') {
+        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'hindiTranslate'), {
+          totalUsage: increment(1),
+          [`usagePerDay.${today}`]: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+        await setDoc(doc(db, 'users', user.uid, 'analytics', 'features'), {
+          hindiTranslateCount: increment(1),
           lastUpdated: serverTimestamp()
         }, { merge: true });
       }
@@ -1281,6 +1314,7 @@ const App = () => {
 
   // Handle AI Assist button click
   const handleAiAssistClick = async (messageId, messageText) => {
+    trackAnalytics('ai_assist_used'); // Track feature usage
     const context = messages.filter(m => m.sender !== 'correction' && m.sender !== 'suggestion').slice(-5).map(m => `${m.sender === 'me' ? 'User' : 'Bot'}: ${m.text}`).join('\n');
     setShowAiAssistPopup({ messageId, message: messageText, loading: true });
     const assistData = await getAiAssist(messageText, context);
@@ -1293,6 +1327,7 @@ const App = () => {
 
   // Handle Translation long press
   const handleTranslationPress = async (messageId, messageText) => {
+    trackAnalytics('hindi_translate_used'); // Track feature usage
     setShowTranslationPopup({ messageId, message: messageText, loading: true });
     const translation = await getTranslation(messageText);
     if (translation) {
@@ -2247,6 +2282,7 @@ const App = () => {
       // Store session history to Firestore
       const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0; // Duration in seconds
       const sessionData = {
+        sessionType: 'simulation', // For separate tracking
         simId: capturedSession.id,
         simName: capturedSession.opponent?.name || 'Simulation',
         opponentAvatar: capturedSession.opponent?.avatar || '🤖',
@@ -2255,6 +2291,11 @@ const App = () => {
         messagesCount: totalSent,
         correctionsCount: correctionCount,
         corrections: sessionCorrections, // IMPORTANT: Include actual corrections for AI Analysis
+        chatHistory: capturedMessages.filter(m => m.sender === 'me' || m.sender === 'bot').map(m => ({
+          sender: m.sender,
+          text: m.text,
+          timestamp: m.createdAt || Date.now()
+        })), // Full conversation for analysis
         duration: sessionDuration, // Session duration in seconds for time tracking
         startTime: serverTimestamp(), // For PDF Study Guide query
         timestamp: serverTimestamp(),
@@ -2309,6 +2350,16 @@ const App = () => {
           // EMA after 5 sessions (stability)
           newAvgScore = Math.round(((prev.avgScore || 0) * 9 + sessionAccuracy) / 10);
         }
+
+        // Separate simulation-specific avgScore tracking
+        const newSimSessions = (prev.simSessions || 0) + 1;
+        let newSimAvgScore;
+        if ((prev.simSessions || 0) < 5) {
+          newSimAvgScore = Math.round(((prev.simAvgScore || 0) * (prev.simSessions || 0) + sessionAccuracy) / newSimSessions);
+        } else {
+          newSimAvgScore = Math.round(((prev.simAvgScore || 0) * 9 + sessionAccuracy) / 10);
+        }
+
         // Level based on ACCURACY (not points) - renamed Rookie to Beginner
         const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
 
@@ -2317,6 +2368,8 @@ const App = () => {
           sessions: newTotalSessions,
           points: newTotalPoints,
           avgScore: newAvgScore,
+          simAvgScore: newSimAvgScore, // Simulation-specific average
+          simSessions: newSimSessions, // Simulation session count
           level: newLevel,
           streak: newStreak,
           lastPracticeDate: todayStr
@@ -2474,7 +2527,9 @@ const App = () => {
 
           const sessionsRef = collection(db, 'users', user.uid, 'sessions');
           await addDoc(sessionsRef, {
+            sessionType: 'battle', // For separate tracking
             type: capturedSession.type === 'battle-bot' ? 'battle-bot' : '1v1',
+            matchType: capturedSession.matchType || (capturedSession.type === 'battle-bot' ? 'bot' : 'random'),
             score: myData?.total || 0,
             opponentName: capturedSession.opponent?.name || 'Opponent',
             opponentAvatar: capturedSession.opponent?.avatar || '👤',
@@ -2483,6 +2538,11 @@ const App = () => {
             correctionsCount: correctionCount,
             accuracy: myScore,
             messagesCount: totalSent,
+            chatHistory: capturedMessages.filter(m => m.sender === 'me' || m.sender === 'opponent' || m.sender === 'bot').map(m => ({
+              sender: m.sender,
+              text: m.text,
+              timestamp: m.createdAt || Date.now()
+            })), // Full conversation for analysis
             startTime: serverTimestamp(),
             timestamp: serverTimestamp()
           });
@@ -2536,11 +2596,23 @@ const App = () => {
           }
           // Level based on ACCURACY (not points)
           const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
+
+          // Separate battle-specific avgScore tracking
+          const newBattleSessions = (prev.battleSessions || 0) + 1;
+          let newBattleAvgScore;
+          if ((prev.battleSessions || 0) < 5) {
+            newBattleAvgScore = Math.round(((prev.battleAvgScore || 0) * (prev.battleSessions || 0) + myScore) / newBattleSessions);
+          } else {
+            newBattleAvgScore = Math.round(((prev.battleAvgScore || 0) * 9 + myScore) / 10);
+          }
+
           const n = {
             ...prev,
             sessions: newTotalSessions,
             points: prev.points + myScore,
             avgScore: newAvgScore,
+            battleAvgScore: newBattleAvgScore, // Battle-specific average
+            battleSessions: newBattleSessions, // Battle session count
             level: newLevel,
             streak: newStreak,
             lastPracticeDate: todayStr
@@ -5196,6 +5268,19 @@ const App = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Tips Toggle - Only for Battle Mode (simulations always show corrections) */}
+              {activeSession?.type !== 'bot' && (
+                <button
+                  onClick={() => { setShowBattleTips(!showBattleTips); trackAnalytics('tips_toggled', { enabled: !showBattleTips }); }}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-full flex items-center gap-1.5 transition-all ${showBattleTips
+                    ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                    : 'bg-gray-100 text-gray-500 border border-gray-200'
+                    }`}
+                >
+                  <Lightbulb size={12} className={showBattleTips ? 'text-amber-500' : 'text-gray-400'} />
+                  Tips: {showBattleTips ? 'ON' : 'OFF'}
+                </button>
+              )}
               {timerActive && (
                 <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
                   <Clock size={12} /> {formatTime(timeRemaining)}
@@ -5744,6 +5829,15 @@ const App = () => {
             // - Show if sender is 'opponent' AND has finished typing (exists in visibleMessageIds)
             const isVisible = m.sender !== 'opponent' || visibleMessageIds.has(m.id);
             if (!isVisible) return null;
+
+            // Correction/Suggestion visibility: 
+            // - Always show in simulation (type='bot')
+            // - Only show in battle if showBattleTips is ON
+            // - Corrections are still saved to messages array for AI analysis regardless
+            const isCorrectionMsg = m.sender === 'correction' || m.sender === 'suggestion';
+            const shouldShowCorrection = !isCorrectionMsg || activeSession?.type === 'bot' || showBattleTips;
+            if (!shouldShowCorrection) return null;
+
             return (
               <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : m.sender === 'system' ? 'justify-center' : m.sender === 'correction' || m.sender === 'suggestion' ? 'justify-center' : 'justify-start'}`}>
                 {m.sender === 'system' ? (
