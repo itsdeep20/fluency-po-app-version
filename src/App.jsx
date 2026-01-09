@@ -2154,15 +2154,18 @@ const App = () => {
         } : m));
 
         // V8: Battle Mode - ALWAYS save corrections for AI analysis
-        // UI display controlled by showBattleTips toggle, but data always captured
-        if (correction && (errorLevel === 'mistake' || errorLevel === 'suggestion')) {
+        const hasCorrectionData = correction && (errorLevel === 'mistake' || errorLevel === 'suggestion');
+        console.log('[DEBUG_TIPS] Msg:', text, 'HasCorrection:', hasCorrectionData, 'Level:', errorLevel, 'Toggle:', showBattleTips);
+
+        if (hasCorrectionData) {
           const correctionId = (errorLevel === 'mistake' ? 'correction' : 'suggestion') + '_' + Date.now();
+          console.log('[DEBUG_TIPS] Adding correction msg:', correctionId, 'Hidden:', !showBattleTips);
+
           adjustedTimestamps.current[correctionId] = Date.now();
           setMessages(prev => [...prev, {
             id: correctionId,
             sender: errorLevel === 'mistake' ? 'correction' : 'suggestion',
             correction: correction,
-            hidden: !showBattleTips, // Hide from UI if toggle is OFF, but still save for analysis
             createdAt: Date.now()
           }].sort((a, b) => {
             const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
@@ -5857,10 +5860,10 @@ const App = () => {
 
             // Correction/Suggestion visibility: 
             // - Always show in simulation (type='bot')
-            // - Only show in battle if showBattleTips is ON OR if not marked hidden
+            // - Only show in battle if showBattleTips is ON
             // - Corrections are still saved to messages array for AI analysis regardless
             const isCorrectionMsg = m.sender === 'correction' || m.sender === 'suggestion';
-            const shouldShowCorrection = !isCorrectionMsg || (!m.hidden && (activeSession?.type === 'bot' || showBattleTips));
+            const shouldShowCorrection = !isCorrectionMsg || activeSession?.type === 'bot' || showBattleTips;
             if (!shouldShowCorrection) return null;
 
             return (
