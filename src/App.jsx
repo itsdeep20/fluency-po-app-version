@@ -1482,7 +1482,7 @@ const App = () => {
           id: incomingInvitation.fromUserId,
           name: incomingInvitation.fromName,
           avatar: incomingInvitation.fromAvatar
-        }, 'human', 'Direct Match');
+        }, 'human', 'Direct Match', 'invite');
       }
       setIncomingInvitation(null);
     } catch (e) {
@@ -1596,7 +1596,7 @@ const App = () => {
         const unsub = onSnapshot(doc(db, 'queue', data.roomId), (snap) => {
           if (snap.exists() && snap.data().status === 'matched') {
             unsub();
-            joinMatch(data.roomId, { id: snap.data().player2Id, name: snap.data().player2Name, avatar: snap.data().player2Avatar }, 'human', 'Friend Match');
+            joinMatch(data.roomId, { id: snap.data().player2Id, name: snap.data().player2Name, avatar: snap.data().player2Avatar }, 'human', 'Friend Match', 'room_code');
             setShowRoomInput(false); setRoomCode("");
           }
         });
@@ -1614,7 +1614,7 @@ const App = () => {
       });
       const data = await res.json();
       if (data.success) {
-        joinMatch(data.roomId, data.opponent, 'human', 'Friend Match');
+        joinMatch(data.roomId, data.opponent, 'human', 'Friend Match', 'room_code');
         setShowRoomInput(false);
       } else alert(data.error || 'Failed to join room');
     } catch (e) { alert(e.message); }
@@ -1706,8 +1706,8 @@ const App = () => {
     }
   };
 
-  const joinMatch = (roomId, opponent, type, topic) => {
-    console.log('MATCH_DEBUG: joinMatch called', { roomId, type, topic });
+  const joinMatch = (roomId, opponent, type, topic, matchType = null) => {
+    console.log('MATCH_DEBUG: joinMatch called', { roomId, type, topic, matchType });
     if (isJoiningRef.current) return;
     isJoiningRef.current = true;
 
@@ -1730,9 +1730,9 @@ const App = () => {
     setIsSearching(false);
     setLoadingAction(null);
 
-    // Initialize session
+    // Initialize session (include matchType for analytics)
     resetChatStates();
-    setActiveSession({ id: roomId, opponent, type, topic });
+    setActiveSession({ id: roomId, opponent, type, topic, matchType });
     setMessages([{ id: 'sys' + Date.now(), sender: 'system', text: `Connected with ${opponent.name}`, createdAt: Date.now() }]);
     setVisibleMessageIds(new Set(['sys' + Date.now()])); // Show initial system msg
     isSyncingInitialRef.current = true;
