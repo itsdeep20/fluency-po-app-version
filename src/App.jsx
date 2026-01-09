@@ -1391,6 +1391,101 @@ const App = () => {
     console.log('[INVITE_SEND] Attempting to create invitation at path:', invitationRef.path);
     console.log('[INVITE_SEND] Target ID:', targetUser.id, 'My UID:', user.uid);
 
+    // Show waiting UI and start timer IMMEDIATELY (don't wait for setDoc)
+    setSentInviteTarget(targetUser);
+    setLoadingAction('waiting-invite');
+    setSenderCountdown(16);
+
+    // Start sender countdown timer immediately
+    if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+    senderTimerRef.current = setInterval(() => {
+      setSenderCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(senderTimerRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Set up listener BEFORE the write (so we're ready when receiver responds)
+    if (sentInvitationListenerRef.current) {
+      console.log('[INVITE DEBUG] Cleaning up previous listener');
+      sentInvitationListenerRef.current();
+    }
+    console.log('[INVITE DEBUG] Setting up listener for:', invitationRef.path);
+    sentInvitationListenerRef.current = onSnapshot(invitationRef, (snap) => {
+      console.log('[INVITE DEBUG] Listener triggered. Exists:', snap.exists());
+
+      if (!snap.exists()) {
+        console.log('[INVITE DEBUG] Document deleted - invitation declined or cleaned up');
+        setLoadingAction(null);
+        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+        if (sentInvitationListenerRef.current) {
+          sentInvitationListenerRef.current();
+          sentInvitationListenerRef.current = null;
+        }
+        return;
+      }
+
+      const data = snap.data();
+      console.log('[INVITE DEBUG] Document data:', JSON.stringify(data));
+
+      if (data.status === 'accepted' && data.roomId) {
+        console.log('[INVITE DEBUG] ACCEPTED! Room:', data.roomId);
+        // Invitation accepted! Join the room
+        setLoadingAction(null);
+        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+        if (sentInvitationListenerRef.current) {
+          sentInvitationListenerRef.current();
+          sentInvitationListenerRef.current = null;
+        }
+
+        // Clean up the invitation
+        deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+
+        // Join the match as the host (we sent the invite)
+        joinMatch(data.roomId, {
+          id: targetUser.id,
+          name: targetUser.name,
+          avatar: targetUser.avatar
+        }, 'human', 'Direct Match');
+      } else if (data.status === 'declined') {
+        console.log('[INVITE DEBUG] DECLINED by recipient');
+        setLoadingAction(null);
+        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+        if (sentInvitationListenerRef.current) {
+          sentInvitationListenerRef.current();
+          sentInvitationListenerRef.current = null;
+        }
+        // Clean up the invitation
+        deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+        // Beautiful toast notification instead of ugly alert
+        setToastNotification({ type: 'declined', message: 'declined your invitation', name: targetUser.name, avatar: targetUser.avatar });
+        setTimeout(() => setToastNotification(null), 4000);
+      } else if (data.status === 'timeout') {
+        console.log('[INVITE DEBUG] TIMEOUT - no response');
+        setLoadingAction(null);
+        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+        if (sentInvitationListenerRef.current) {
+          sentInvitationListenerRef.current();
+          sentInvitationListenerRef.current = null;
+        }
+        // Clean up the invitation
+        deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+        // Beautiful toast notification instead of ugly alert
+        setToastNotification({ type: 'timeout', message: 'did not respond', name: targetUser.name, avatar: targetUser.avatar });
+        setTimeout(() => setToastNotification(null), 4000);
+      } else {
+        console.log('[INVITE DEBUG] Status is:', data.status, '- waiting for change...');
+      }
+    }, (error) => {
+      console.error('[INVITE DEBUG] Listener error:', error);
+      setLoadingAction(null);
+      if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+    });
+
+    // NOW actually write the invitation to Firestore
     try {
       await setDoc(invitationRef, {
         fromUserId: user.uid,
@@ -1400,112 +1495,16 @@ const App = () => {
         createdAt: serverTimestamp(),
         status: 'pending'
       });
-      console.log('[INVITE DEBUG] Invitation created successfully');
+      console.log('[INVITE_SEND] ✅ Invitation created successfully!');
       trackAnalytics('invite_sent');
-
-      // Track who we sent to (for the waiting modal)
-      setSentInviteTarget(targetUser);
-
-      // Show waiting state with timer
-      setLoadingAction('waiting-invite');
-      setSenderCountdown(16);
-
-      // Start sender countdown timer
-      if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-      senderTimerRef.current = setInterval(() => {
-        setSenderCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(senderTimerRef.current);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      // Listen for the invitation to be accepted/declined
-      if (sentInvitationListenerRef.current) {
-        console.log('[INVITE DEBUG] Cleaning up previous listener');
-        sentInvitationListenerRef.current();
-      }
-
-      console.log('[INVITE DEBUG] Setting up listener for:', invitationRef.path);
-      sentInvitationListenerRef.current = onSnapshot(invitationRef, (snap) => {
-        console.log('[INVITE DEBUG] Listener triggered. Exists:', snap.exists());
-
-        if (!snap.exists()) {
-          console.log('[INVITE DEBUG] Document deleted - invitation declined or cleaned up');
-          // Invitation was deleted (declined)
-          setLoadingAction(null);
-          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-          if (sentInvitationListenerRef.current) {
-            sentInvitationListenerRef.current();
-            sentInvitationListenerRef.current = null;
-          }
-          return;
-        }
-
-        const data = snap.data();
-        console.log('[INVITE DEBUG] Document data:', JSON.stringify(data));
-
-        if (data.status === 'accepted' && data.roomId) {
-          console.log('[INVITE DEBUG] ACCEPTED! Room:', data.roomId);
-          // Invitation accepted! Join the room
-          setLoadingAction(null);
-          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-          if (sentInvitationListenerRef.current) {
-            sentInvitationListenerRef.current();
-            sentInvitationListenerRef.current = null;
-          }
-
-          // Clean up the invitation
-          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-
-          // Join the match as the host (we sent the invite)
-          joinMatch(data.roomId, {
-            id: targetUser.id,
-            name: targetUser.name,
-            avatar: targetUser.avatar
-          }, 'human', 'Direct Match');
-        } else if (data.status === 'declined') {
-          console.log('[INVITE DEBUG] DECLINED by recipient');
-          setLoadingAction(null);
-          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-          if (sentInvitationListenerRef.current) {
-            sentInvitationListenerRef.current();
-            sentInvitationListenerRef.current = null;
-          }
-          // Clean up the invitation
-          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-          // Beautiful toast notification instead of ugly alert
-          setToastNotification({ type: 'declined', message: 'declined your invitation', name: targetUser.name, avatar: targetUser.avatar });
-          setTimeout(() => setToastNotification(null), 4000);
-        } else if (data.status === 'timeout') {
-          console.log('[INVITE DEBUG] TIMEOUT - no response');
-          setLoadingAction(null);
-          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-          if (sentInvitationListenerRef.current) {
-            sentInvitationListenerRef.current();
-            sentInvitationListenerRef.current = null;
-          }
-          // Clean up the invitation
-          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-          // Beautiful toast notification instead of ugly alert
-          setToastNotification({ type: 'timeout', message: 'did not respond', name: targetUser.name, avatar: targetUser.avatar });
-          setTimeout(() => setToastNotification(null), 4000);
-        } else {
-          console.log('[INVITE DEBUG] Status is:', data.status, '- waiting for change...');
-        }
-      }, (error) => {
-        console.error('[INVITE DEBUG] Listener error:', error);
-        setLoadingAction(null);
-        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-      });
-
-      console.log('[INVITE DEBUG] Invitation sent and listener active');
     } catch (e) {
-      console.error('[INVITE DEBUG] Send invitation error:', e);
+      console.error('[INVITE_SEND] ❌ Write error:', e);
       setLoadingAction(null);
       if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+      if (sentInvitationListenerRef.current) {
+        sentInvitationListenerRef.current();
+        sentInvitationListenerRef.current = null;
+      }
     }
   };
 
