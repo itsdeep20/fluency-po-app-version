@@ -531,11 +531,39 @@ const App = () => {
       }
 
       if (eventType === 'battle_complete') {
-        // Track battle mode usage
+        // 1. GLOBAL Battle Stats
         await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'battles'), {
           totalMatches: increment(1),
+          [`battlesPerDay.${today}`]: increment(1),
           lastUpdated: serverTimestamp()
         }, { merge: true });
+
+        // 2. USER Battle Analytics
+        const battleRef = doc(db, 'users', user.uid, 'analytics', 'battles');
+        await setDoc(battleRef, {
+          totalBattles: increment(1),
+          wins: increment(eventData.won ? 1 : 0),
+          losses: increment(eventData.won === false ? 1 : 0),
+          draws: increment(eventData.won === null ? 1 : 0),
+          totalMessages: increment(eventData.messagesCount || 0),
+          totalScore: increment(eventData.score || 0),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+
+        // 3. Track mistakes by category in battles (same as simulations)
+        if (eventData.corrections && eventData.corrections.length > 0) {
+          const progressRef = doc(db, 'users', user.uid, 'analytics', 'progress');
+          const categoryUpdates = {};
+          eventData.corrections.forEach(corr => {
+            const category = corr?.type || 'General';
+            categoryUpdates[`battleMistakesByCategory.${category}`] = increment(1);
+          });
+          await setDoc(progressRef, {
+            totalBattleCorrections: increment(eventData.corrections.length),
+            ...categoryUpdates,
+            lastUpdated: serverTimestamp()
+          }, { merge: true });
+        }
       }
 
       if (eventType === 'voice_used') {
@@ -2425,6 +2453,14 @@ const App = () => {
             timestamp: serverTimestamp()
           });
           console.log('[DEBUG_SAVE] Battle session saved with corrections:', sessionCorrections);
+
+          // Track battle analytics
+          trackAnalytics('battle_complete', {
+            won: didIWin,
+            corrections: sessionCorrections,
+            messagesCount: totalSent,
+            score: myData?.total || myScore
+          });
         } catch (e) { console.error('Session save error:', e); }
 
 
