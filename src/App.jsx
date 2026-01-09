@@ -531,14 +531,17 @@ const App = () => {
       }
 
       if (eventType === 'battle_complete') {
-        // 1. GLOBAL Battle Stats
+        const battleType = eventData.battleType || 'unknown'; // 'random', 'bot', 'friend_invite'
+
+        // 1. GLOBAL Battle Stats (including battle type breakdown)
         await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'battles'), {
           totalMatches: increment(1),
           [`battlesPerDay.${today}`]: increment(1),
+          [`battlesByType.${battleType}`]: increment(1),
           lastUpdated: serverTimestamp()
         }, { merge: true });
 
-        // 2. USER Battle Analytics
+        // 2. USER Battle Analytics (including battle type breakdown)
         const battleRef = doc(db, 'users', user.uid, 'analytics', 'battles');
         await setDoc(battleRef, {
           totalBattles: increment(1),
@@ -547,6 +550,7 @@ const App = () => {
           draws: increment(eventData.won === null ? 1 : 0),
           totalMessages: increment(eventData.messagesCount || 0),
           totalScore: increment(eventData.score || 0),
+          [`battlesByType.${battleType}`]: increment(1),
           lastUpdated: serverTimestamp()
         }, { merge: true });
 
@@ -569,6 +573,34 @@ const App = () => {
       if (eventType === 'voice_used') {
         await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'voice'), {
           totalUsage: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      if (eventType === 'invite_sent') {
+        // Global invite tracking
+        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'invites'), {
+          totalSent: increment(1),
+          [`sentPerDay.${today}`]: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+        // User-level invite tracking
+        await setDoc(doc(db, 'users', user.uid, 'analytics', 'social'), {
+          invitesSent: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      if (eventType === 'invite_accepted') {
+        // Global invite tracking
+        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'invites'), {
+          totalAccepted: increment(1),
+          [`acceptedPerDay.${today}`]: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+        // User-level invite tracking (user who accepted)
+        await setDoc(doc(db, 'users', user.uid, 'analytics', 'social'), {
+          invitesAccepted: increment(1),
           lastUpdated: serverTimestamp()
         }, { merge: true });
       }
@@ -1309,6 +1341,7 @@ const App = () => {
         status: 'pending'
       });
       console.log('[INVITE DEBUG] Invitation created successfully');
+      trackAnalytics('invite_sent');
 
       // Track who we sent to (for the waiting modal)
       setSentInviteTarget(targetUser);
@@ -1442,6 +1475,7 @@ const App = () => {
       if (data.success && data.roomId) {
         // Update invitation status
         await setDoc(doc(db, 'invitations', user.uid), { status: 'accepted', roomId: data.roomId }, { merge: true });
+        trackAnalytics('invite_accepted');
 
         // Join the match
         joinMatch(data.roomId, {
@@ -2454,12 +2488,19 @@ const App = () => {
           });
           console.log('[DEBUG_SAVE] Battle session saved with corrections:', sessionCorrections);
 
-          // Track battle analytics
+          // Track battle analytics with battle type
+          // battleType: 'bot' (vs AI), 'random' (global search), 'friend_invite' (via invite)
+          const battleType = capturedSession.type === 'battle-bot'
+            ? 'bot'
+            : capturedSession.matchType === 'invite'
+              ? 'friend_invite'
+              : 'random';
           trackAnalytics('battle_complete', {
             won: didIWin,
             corrections: sessionCorrections,
             messagesCount: totalSent,
-            score: myData?.total || myScore
+            score: myData?.total || myScore,
+            battleType: battleType
           });
         } catch (e) { console.error('Session save error:', e); }
 
