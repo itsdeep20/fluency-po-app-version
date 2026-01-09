@@ -2372,7 +2372,8 @@ Return JSON:
                     story.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
                     story.append(Spacer(1, 10)) # Space INSIDE question (between Q and options)
                     choices = q.get('choices', [])
-                    choices_text = "   ".join(choices[:4])
+                    # wider spacing between options
+                    choices_text = "          ".join(choices[:4])
                     story.append(Paragraph(choices_text, options_style))
                     story.append(Spacer(1, 8)) # Smaller space between questions
                     
