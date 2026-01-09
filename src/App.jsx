@@ -2164,7 +2164,7 @@ const App = () => {
           adjustedTimestamps.current[correctionId] = Date.now();
           setMessages(prev => [...prev, {
             id: correctionId,
-            sender: errorLevel === 'mistake' ? 'correction' : 'suggestion',
+            sender: 'suggestion', // Always use 'suggestion' (Quick Tip style) for Battles as requested
             correction: correction,
             createdAt: Date.now()
           }].sort((a, b) => {
@@ -2172,6 +2172,10 @@ const App = () => {
             const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
             return tA - tB;
           }));
+
+          // Auto-minimize after a delay (like in Simulation)
+          const timeout = errorLevel === 'mistake' ? 8000 : 5000;
+          setTimeout(() => setMinimizedCorrections(prev => ({ ...prev, [correctionId]: true })), timeout);
         }
 
         // For Battle-Bot: Simulate seen + typing with delays
