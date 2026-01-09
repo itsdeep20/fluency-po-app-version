@@ -1965,6 +1965,66 @@ Return JSON:
                 return (json.dumps({"error": str(e)}), 500, headers)
 
         # ========================================
+        # GET PDF HISTORY (List past PDFs)
+        # ========================================
+        if req_type == 'get_pdf_history':
+            user_id = data.get('userId')
+            if not user_id:
+                return (json.dumps({"error": "userId required"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                user_ref = db.collection('users').document(user_id)
+                
+                # Fetch PDF history (metadata only, not the actual PDF)
+                history_ref = user_ref.collection('pdfHistory').order_by('generatedAt', direction=firestore.Query.DESCENDING).limit(10)
+                history = []
+                for doc in history_ref.stream():
+                    doc_data = doc.to_dict()
+                    history.append({
+                        'id': doc.id,
+                        'generatedAt': doc_data.get('generatedAt').isoformat() if doc_data.get('generatedAt') else None,
+                        'filter': doc_data.get('filter', '7days'),
+                        'filterLabel': doc_data.get('filterLabel', 'Last 7 Days'),
+                        'pages': doc_data.get('pages', 6),
+                        'quizCount': doc_data.get('quizCount', 25),
+                        'vocabCount': doc_data.get('vocabCount', 10),
+                        'correctionsCount': doc_data.get('correctionsCount', 0)
+                    })
+                
+                return (json.dumps({"history": history}), 200, headers)
+            except Exception as e:
+                print(f"[PDF_HISTORY_ERROR] {e}")
+                return (json.dumps({"error": str(e)}), 500, headers)
+
+        # ========================================
+        # GET PDF BY ID (Re-download specific PDF)
+        # ========================================
+        if req_type == 'get_pdf_by_id':
+            user_id = data.get('userId')
+            pdf_id = data.get('pdfId')
+            if not user_id or not pdf_id:
+                return (json.dumps({"error": "userId and pdfId required"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                pdf_ref = db.collection('users').document(user_id).collection('pdfHistory').document(pdf_id)
+                pdf_doc = pdf_ref.get()
+                
+                if not pdf_doc.exists:
+                    return (json.dumps({"error": "PDF not found"}), 404, headers)
+                
+                pdf_data = pdf_doc.to_dict()
+                return (json.dumps({
+                    "pdf": pdf_data.get('pdf'),
+                    "generatedAt": pdf_data.get('generatedAt').isoformat() if pdf_data.get('generatedAt') else None,
+                    "filterLabel": pdf_data.get('filterLabel', 'Unknown')
+                }), 200, headers)
+            except Exception as e:
+                print(f"[GET_PDF_ERROR] {e}")
+                return (json.dumps({"error": str(e)}), 500, headers)
+
+        # ========================================
         # GENERATE LEARNING PACK (Combined PDF)
         # ========================================
         if req_type == 'generate_learning_pack':
@@ -2068,16 +2128,17 @@ Return JSON:
                 else:
                     time_spent_str = f"{period_time_minutes}m" if period_time_minutes > 0 else "0m"
                 
-                # Shield based on accuracy - Unicode stars approach
-                if period_avg_accuracy >= 90:
+                # Shield based on ALL-TIME accuracy (dashboard data) - Unicode stars approach
+                alltime_accuracy = round(avg_score) if avg_score else 0
+                if alltime_accuracy >= 90:
                     shield_label = "MASTER"
                     shield_stars = "★★★★"
                     shield_color = '#FFD700'  # Gold
-                elif period_avg_accuracy >= 75:
+                elif alltime_accuracy >= 75:
                     shield_label = "EXPERT"
                     shield_stars = "★★★"
                     shield_color = '#C0C0C0'  # Silver
-                elif period_avg_accuracy >= 60:
+                elif alltime_accuracy >= 60:
                     shield_label = "SKILLED"
                     shield_stars = "★★"
                     shield_color = '#CD7F32'  # Bronze
@@ -2102,6 +2163,7 @@ Analyze the mistakes and provide:
 
 Task 2: Grammar Quiz
 Create 25 fill-in-the-blank questions based on the user's mistake patterns.
+Be creative and generate diverse question types. Vary the difficulty and topic focus.
 For each: question (with ______), answer, 4 choices (A/B/C/D), brief explanation.
 
 Task 3: Vocabulary
@@ -2179,9 +2241,16 @@ Return JSON:
                 story.append(header_table)
                 story.append(Spacer(1, 20))
                 
-                # Stats Box - "X days" format for streak
+                # Stats Box - ALL-TIME (Dashboard) stats prominently displayed
+                # Estimate all-time time (avg 3 mins per session)
+                alltime_time_mins = total_sessions * 3
+                if alltime_time_mins >= 60:
+                    alltime_time_str = f"{alltime_time_mins // 60}h {alltime_time_mins % 60}m"
+                else:
+                    alltime_time_str = f"{alltime_time_mins}m" if alltime_time_mins > 0 else "0m"
+                
                 stats_data = [
-                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} days"],
+                    [f"{total_sessions}", f"{alltime_time_str}", f"{alltime_accuracy}%", f"{streak} days"],
                     ["Sessions", "Time Spent", "Accuracy", "Streak"]
                 ]
                 stats_table = Table(stats_data, colWidths=[40*mm, 45*mm, 40*mm, 40*mm])
@@ -2190,17 +2259,23 @@ Return JSON:
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#047857')),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 26),
-                    ('FONTSIZE', (0, 1), (-1, 1), 11),
+                    ('FONTSIZE', (0, 0), (-1, 0), 24),
+                    ('FONTSIZE', (0, 1), (-1, 1), 10),
                     ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 15),
-                    ('TOPPADDING', (0, 0), (-1, 0), 15),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('TOPPADDING', (0, 0), (-1, 0), 12),
                     ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
                 ]))
                 story.append(stats_table)
+                
+                # SELECTED PERIOD stats in muted style below
+                period_summary = f"{filter_label}: {period_sessions} sessions • {time_spent_str} • {period_avg_accuracy}% accuracy"
+                story.append(Paragraph(period_summary, 
+                                       ParagraphStyle('PeriodStats', fontSize=10, textColor=colors.HexColor('#9CA3AF'), alignment=TA_CENTER, spaceBefore=8)))
+                
                 story.append(Paragraph(f"{level_icon} Level: {level_name} | Total XP: {points:,.0f}", 
-                                       ParagraphStyle('Level', fontSize=14, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=15)))
-                story.append(Spacer(1, 20))
+                                       ParagraphStyle('Level', fontSize=12, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=10)))
+                story.append(Spacer(1, 15))
                 
                 # AI Insights
                 insights = content.get('insights', {})
@@ -2304,7 +2379,7 @@ Return JSON:
                 story.append(Paragraph("Review these mistakes to avoid repeating them!", body_style))
                 story.append(Spacer(1, 20))
                 
-                for i, corr in enumerate(all_corrections[:10], 1):
+                for i, corr in enumerate(all_corrections[:35], 1):
                     original = corr.get('original', '')
                     corrected = corr.get('corrected', '')
                     corr_type = corr.get('type', 'General')
@@ -2335,9 +2410,34 @@ Return JSON:
                 
                 pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
                 
+                # Store PDF in history (last 10 PDFs per user)
+                try:
+                    pdf_id = str(int(now.timestamp() * 1000))  # Unique ID
+                    pdf_history_ref = user_ref.collection('pdfHistory').document(pdf_id)
+                    pdf_history_ref.set({
+                        'pdf': pdf_base64,
+                        'generatedAt': firestore.SERVER_TIMESTAMP,
+                        'filter': date_filter,
+                        'filterLabel': filter_label,
+                        'pages': 6,
+                        'quizCount': len(quiz),
+                        'vocabCount': len(vocab),
+                        'correctionsCount': min(len(all_corrections), 35)
+                    })
+                    
+                    # Keep only last 10 PDFs (delete older ones)
+                    history_query = user_ref.collection('pdfHistory').order_by('generatedAt', direction=firestore.Query.DESCENDING).limit(15).stream()
+                    history_docs = list(history_query)
+                    if len(history_docs) > 10:
+                        for old_doc in history_docs[10:]:
+                            old_doc.reference.delete()
+                    print(f"[PDF_HISTORY] Saved PDF {pdf_id} for user {user_id}")
+                except Exception as hist_err:
+                    print(f"[PDF_HISTORY_ERROR] Could not save history: {hist_err}")
+                
                 return (json.dumps({
                     "pdf": pdf_base64,
-                    "pages": 5,
+                    "pages": 6,
                     "quizCount": len(quiz),
                     "vocabCount": len(vocab),
                     "correctionsCount": len(all_corrections)

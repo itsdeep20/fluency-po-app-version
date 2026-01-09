@@ -404,6 +404,10 @@ const App = () => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfGenerationStep, setPdfGenerationStep] = useState(''); // Current animation step
   const [pdfProgress, setPdfProgress] = useState(0); // Progress percentage 0-100
+  const [pdfHistory, setPdfHistory] = useState([]); // List of past PDFs
+  const [showPdfHistory, setShowPdfHistory] = useState(false); // Toggle history section
+  const [loadingHistory, setLoadingHistory] = useState(false); // Loading PDF history
+  const [downloadingPdfId, setDownloadingPdfId] = useState(null); // ID of PDF being re-downloaded
   const [isGeneratingWorkbook, setIsGeneratingWorkbook] = useState(false); // State for practice workbook
   const [workbookStep, setWorkbookStep] = useState('');
   const [workbookProgress, setWorkbookProgress] = useState(0);
@@ -4332,9 +4336,118 @@ const App = () => {
                     </button>
                   )}
                   <div className="text-center text-xs text-gray-500 mt-2">
-                    5 pages: Stats + 25 Quiz Questions + Vocab + Answers + Corrections
+                    6 pages: Stats + 25 Quiz Questions + Vocab + Answers + Corrections
                   </div>
 
+                  {/* PDF History Section */}
+                  <div className="mt-4 border-t border-gray-100 pt-4">
+                    <button
+                      onClick={async () => {
+                        if (!showPdfHistory && pdfHistory.length === 0) {
+                          setLoadingHistory(true);
+                          try {
+                            const token = await user.getIdToken();
+                            const res = await fetch(`${BACKEND_URL}`, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                              },
+                              body: JSON.stringify({
+                                type: 'get_pdf_history',
+                                userId: user.uid
+                              })
+                            });
+                            const data = await res.json();
+                            setPdfHistory(data.history || []);
+                          } catch (e) {
+                            console.error('Error fetching history:', e);
+                          } finally {
+                            setLoadingHistory(false);
+                          }
+                        }
+                        setShowPdfHistory(!showPdfHistory);
+                      }}
+                      className="w-full text-sm text-gray-500 hover:text-emerald-600 flex items-center justify-center gap-2 py-2 transition-colors"
+                    >
+                      {loadingHistory ? (
+                        <><Loader2 className="animate-spin" size={14} /> Loading...</>
+                      ) : (
+                        <>📂 {showPdfHistory ? 'Hide' : 'View'} Past Downloads ({pdfHistory.length})</>
+                      )}
+                    </button>
+
+                    {showPdfHistory && pdfHistory.length > 0 && (
+                      <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                        {pdfHistory.map((pdf) => (
+                          <div key={pdf.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
+                            <div className="flex-1">
+                              <div className="font-medium text-gray-700">
+                                {pdf.generatedAt ? new Date(pdf.generatedAt).toLocaleDateString('en-US', {
+                                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                }) : 'Unknown date'}
+                              </div>
+                              <div className="text-xs text-gray-400">{pdf.filterLabel} • {pdf.quizCount} Q • {pdf.vocabCount} vocab</div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                if (downloadingPdfId) return;
+                                setDownloadingPdfId(pdf.id);
+                                try {
+                                  const token = await user.getIdToken();
+                                  const res = await fetch(`${BACKEND_URL}`, {
+                                    method: 'POST',
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                      'Authorization': `Bearer ${token}`
+                                    },
+                                    body: JSON.stringify({
+                                      type: 'get_pdf_by_id',
+                                      userId: user.uid,
+                                      pdfId: pdf.id
+                                    })
+                                  });
+                                  const data = await res.json();
+                                  if (data.pdf) {
+                                    const byteChars = atob(data.pdf);
+                                    const byteNums = new Array(byteChars.length);
+                                    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+                                    const byteArray = new Uint8Array(byteNums);
+                                    const blob = new Blob([byteArray], { type: 'application/pdf' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `fluency-pack-${pdf.id}.pdf`;
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                  }
+                                } catch (e) {
+                                  console.error('Error downloading PDF:', e);
+                                } finally {
+                                  setDownloadingPdfId(null);
+                                }
+                              }}
+                              className="ml-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-lg hover:bg-emerald-200 transition-colors flex items-center gap-1"
+                              disabled={downloadingPdfId === pdf.id}
+                            >
+                              {downloadingPdfId === pdf.id ? (
+                                <Loader2 className="animate-spin" size={12} />
+                              ) : (
+                                <Download size={12} />
+                              )}
+                              {downloadingPdfId === pdf.id ? '...' : 'Download'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {showPdfHistory && pdfHistory.length === 0 && !loadingHistory && (
+                      <p className="text-xs text-gray-400 text-center py-3">
+                        No previous downloads yet. Generate your first Learning Pack!
+                      </p>
+                    )}
+                  </div>
 
                 </div>
               </motion.div>
