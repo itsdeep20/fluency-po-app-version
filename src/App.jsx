@@ -957,16 +957,29 @@ const App = () => {
 
     const invitationDocRef = doc(db, 'invitations', user.uid);
 
-    // SAFER SELF-HEALING: Only delete if the invite is stale (older than 30s)
-    // This prevents race conditions where fresh invites are deleted
+    // SAFER SELF-HEALING: Only delete if the invite is clearly stale 
+    // If createdAt is null/missing (serverTimestamp not resolved), treat as FRESH
     getDoc(invitationDocRef).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
+        console.log('[INVITE_CLEANUP] Found invite doc:', data.status, 'from:', data.fromName);
+
+        // If serverTimestamp hasn't resolved yet, createdAt will be null - treat as fresh
+        if (!data.createdAt) {
+          console.log('[INVITE_CLEANUP] No createdAt (fresh), keeping invite');
+          return;
+        }
+
         const createdAt = data.createdAt?.toDate?.() || new Date(0);
         const ageMs = Date.now() - createdAt.getTime();
-        // Only delete if older than 30 seconds or already processed
-        if (ageMs > 30000 || data.status === 'accepted' || data.status === 'declined') {
+        console.log('[INVITE_CLEANUP] Invite age:', Math.round(ageMs / 1000), 'seconds');
+
+        // Only delete if older than 60 seconds or already processed
+        if (ageMs > 60000 || data.status === 'accepted' || data.status === 'declined') {
+          console.log('[INVITE_CLEANUP] Deleting stale/processed invite');
           deleteDoc(invitationDocRef).catch(e => console.warn('Stale cleanup:', e.message));
+        } else {
+          console.log('[INVITE_CLEANUP] Invite is fresh, keeping it');
         }
       }
     }).catch(e => console.warn('Self-check skip:', e.message));
