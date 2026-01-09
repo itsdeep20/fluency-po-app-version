@@ -2377,8 +2377,8 @@ Return JSON:
                     story.append(Paragraph(choices_text, options_style))
                     story.append(Spacer(1, 4)) # Reduced space between questions
                     
-                    # Page break after Q12 for visual balance
-                    if i == 12:
+                    # Page break after Q15 for better visual balance (was Q12)
+                    if i == 15:
                         story.append(Spacer(1, 15))
                         story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 2 of 6", footer_style))
                         story.append(PageBreak())
