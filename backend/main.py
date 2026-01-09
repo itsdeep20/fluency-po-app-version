@@ -2285,10 +2285,10 @@ Return JSON:
                 ]))
                 story.append(stats_table)
                 
-                # SELECTED PERIOD stats in muted style below
+                # SELECTED PERIOD stats in muted style below (Highlighted as requested)
                 period_summary = f"{filter_label}: {period_sessions} sessions • {time_spent_str} • {period_avg_accuracy}% accuracy"
                 story.append(Paragraph(period_summary, 
-                                       ParagraphStyle('PeriodStats', fontSize=10, textColor=colors.HexColor('#9CA3AF'), alignment=TA_CENTER, spaceBefore=8)))
+                                       ParagraphStyle('PeriodStats', fontSize=10, textColor=colors.HexColor('#4B5563'), backColor=colors.HexColor('#FFEDD5'), alignment=TA_CENTER, spaceBefore=8, spaceAfter=15)))
                 
                 story.append(Paragraph(f"{level_icon} Level: {level_name} | Total XP: {points:,.0f}", 
                                        ParagraphStyle('Level', fontSize=12, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=10)))
@@ -2329,11 +2329,12 @@ Return JSON:
                 weak_points = insights.get('weakPoints', [])
                 strong_points = insights.get('strongPoints', [])
                 
-                weak_text = "<b><font color='#DC2626'>AREAS TO IMPROVE</font></b><br/>"
+                # Added extra spacing below headers as requested
+                weak_text = "<b><font color='#DC2626'>AREAS TO IMPROVE</font></b><br/><br/>"
                 for wp in weak_points[:3]:
                     weak_text += f"<b>{wp.get('category', '')}:</b> {wp.get('detail', '')}<br/><br/>"
                 
-                strong_text = "<b><font color='#16A34A'>YOUR STRENGTHS</font></b><br/>"
+                strong_text = "<b><font color='#16A34A'>YOUR STRENGTHS</font></b><br/><br/>"
                 for sp in strong_points[:2]:
                     strong_text += f"<b>{sp.get('category', '')}:</b> {sp.get('detail', '')}<br/><br/>"
                 
@@ -2369,10 +2370,11 @@ Return JSON:
                 
                 for i, q in enumerate(quiz[:25], 1):
                     story.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
+                    story.append(Spacer(1, 10)) # Space INSIDE question (between Q and options)
                     choices = q.get('choices', [])
                     choices_text = "   ".join(choices[:4])
                     story.append(Paragraph(choices_text, options_style))
-                    story.append(Spacer(1, 15)) # Added spacing between questions as requested
+                    story.append(Spacer(1, 8)) # Smaller space between questions
                     
                     # Page break after Q12 for visual balance
                     if i == 12:
