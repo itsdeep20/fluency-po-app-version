@@ -4654,7 +4654,7 @@ const App = () => {
                       {loadingHistory ? (
                         <><Loader2 className="animate-spin" size={14} /> Loading...</>
                       ) : (
-                        <>📂 {showPdfHistory ? 'Hide' : 'View'} Past Downloads ({pdfHistory.length})</>
+                        <>📂 {showPdfHistory ? 'Hide' : 'View'} Past Downloads ({stats.pdfDownloads || pdfHistory.length || 0})</>
                       )}
                     </button>
 

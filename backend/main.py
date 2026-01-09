@@ -2376,18 +2376,10 @@ Return JSON:
                     choices_text = "  ".join(choices[:4])
                     story.append(Paragraph(choices_text, options_style))
                     story.append(Spacer(1, 4)) # Reduced space between questions
-                    
-                    # Page break after Q15 for better visual balance (was Q12)
-                    if i == 15:
-                        story.append(Spacer(1, 15))
-                        story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 2 of 6", footer_style))
-                        story.append(PageBreak())
-                        story.append(Spacer(1, 15))  # Space at top of page 3
-                        story.append(Paragraph("<b>GRAMMAR CHALLENGE (Continued)</b>", section_header))
-                        story.append(Spacer(1, 20))
                 
+                # No forced page break in quiz - let questions flow naturally
+                # Only break before new sections
                 story.append(Spacer(1, 15))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 3 of 6", footer_style))
                 story.append(PageBreak())
                 
                 # ===== PAGE 4: Vocabulary =====
@@ -2472,6 +2464,14 @@ Return JSON:
                         'vocabCount': len(vocab),
                         'correctionsCount': min(len(all_corrections), 35)
                     })
+                    
+                    # Update user stats with PDF download count (persists on refresh)
+                    user_ref.set({
+                        'stats': {
+                            'pdfDownloads': firestore.Increment(1),
+                            'lastPdfDownload': now.isoformat()
+                        }
+                    }, merge=True)
                     
                     # Keep only last 10 PDFs (delete older ones)
                     history_query = user_ref.collection('pdfHistory').order_by('generatedAt', direction=firestore.Query.DESCENDING).limit(15).stream()
