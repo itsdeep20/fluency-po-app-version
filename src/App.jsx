@@ -2153,15 +2153,16 @@ const App = () => {
           errorLevel: errorLevel
         } : m));
 
-        // V8: Battle Mode - Show correction cards ONLY if Tips toggle is ON
-        // Corrections are always tracked for AI analysis, UI display is optional
-        if (showBattleTips && correction && (errorLevel === 'mistake' || errorLevel === 'suggestion')) {
+        // V8: Battle Mode - ALWAYS save corrections for AI analysis
+        // UI display controlled by showBattleTips toggle, but data always captured
+        if (correction && (errorLevel === 'mistake' || errorLevel === 'suggestion')) {
           const correctionId = (errorLevel === 'mistake' ? 'correction' : 'suggestion') + '_' + Date.now();
           adjustedTimestamps.current[correctionId] = Date.now();
           setMessages(prev => [...prev, {
             id: correctionId,
             sender: errorLevel === 'mistake' ? 'correction' : 'suggestion',
             correction: correction,
+            hidden: !showBattleTips, // Hide from UI if toggle is OFF, but still save for analysis
             createdAt: Date.now()
           }].sort((a, b) => {
             const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
@@ -5623,6 +5624,28 @@ const App = () => {
                   </button>
                 </div>
 
+                {/* Quick Tips Toggle - Only for Battle Mode */}
+                {activeSession?.type !== 'bot' && (
+                  <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={16} className="text-amber-500" />
+                      <span className="text-sm text-gray-700">Quick Tips</span>
+                      <div className="group relative">
+                        <Info size={12} className="text-gray-400 cursor-help" />
+                        <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                          Show grammar tips instantly when you make mistakes in battles.
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setShowBattleTips(!showBattleTips); trackAnalytics('tips_toggled', { enabled: !showBattleTips }); }}
+                      className={`w-10 h-5 rounded-full transition-all ${showBattleTips ? 'bg-amber-500' : 'bg-gray-300'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${showBattleTips ? 'ml-5' : 'ml-0.5'}`} />
+                    </button>
+                  </div>
+                )}
+
                 {/* Translation Toggle */}
                 <div className="flex items-center justify-between py-3 border-b border-gray-100">
                   <div className="flex items-center gap-2">
@@ -5834,10 +5857,10 @@ const App = () => {
 
             // Correction/Suggestion visibility: 
             // - Always show in simulation (type='bot')
-            // - Only show in battle if showBattleTips is ON
+            // - Only show in battle if showBattleTips is ON OR if not marked hidden
             // - Corrections are still saved to messages array for AI analysis regardless
             const isCorrectionMsg = m.sender === 'correction' || m.sender === 'suggestion';
-            const shouldShowCorrection = !isCorrectionMsg || activeSession?.type === 'bot' || showBattleTips;
+            const shouldShowCorrection = !isCorrectionMsg || (!m.hidden && (activeSession?.type === 'bot' || showBattleTips));
             if (!shouldShowCorrection) return null;
 
             return (
@@ -6100,8 +6123,8 @@ const App = () => {
               <button
                 onClick={() => { setShowBattleTips(!showBattleTips); trackAnalytics('tips_toggled', { enabled: !showBattleTips }); }}
                 className={`p-2 rounded-full transition-all duration-300 ${showBattleTips
-                    ? 'bg-amber-100 text-amber-600 border border-amber-200 shadow-sm'
-                    : 'bg-gray-50 border border-gray-200 text-gray-400 hover:text-gray-600'
+                  ? 'bg-amber-100 text-amber-600 border border-amber-200 shadow-sm'
+                  : 'bg-gray-50 border border-gray-200 text-gray-400 hover:text-gray-600'
                   }`}
                 title={showBattleTips ? "Tips are ON" : "Turn on Tips"}
               >
