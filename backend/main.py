@@ -419,17 +419,19 @@ def fluency_backend(request: https_fn.Request) -> https_fn.Response:
         if req_type == "warmup":
             print("[WARMUP] Instance warmed up successfully")
             
-            # Auto-cleanup: Delete queue rooms older than 45 minutes
+            # Auto-cleanup: Delete ONLY "waiting" rooms older than 45 minutes
+            # Keep "matched" and "ended" rooms for battle history/analysis
             try:
                 cleanup_threshold = datetime.now() - timedelta(minutes=45)
                 queue_ref = db.collection('queue')
-                old_rooms = queue_ref.where('createdAt', '<', cleanup_threshold).limit(50).stream()
+                # Only delete abandoned searches (status='waiting'), preserve actual battles
+                old_waiting_rooms = queue_ref.where('status', '==', 'waiting').where('createdAt', '<', cleanup_threshold).limit(50).stream()
                 deleted_count = 0
-                for room in old_rooms:
+                for room in old_waiting_rooms:
                     room.reference.delete()
                     deleted_count += 1
                 if deleted_count > 0:
-                    print(f"[CLEANUP] Deleted {deleted_count} old queue rooms")
+                    print(f"[CLEANUP] Deleted {deleted_count} abandoned waiting rooms")
             except Exception as cleanup_err:
                 print(f"[CLEANUP] Error: {cleanup_err}")
             
