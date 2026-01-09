@@ -2159,25 +2159,25 @@ Return JSON:
                 story = []
                 
                 # ===== PAGE 1: Progress Summary =====
-                # 3-Column Header with Unicode stars (sleek border)
+                # 3-Column Header with Unicode stars (thicker border)
                 header_data = [[
-                    Paragraph(f"<font size='18' color='{shield_color}'>{shield_stars}</font><br/><font size='10' color='{shield_color}'><b>{shield_label}</b></font>", 
-                              ParagraphStyle('Shield', alignment=TA_CENTER)),
-                    Paragraph(f"<font size='22' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='11' color='#6B7280'>Complete Learning Pack</font>", 
-                              ParagraphStyle('Title', alignment=TA_CENTER)),
-                    Paragraph(f"<font size='11' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='9' color='#9CA3AF'>{filter_label}</font>", 
-                              ParagraphStyle('Date', alignment=TA_CENTER))
+                    Paragraph(f"<font size='16' color='{shield_color}'>{shield_stars}</font><br/><font size='9' color='{shield_color}'><b>{shield_label}</b></font>", 
+                              ParagraphStyle('Shield', alignment=TA_CENTER, leading=18)),
+                    Paragraph(f"<font size='20' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='10' color='#6B7280'>Complete Learning Pack</font>", 
+                              ParagraphStyle('Title', alignment=TA_CENTER, leading=16)),
+                    Paragraph(f"<font size='10' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='8' color='#9CA3AF'>{filter_label}</font>", 
+                              ParagraphStyle('Date', alignment=TA_CENTER, leading=14))
                 ]]
                 header_table = Table(header_data, colWidths=[35*mm, 95*mm, 40*mm])
                 header_table.setStyle(TableStyle([
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#10B981')),  # Sleeker 1px border
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-                    ('TOPPADDING', (0, 0), (-1, -1), 8),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),  # Thicker 2px border
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                    ('TOPPADDING', (0, 0), (-1, -1), 12),
                 ]))
                 story.append(header_table)
-                story.append(Spacer(1, 15))
+                story.append(Spacer(1, 20))
                 
                 # Stats Box - "X days" format for streak
                 stats_data = [
@@ -2238,14 +2238,15 @@ Return JSON:
                 story.append(Paragraph("<i>'Every mistake is a step towards mastery. Keep practicing!'</i>", 
                                        ParagraphStyle('Quote', fontSize=13, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER, spaceBefore=10)))
                 story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 1 of 5", footer_style))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 1 of 6", footer_style))
                 story.append(PageBreak())
                 
                 # ===== PAGES 2-3: Grammar Challenge =====
                 quiz = content.get('quiz', [])
+                story.append(Spacer(1, 15))  # Space at top of new page
                 story.append(Paragraph("<b>PART 1: GRAMMAR CHALLENGE</b>", section_header))
-                story.append(Paragraph("Fill in the blanks with the correct answer. Check the Answer Key on Page 4!", body_style))
-                story.append(Spacer(1, 15))
+                story.append(Paragraph("Fill in the blanks with the correct answer. Check the Answer Key on Page 5!", body_style))
+                story.append(Spacer(1, 20))
                 
                 for i, q in enumerate(quiz[:25], 1):
                     story.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
@@ -2255,21 +2256,23 @@ Return JSON:
                     
                     # Page break after Q12 for visual balance
                     if i == 12:
-                        story.append(Spacer(1, 10))
-                        story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 2 of 5", footer_style))
-                        story.append(PageBreak())
-                        story.append(Paragraph("<b>GRAMMAR CHALLENGE (Continued)</b>", section_header))
                         story.append(Spacer(1, 15))
+                        story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 2 of 6", footer_style))
+                        story.append(PageBreak())
+                        story.append(Spacer(1, 15))  # Space at top of page 3
+                        story.append(Paragraph("<b>GRAMMAR CHALLENGE (Continued)</b>", section_header))
+                        story.append(Spacer(1, 20))
                 
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 3 of 5", footer_style))
+                story.append(Spacer(1, 15))
+                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 3 of 6", footer_style))
                 story.append(PageBreak())
                 
-                # ===== PAGE 4: Vocabulary + Answer Key =====
+                # ===== PAGE 4: Vocabulary =====
                 vocab = content.get('vocabulary', [])
+                story.append(Spacer(1, 15))  # Space at top of page 4
                 story.append(Paragraph("<b>PART 2: VOCABULARY BUILDER</b>", section_header))
                 story.append(Paragraph("Master these 10 new words to upgrade your English!", body_style))
-                story.append(Spacer(1, 15))
+                story.append(Spacer(1, 20))
                 
                 for i, v in enumerate(vocab[:10], 1):
                     story.append(Paragraph(f"{i}. {v.get('word', '')}", vocab_word))
@@ -2295,10 +2298,11 @@ Return JSON:
                 story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 5 of 6", footer_style))
                 story.append(PageBreak())
                 
-                # ===== PAGE 5: Recent Corrections =====
+                # ===== PAGE 6: Recent Corrections =====
+                story.append(Spacer(1, 15))  # Space at top of page 6
                 story.append(Paragraph("<b>YOUR RECENT CORRECTIONS</b>", section_header))
                 story.append(Paragraph("Review these mistakes to avoid repeating them!", body_style))
-                story.append(Spacer(1, 15))
+                story.append(Spacer(1, 20))
                 
                 for i, corr in enumerate(all_corrections[:10], 1):
                     original = corr.get('original', '')
