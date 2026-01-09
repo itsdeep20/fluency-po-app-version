@@ -2298,6 +2298,33 @@ Return JSON:
                 insights = content.get('insights', {})
                 story.append(Paragraph("<b>AI ANALYSIS</b>", section_header))
                 
+                # --- TOP FOCUS AREAS (Restored) ---
+                if all_corrections:
+                    mistake_counts = {}
+                    for c in all_corrections:
+                        # Extract type from correction
+                        m_type = c.get('type', 'General').lower()
+                        # Normalize common types
+                        if 'grammar' in m_type: m_type = 'grammar'
+                        elif 'spelling' in m_type: m_type = 'spelling'
+                        elif 'vocab' in m_type: m_type = 'vocabulary'
+                        elif 'tense' in m_type: m_type = 'verb tenses'
+                        
+                        mistake_counts[m_type] = mistake_counts.get(m_type, 0) + 1
+                    
+                    # Sort by count desc
+                    sorted_types = sorted(mistake_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+                    
+                    if sorted_types:
+                        focus_text = "<b>TOP FOCUS AREAS</b><br/>Based on your recent mistakes:<br/>"
+                        for idx, (m_type, count) in enumerate(sorted_types, 1):
+                            count_str = "1 correction" if count == 1 else f"{count} corrections"
+                            focus_text += f"{idx}. {m_type} ({count_str})<br/>"
+                        
+                        story.append(Paragraph(focus_text, 
+                                            ParagraphStyle('Focus', fontSize=12, textColor=colors.HexColor('#B91C1C'), spaceAfter=12)))
+                        story.append(Spacer(1, 10))
+
                 # Two-column insights
                 weak_points = insights.get('weakPoints', [])
                 strong_points = insights.get('strongPoints', [])
@@ -2345,6 +2372,7 @@ Return JSON:
                     choices = q.get('choices', [])
                     choices_text = "   ".join(choices[:4])
                     story.append(Paragraph(choices_text, options_style))
+                    story.append(Spacer(1, 15)) # Added spacing between questions as requested
                     
                     # Page break after Q12 for visual balance
                     if i == 12:
