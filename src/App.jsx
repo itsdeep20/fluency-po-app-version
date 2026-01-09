@@ -4525,13 +4525,15 @@ const App = () => {
 
                         // Animated step sequence for combined PDF - runs in PARALLEL with API call
                         const steps = [
-                          { text: '📊 Gathering your stats...', progress: 10, delay: 800 },
-                          { text: '🔍 Analyzing corrections...', progress: 20, delay: 1000 },
-                          { text: '🧠 AI generating 25 quiz questions...', progress: 35, delay: 1500 },
-                          { text: '📚 Creating vocabulary list...', progress: 50, delay: 1200 },
-                          { text: '💡 Identifying strengths & weaknesses...', progress: 65, delay: 1200 },
-                          { text: '📝 Building 6-page pack...', progress: 80, delay: 1500 },
-                          { text: '🎨 Adding finishing touches...', progress: 90, delay: 2000 }
+                          { text: '📊 Gathering your stats...', progress: 10, delay: 600 },
+                          { text: '🔍 Analyzing corrections...', progress: 20, delay: 800 },
+                          { text: '🧠 AI generating quiz questions...', progress: 35, delay: 1000 },
+                          { text: '📚 Creating vocabulary list...', progress: 50, delay: 900 },
+                          { text: '💡 Identifying strengths & weaknesses...', progress: 60, delay: 900 },
+                          { text: '📝 Building 6-page pack...', progress: 70, delay: 900 },
+                          { text: '🎨 Adding finishing touches...', progress: 80, delay: 800 },
+                          { text: '✨ Almost there...', progress: 88, delay: 700 },
+                          { text: '🚀 Finalizing your pack...', progress: 95, delay: 600 }
                         ];
 
                         try {
