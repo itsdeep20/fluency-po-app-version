@@ -2383,13 +2383,12 @@ Return JSON:
                 story.append(Paragraph("Check your answers:", body_style))
                 story.append(Spacer(1, 10))
                 
-                # Answer key in compact format (single line per answer)
-                answers_text = ""
+                # Answer key with explanations for each question
                 for i, q in enumerate(quiz[:25], 1):
-                    answers_text += f"<b>Q{i}:</b> {q.get('answer', '')}   "
-                    if i % 5 == 0:
-                        answers_text += "<br/>"
-                story.append(Paragraph(answers_text, body_style))
+                    story.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
+                    story.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
+                    story.append(Spacer(1, 4))
+                
                 story.append(Spacer(1, 15))
                 story.append(PageBreak())  # Break before Vocabulary section
                 
