@@ -682,7 +682,25 @@ const App = () => {
         if (data.userAvatar) setUserAvatar(data.userAvatar);
       } else {
         // Initial setup if doc doesn't exist
-        await setDoc(docRef, { uid: user.uid, stats: { streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null }, userAvatar, lastBots: [] });
+        await setDoc(docRef, {
+          uid: user.uid,
+          email: user.email || null,
+          displayName: user.displayName || null,
+          photoURL: user.photoURL || null,
+          createdAt: new Date().toISOString(),
+          stats: { streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null },
+          userAvatar,
+          lastBots: []
+        });
+      }
+      // Always update profile info (in case user changed Google name/photo)
+      if (user.email || user.displayName) {
+        await setDoc(docRef, {
+          email: user.email || null,
+          displayName: user.displayName || null,
+          photoURL: user.photoURL || null,
+          lastLogin: new Date().toISOString()
+        }, { merge: true });
       }
     }, (err) => console.error("Stats listener error:", err));
 
