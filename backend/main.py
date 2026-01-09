@@ -415,9 +415,24 @@ def fluency_backend(request: https_fn.Request) -> https_fn.Response:
             
             return (json.dumps({"success": True, "roomId": room_ref.id}), 200, headers)
 
-        # --- WARMUP (Cold Start Mitigation) ---
+        # --- WARMUP (Cold Start Mitigation) + QUEUE CLEANUP ---
         if req_type == "warmup":
             print("[WARMUP] Instance warmed up successfully")
+            
+            # Auto-cleanup: Delete queue rooms older than 45 minutes
+            try:
+                cleanup_threshold = datetime.now() - timedelta(minutes=45)
+                queue_ref = db.collection('queue')
+                old_rooms = queue_ref.where('createdAt', '<', cleanup_threshold).limit(50).stream()
+                deleted_count = 0
+                for room in old_rooms:
+                    room.reference.delete()
+                    deleted_count += 1
+                if deleted_count > 0:
+                    print(f"[CLEANUP] Deleted {deleted_count} old queue rooms")
+            except Exception as cleanup_err:
+                print(f"[CLEANUP] Error: {cleanup_err}")
+            
             return (json.dumps({"success": True, "message": "Warmed up"}), 200, headers)
 
         # --- SESSION FEEDBACK (AI-Powered Personalized Analysis) ---
