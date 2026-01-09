@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
-  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc
+  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc, increment, arrayUnion
 } from 'firebase/firestore';
 
 import {
@@ -478,6 +478,85 @@ const App = () => {
     setVisibleMessageIds(new Set());
     setIsOpponentTyping(false);
     setMessages([]); // CRITICAL: Purge old messages
+  };
+
+  // Analytics Tracking Function - Tracks all 4 analytics features
+  const trackAnalytics = async (eventType, eventData = {}) => {
+    if (!user) return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const currentHour = new Date().getHours();
+
+      if (eventType === 'session_complete') {
+        // 1. USER ENGAGEMENT TRACKING
+        const engagementRef = doc(db, 'users', user.uid, 'analytics', 'engagement');
+        await setDoc(engagementRef, {
+          lastUpdated: serverTimestamp(),
+          totalSessions: increment(1),
+          [`sessionsPerDay.${today}`]: increment(1),
+          [`peakHours.${currentHour}`]: increment(1),
+          daysActive: arrayUnion(today),
+          totalDuration: increment(eventData.duration || 0)
+        }, { merge: true });
+
+        // 2. LEARNING PROGRESS TRACKING
+        if (eventData.corrections && eventData.corrections.length > 0) {
+          const progressRef = doc(db, 'users', user.uid, 'analytics', 'progress');
+          const categoryUpdates = {};
+          const mistakeUpdates = {};
+
+          eventData.corrections.forEach(corr => {
+            const category = corr?.type || 'General';
+            // Track count per category
+            categoryUpdates[`mistakesByCategory.${category}`] = increment(1);
+            // Track accuracy per category (we'll calculate later from total mistakes vs sessions)
+          });
+
+          await setDoc(progressRef, {
+            lastUpdated: serverTimestamp(),
+            totalCorrections: increment(eventData.corrections.length),
+            sessionsWithMistakes: increment(eventData.corrections.length > 0 ? 1 : 0),
+            lastSessionAccuracy: eventData.accuracy || 0,
+            ...categoryUpdates
+          }, { merge: true });
+        }
+
+        // 3. FEATURE USAGE - Track simulation usage
+        if (eventData.simName) {
+          await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'simulations'), {
+            [`usage.${eventData.simId || 'unknown'}`]: increment(1),
+            lastUpdated: serverTimestamp()
+          }, { merge: true });
+        }
+      }
+
+      if (eventType === 'battle_complete') {
+        // Track battle mode usage
+        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'battles'), {
+          totalMatches: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      if (eventType === 'voice_used') {
+        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'voice'), {
+          totalUsage: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      if (eventType === 'pdf_download') {
+        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'pdf'), {
+          totalDownloads: increment(1),
+          [`downloads.${today}`]: increment(1),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+    } catch (e) {
+      console.error('[ANALYTICS] Error tracking:', e);
+      // Silently fail - analytics should never break main flow
+    }
   };
 
   const typingListener = useRef(null);
@@ -2110,6 +2189,15 @@ const App = () => {
         const sessionsRef = collection(db, 'users', user.uid, 'sessions');
         await addDoc(sessionsRef, sessionData);
         console.log('[DEBUG_SAVE] Session saved successfully!');
+
+        // Track analytics for engagement and learning progress
+        trackAnalytics('session_complete', {
+          duration: sessionDuration,
+          corrections: sessionCorrections,
+          accuracy: sessionAccuracy,
+          simId: capturedSession.id,
+          simName: capturedSession.opponent?.name
+        });
       } catch (e) { console.error('Failed to save session:', e); }
 
       // Update stats with cumulative accuracy and streak
@@ -4314,6 +4402,10 @@ const App = () => {
 
                             // Celebration!
                             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+
+                            // Track PDF download analytics
+                            trackAnalytics('pdf_download');
+
                             await new Promise(r => setTimeout(r, 2000)); // Show success message
                           } else if (data.error === 'no_corrections') {
                             setPdfGenerationStep('');
