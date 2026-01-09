@@ -2377,10 +2377,21 @@ Return JSON:
                     story.append(Paragraph(choices_text, options_style))
                     story.append(Spacer(1, 4)) # Reduced space between questions
                 
-                # No forced page break in quiz - let questions flow naturally
-                # Only break before new sections
+                # Answer Key flows directly after questions - no page break
+                story.append(Spacer(1, 20))
+                story.append(Paragraph("<b>ANSWER KEY</b>", section_header))
+                story.append(Paragraph("Check your answers:", body_style))
+                story.append(Spacer(1, 10))
+                
+                # Answer key in compact format (single line per answer)
+                answers_text = ""
+                for i, q in enumerate(quiz[:25], 1):
+                    answers_text += f"<b>Q{i}:</b> {q.get('answer', '')}   "
+                    if i % 5 == 0:
+                        answers_text += "<br/>"
+                story.append(Paragraph(answers_text, body_style))
                 story.append(Spacer(1, 15))
-                story.append(PageBreak())
+                story.append(PageBreak())  # Break before Vocabulary section
                 
                 # ===== PAGE 4: Vocabulary =====
                 vocab = content.get('vocabulary', [])
@@ -2396,22 +2407,7 @@ Return JSON:
                     story.append(Spacer(1, 12))  # More spacing between vocab items
                 
                 story.append(Spacer(1, 15))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 4 of 6", footer_style))
-                story.append(PageBreak())  # NEW PAGE FOR ANSWER KEY
-                
-                # ===== PAGE 5: Answer Key =====
-                story.append(Paragraph("<b>ANSWER KEY</b>", section_header))
-                story.append(Paragraph("Check your answers:", body_style))
-                story.append(Spacer(1, 10))
-                
-                # Answer key in compact format
-                for i, q in enumerate(quiz[:25], 1):
-                    story.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
-                    story.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
-                
-                story.append(Spacer(1, 15))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 5 of 6", footer_style))
-                story.append(PageBreak())
+                story.append(PageBreak())  # Break before Corrections section
                 
                 # ===== PAGE 6: Recent Corrections =====
                 story.append(Spacer(1, 15))  # Space at top of page 6
