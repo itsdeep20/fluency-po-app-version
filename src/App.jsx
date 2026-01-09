@@ -957,12 +957,24 @@ const App = () => {
 
     const invitationDocRef = doc(db, 'invitations', user.uid);
 
-    // SELF-HEALING: Clear any stale invitation doc at my ID when I load dashboard
-    deleteDoc(invitationDocRef).catch(e => console.warn('Self-cleanup skip:', e.message));
+    // SAFER SELF-HEALING: Only delete if the invite is stale (older than 30s)
+    // This prevents race conditions where fresh invites are deleted
+    getDoc(invitationDocRef).then(snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const createdAt = data.createdAt?.toDate?.() || new Date(0);
+        const ageMs = Date.now() - createdAt.getTime();
+        // Only delete if older than 30 seconds or already processed
+        if (ageMs > 30000 || data.status === 'accepted' || data.status === 'declined') {
+          deleteDoc(invitationDocRef).catch(e => console.warn('Stale cleanup:', e.message));
+        }
+      }
+    }).catch(e => console.warn('Self-check skip:', e.message));
 
     const unsub = onSnapshot(invitationDocRef, (snap) => {
       if (snap.exists()) {
         const inv = snap.data();
+        console.log('[INVITE_LISTEN] Received invite:', inv.status, 'from:', inv.fromName);
         if (inv.status === 'pending') {
           setIncomingInvitation({ id: snap.id, ...inv });
         } else if (inv.status === 'cancelled') {
