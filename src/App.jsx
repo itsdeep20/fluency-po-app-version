@@ -2153,8 +2153,22 @@ const App = () => {
           errorLevel: errorLevel
         } : m));
 
-        // V8: Battle Mode - NO correction cards shown (clean battlefield)
-        // Accuracy is tracked silently for scoring, no tips/corrections displayed
+        // V8: Battle Mode - Show correction cards ONLY if Tips toggle is ON
+        // Corrections are always tracked for AI analysis, UI display is optional
+        if (showBattleTips && correction && (errorLevel === 'mistake' || errorLevel === 'suggestion')) {
+          const correctionId = (errorLevel === 'mistake' ? 'correction' : 'suggestion') + '_' + Date.now();
+          adjustedTimestamps.current[correctionId] = Date.now();
+          setMessages(prev => [...prev, {
+            id: correctionId,
+            sender: errorLevel === 'mistake' ? 'correction' : 'suggestion',
+            correction: correction,
+            createdAt: Date.now()
+          }].sort((a, b) => {
+            const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
+            const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
+            return tA - tB;
+          }));
+        }
 
         // For Battle-Bot: Simulate seen + typing with delays
         if (activeSession.type === 'battle-bot') {
@@ -5268,19 +5282,7 @@ const App = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Tips Toggle - Only for Battle Mode (simulations always show corrections) */}
-              {activeSession?.type !== 'bot' && (
-                <button
-                  onClick={() => { setShowBattleTips(!showBattleTips); trackAnalytics('tips_toggled', { enabled: !showBattleTips }); }}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-full flex items-center gap-1.5 transition-all ${showBattleTips
-                    ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                    : 'bg-gray-100 text-gray-500 border border-gray-200'
-                    }`}
-                >
-                  <Lightbulb size={12} className={showBattleTips ? 'text-amber-500' : 'text-gray-400'} />
-                  Tips: {showBattleTips ? 'ON' : 'OFF'}
-                </button>
-              )}
+
               {timerActive && (
                 <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
                   <Clock size={12} /> {formatTime(timeRemaining)}
@@ -6092,6 +6094,20 @@ const App = () => {
                 </motion.button>
               ) : null;
             })()}
+
+            {/* Battle Tips Toggle - Small Settings Icon */}
+            {activeSession?.type !== 'bot' && (
+              <button
+                onClick={() => { setShowBattleTips(!showBattleTips); trackAnalytics('tips_toggled', { enabled: !showBattleTips }); }}
+                className={`p-2 rounded-full transition-all duration-300 ${showBattleTips
+                    ? 'bg-amber-100 text-amber-600 border border-amber-200 shadow-sm'
+                    : 'bg-gray-50 border border-gray-200 text-gray-400 hover:text-gray-600'
+                  }`}
+                title={showBattleTips ? "Tips are ON" : "Turn on Tips"}
+              >
+                <Settings size={18} className={showBattleTips ? 'animate-pulse-slow' : ''} />
+              </button>
+            )}
 
             {/* Voice Input Button with Enhanced Styling */}
             <div className="relative">
