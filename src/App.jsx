@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import {
@@ -14,7 +14,7 @@ import {
   Train, Plane, Loader2, LogOut, MessageCircle, Target,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
   ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb, Globe,
-  FileText, Download, TrendingUp, TrendingDown, BarChart3, BookOpen
+  FileText, Download, TrendingUp, TrendingDown, BarChart3, BookOpen, History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -326,7 +326,7 @@ const App = () => {
   const [inputText, setInputText] = useState("");
   const [currentStage, setCurrentStage] = useState("");
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
-  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null });
+  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null });
   const [userAvatar, setUserAvatar] = useState('🦁');
   const [sessionPoints, setSessionPoints] = useState(0);
   const [isBotTyping, setIsBotTyping] = useState(false);
@@ -348,6 +348,7 @@ const App = () => {
   // Stale Closure Fix Refs (Bug 6)
   const messagesRef = useRef([]);
   const battleAccuraciesRef = useRef([]);
+  const battleCorrectionsRef = useRef([]); // Ref for battle corrections (stale closure fix)
 
   // Sync refs with state immediately
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -400,7 +401,7 @@ const App = () => {
   const [showAccuracyInfo, setShowAccuracyInfo] = useState(false); // Accuracy explanation popup
   const [showPointsInfo, setShowPointsInfo] = useState(false); // Points explanation popup
   const [showStudyGuideModal, setShowStudyGuideModal] = useState(false); // Study Guide PDF modal
-  const [studyGuideFilter, setStudyGuideFilter] = useState('new'); // 'new', '7days', '30days', 'all'
+  const [studyGuideFilter, setStudyGuideFilter] = useState('3days'); // '3days', '7days', '30days', 'all'
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfGenerationStep, setPdfGenerationStep] = useState(''); // Current animation step
   const [pdfProgress, setPdfProgress] = useState(0); // Progress percentage 0-100
@@ -436,6 +437,10 @@ const App = () => {
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [isAiAssistOn, setIsAiAssistOn] = useState(true); // ON by default
   const [isTranslationOn, setIsTranslationOn] = useState(true); // ON by default
+  const [isBattleTipsOn, setIsBattleTipsOn] = useState(false); // OFF by default - Battle Tips
+  const [battleCorrections, setBattleCorrections] = useState([]); // Track battle corrections for PDF
+  // Sync battleCorrections to ref for stale closure prevention
+  useEffect(() => { battleCorrectionsRef.current = battleCorrections; }, [battleCorrections]);
   const [showAiAssistPopup, setShowAiAssistPopup] = useState(null); // { messageId, message, context }
   const [showTranslationPopup, setShowTranslationPopup] = useState(null); // { messageId, translation }
   const [isLoadingAssist, setIsLoadingAssist] = useState(false);
@@ -464,6 +469,62 @@ const App = () => {
   const presenceListenerRef = useRef(null);
   const invitationListenerRef = useRef(null);
   const heartbeatRef = useRef(null);
+
+  // PDF History - Centralized State Management
+  const [pdfHistory, setPdfHistory] = useState([]);
+  const [showPdfHistory, setShowPdfHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [downloadingPdfId, setDownloadingPdfId] = useState(null);
+
+  // Centralized function to refresh PDF history from server
+  const refreshPdfHistory = useCallback(async () => {
+    if (!user) {
+      console.log('[PDF History] No user, skipping refresh');
+      return;
+    }
+
+    console.log('[PDF History] Refreshing from server...');
+    setLoadingHistory(true);
+
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${BACKEND_URL}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          type: 'get_pdf_history',
+          userId: user.uid
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (data.history && Array.isArray(data.history)) {
+        setPdfHistory(data.history);
+        console.log(`[PDF History] ✓ Loaded ${data.history.length} items`);
+      } else if (data.error) {
+        console.error('[PDF History] Server error:', data.error);
+      }
+    } catch (e) {
+      console.error('[PDF History] Refresh failed:', e);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [user]);
+
+  // Load history when modal opens
+  useEffect(() => {
+    if ((showStudyGuideModal || showProgressReport) && user) {
+      refreshPdfHistory();
+    }
+  }, [showStudyGuideModal, showProgressReport, user, refreshPdfHistory]);
 
   const resetChatStates = () => {
     isSyncingQueue.current = false;
@@ -584,7 +645,7 @@ const App = () => {
 
   useEffect(() => {
     if (!user) {
-      setStats({ streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null });
+      setStats({ streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null });
       setRecentChats([]);
       return;
     }
@@ -599,7 +660,7 @@ const App = () => {
         if (data.userAvatar) setUserAvatar(data.userAvatar);
       } else {
         // Initial setup if doc doesn't exist
-        await setDoc(docRef, { uid: user.uid, stats: { streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null }, userAvatar, lastBots: [] });
+        await setDoc(docRef, { uid: user.uid, stats: { streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null }, userAvatar, lastBots: [] });
       }
     }, (err) => console.error("Stats listener error:", err));
 
@@ -659,7 +720,7 @@ const App = () => {
         setDoc(presenceDocRef, {
           name: user.displayName || 'Player',
           avatar: userAvatar,
-          level: stats.level || 'Beginner',
+          level: getLevelFromAccuracy(stats.avgScore || 0).name,
           lastSeen: serverTimestamp(),
           isOnline: isVisible, // Only online if tab is visible
           view: 'dashboard'
@@ -904,7 +965,7 @@ const App = () => {
 
     // Check for level-up (only if prevLevel is set & different)
     if (prevLevelRef.current && prevLevelRef.current !== currentLevel) {
-      const levels = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
+      const levels = ['Starter', 'Learner', 'Improver', 'Pro', 'Master'];
       const prevIndex = levels.indexOf(prevLevelRef.current);
       const newIndex = levels.indexOf(currentLevel);
 
@@ -1175,7 +1236,7 @@ const App = () => {
         fromUserId: user.uid,
         fromName: user.displayName || 'Player',
         fromAvatar: userAvatar,
-        fromLevel: stats.level || 'Beginner',
+        fromLevel: getLevelFromAccuracy(stats.avgScore || 0).name,
         createdAt: serverTimestamp(),
         status: 'pending'
       });
@@ -1579,6 +1640,7 @@ const App = () => {
     setSessionPoints(0);
     setMessageAccuracies([]); // V7: Reset accuracy tracking
     setBattleAccuracies([]); // V8: Reset battle accuracy tracking
+    setBattleCorrections([]); // Reset battle corrections for new session
     setView('chat');
 
     // Chat listener with error handling
@@ -1955,8 +2017,30 @@ const App = () => {
           errorLevel: errorLevel
         } : m));
 
-        // V8: Battle Mode - NO correction cards shown (clean battlefield)
-        // Accuracy is tracked silently for scoring, no tips/corrections displayed
+        // V8: Battle Mode - ALWAYS save corrections for PDF analysis
+        // Tip cards shown only if isBattleTipsOn is true
+        if (correction) {
+          // ALWAYS save correction (for PDF Study Guide)
+          setBattleCorrections(prev => [...prev, correction]);
+          console.log('[BATTLE_CORRECTION] Saved:', correction.original, '->', correction.corrected);
+
+          // Show tip card ONLY if toggle is ON
+          if (isBattleTipsOn) {
+            const tipId = 'tip_' + Date.now();
+            const tipNow = Date.now();
+            adjustedTimestamps.current[tipId] = tipNow;
+            setMessages(prev => [...prev, {
+              id: tipId,
+              sender: 'suggestion', // Yellow tip style, NOT red mistake card
+              errorLevel: 'suggestion',
+              correction: correction,
+              originalText: text,
+              createdAt: tipNow
+            }]);
+            // Auto-minimize after 5s (same timing as simulations)
+            setTimeout(() => setMinimizedCorrections(prev => ({ ...prev, [tipId]: true })), 5000);
+          }
+        }
 
         // For Battle-Bot: Simulate seen + typing with delays
         if (activeSession.type === 'battle-bot') {
@@ -2137,8 +2221,8 @@ const App = () => {
           // EMA after 5 sessions (stability)
           newAvgScore = Math.round(((prev.avgScore || 0) * 9 + sessionAccuracy) / 10);
         }
-        // Level based on ACCURACY (not points) - renamed Rookie to Beginner
-        const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
+        // Level based on ACCURACY (not points) - Stage naming
+        const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
 
         const n = {
           ...prev,
@@ -2307,14 +2391,14 @@ const App = () => {
             opponentName: capturedSession.opponent?.name || 'Opponent',
             opponentAvatar: capturedSession.opponent?.avatar || '👤',
             won: didIWin,
-            corrections: sessionCorrections, // For PDF Study Guide
-            correctionsCount: correctionCount,
+            corrections: battleCorrectionsRef.current, // Use battleCorrections (tracked during battle)
+            correctionsCount: battleCorrectionsRef.current.length,
             accuracy: myScore,
             messagesCount: totalSent,
             startTime: serverTimestamp(),
             timestamp: serverTimestamp()
           });
-          console.log('[DEBUG_SAVE] Battle session saved with corrections:', sessionCorrections);
+          console.log('[DEBUG_SAVE] Battle session saved with corrections:', battleCorrectionsRef.current);
         } catch (e) { console.error('Session save error:', e); }
 
 
@@ -2347,8 +2431,8 @@ const App = () => {
             // EMA after 5 sessions (stability)
             newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
           }
-          // Level based on ACCURACY (not points)
-          const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
+          // Level based on ACCURACY (not points) - Stage naming
+          const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
           const n = {
             ...prev,
             sessions: newTotalSessions,
@@ -3150,6 +3234,75 @@ const App = () => {
                 </button>
 
                 <button
+                  onClick={() => setShowPdfHistory(!showPdfHistory)}
+                  className="w-full mt-2 py-2 text-emerald-600 hover:text-emerald-700 font-medium text-sm flex items-center justify-center gap-1"
+                >
+                  <History size={16} />
+                  {showPdfHistory ? 'Hide Past Downloads' : `View Past Downloads${pdfHistory.length > 0 ? ` (${pdfHistory.length})` : ''}`}
+                </button>
+
+                {showPdfHistory && (
+                  <div className="mt-4 border-t border-gray-100 pt-4">
+                    <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2">
+                      <Clock size={16} className="text-emerald-500" />
+                      Recent Downloads
+                    </h4>
+                    {loadingHistory ? (
+                      <div className="flex justify-center p-4"><Loader2 className="animate-spin text-emerald-500" /></div>
+                    ) : pdfHistory.length === 0 ? (
+                      <p className="text-center text-gray-400 text-sm py-2">No history found.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                        {pdfHistory.map(item => (
+                          <div key={item.id} className="flex items-center justify-between p-2 bg-emerald-50/50 rounded-lg hover:bg-emerald-50 transition-colors">
+                            <div className="text-left">
+                              <p className="text-xs font-bold text-gray-700">{new Date(item.generatedAt).toLocaleDateString()}</p>
+                              <p className="text-[10px] text-gray-500">{item.filterLabel} • {item.pages} pgs</p>
+                            </div>
+                            <button
+                              disabled={downloadingPdfId === item.id}
+                              onClick={async () => {
+                                setDownloadingPdfId(item.id);
+                                try {
+                                  const token = await user.getIdToken();
+                                  const res = await fetch(`${BACKEND_URL}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                    body: JSON.stringify({ type: 'get_pdf_by_id', userId: user.uid, pdfId: item.id })
+                                  });
+                                  const data = await res.json();
+                                  if (data.pdf) {
+                                    const byteCharacters = atob(data.pdf);
+                                    const byteNumbers = new Array(byteCharacters.length);
+                                    for (let i = 0; i < byteCharacters.length; i++) {
+                                      byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                    }
+                                    const byteArray = new Uint8Array(byteNumbers);
+                                    const blob = new Blob([byteArray], { type: 'application/pdf' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `fluency-pro-history-${item.id.slice(0, 5)}.pdf`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                  }
+                                } catch (e) { console.error(e); alert('Download failed'); }
+                                setDownloadingPdfId(null);
+                              }}
+                              className="p-1.5 bg-white text-emerald-600 rounded-md shadow-sm border border-emerald-100 hover:bg-emerald-50 transition-colors"
+                            >
+                              {downloadingPdfId === item.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <button
                   onClick={() => setShowStudyGuideModal(false)}
                   disabled={isGeneratingPdf}
                   className="w-full mt-2 py-2 text-gray-500 hover:text-gray-700 font-medium text-sm"
@@ -3160,6 +3313,7 @@ const App = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
       </>
     );
   };
@@ -4299,7 +4453,10 @@ const App = () => {
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
-                            a.download = `fluency-learning-pack-${new Date().toISOString().split('T')[0]}.pdf`;
+                            // Timestamped Filename (LOCAL time)
+                            const now = new Date();
+                            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+                            a.download = `fluency-learning-pack-${timestamp}.pdf`;
                             document.body.appendChild(a);
                             a.click();
                             document.body.removeChild(a);
@@ -4310,6 +4467,15 @@ const App = () => {
 
                             // Celebration!
                             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+
+                            // Update history from server (single source of truth)
+                            // Small delay to ensure Firestore has propagated the write
+                            console.log('[PDF Generation] Waiting for Firestore to sync...');
+                            await new Promise(r => setTimeout(r, 1000));
+                            console.log('[PDF Generation] Refreshing history...');
+                            await refreshPdfHistory();
+                            console.log(`[PDF Generation] History now has ${pdfHistory.length} items`);
+
                             await new Promise(r => setTimeout(r, 2000)); // Show success message
                           } else if (data.error === 'no_corrections') {
                             setPdfGenerationStep('');
@@ -4334,6 +4500,80 @@ const App = () => {
                   <div className="text-center text-xs text-gray-500 mt-2">
                     5 pages: Stats + 25 Quiz Questions + Vocab + Answers + Corrections
                   </div>
+
+                  <button
+                    onClick={() => setShowPdfHistory(!showPdfHistory)}
+                    className="w-full mt-4 py-2 text-emerald-600 hover:text-emerald-700 font-medium text-sm flex items-center justify-center gap-1 border-t border-gray-100 pt-3"
+                  >
+                    <History size={16} />
+                    {showPdfHistory ? 'Hide Past Downloads' : `View Past Downloads${pdfHistory.length > 0 ? ` (${pdfHistory.length})` : ''}`}
+                  </button>
+
+                  {showPdfHistory && (
+                    <div className="mt-2 bg-gray-50 rounded-xl p-3">
+                      <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
+                        <Clock size={14} className="text-emerald-500" />
+                        Recent Downloads
+                      </h4>
+                      {loadingHistory ? (
+                        <div className="flex justify-center p-4"><Loader2 className="animate-spin text-emerald-500" /></div>
+                      ) : pdfHistory.length === 0 ? (
+                        <p className="text-center text-gray-400 text-sm py-2">No history found.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                          {pdfHistory.map(item => (
+                            <div key={item.id} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-all">
+                              <div className="text-left">
+                                <p className="text-xs font-bold text-gray-700">
+                                  {new Date(item.generatedAt).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                                <p className="text-[10px] text-gray-500">{item.filterLabel} • {item.pages} pgs</p>
+                              </div>
+                              <button
+                                disabled={downloadingPdfId === item.id}
+                                onClick={async () => {
+                                  setDownloadingPdfId(item.id);
+                                  try {
+                                    const token = await user.getIdToken();
+                                    const res = await fetch(`${BACKEND_URL}`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                      body: JSON.stringify({ type: 'get_pdf_by_id', userId: user.uid, pdfId: item.id })
+                                    });
+                                    const data = await res.json();
+                                    if (data.pdf) {
+                                      const byteCharacters = atob(data.pdf);
+                                      const byteNumbers = new Array(byteCharacters.length);
+                                      for (let i = 0; i < byteCharacters.length; i++) {
+                                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                      }
+                                      const byteArray = new Uint8Array(byteNumbers);
+                                      const blob = new Blob([byteArray], { type: 'application/pdf' });
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      // Use original timestamp for filename (LOCAL time)
+                                      const origDate = new Date(item.generatedAt);
+                                      const ts = `${origDate.getFullYear()}-${String(origDate.getMonth() + 1).padStart(2, '0')}-${String(origDate.getDate()).padStart(2, '0')}-${String(origDate.getHours()).padStart(2, '0')}-${String(origDate.getMinutes()).padStart(2, '0')}-${String(origDate.getSeconds()).padStart(2, '0')}`;
+                                      a.download = `fluency-learning-pack-${ts}.pdf`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      URL.revokeObjectURL(url);
+                                    }
+                                  } catch (e) { console.error(e); alert('Download failed'); }
+                                  setDownloadingPdfId(null);
+                                }}
+                                className="p-1.5 bg-emerald-50 text-emerald-600 rounded-md hover:bg-emerald-100 transition-colors"
+                              >
+                                {downloadingPdfId === item.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
 
                 </div>
@@ -5028,14 +5268,14 @@ const App = () => {
                 <div className="space-y-3">
                   {[
                     { name: 'Master', icon: '👑', range: '95%+', gradient: 'from-yellow-400 to-amber-500' },
-                    { name: 'Expert', icon: '⭐', range: '85-94%', gradient: 'from-purple-400 to-indigo-500' },
-                    { name: 'Advanced', icon: '🎯', range: '70-84%', gradient: 'from-blue-400 to-cyan-500' },
-                    { name: 'Intermediate', icon: '📈', range: '50-69%', gradient: 'from-emerald-400 to-teal-500' },
-                    { name: 'Beginner', icon: '🌱', range: '0-49%', gradient: 'from-gray-300 to-gray-400' },
+                    { name: 'Pro', icon: '⭐', range: '85-94%', gradient: 'from-purple-400 to-indigo-500' },
+                    { name: 'Improver', icon: '🎯', range: '70-84%', gradient: 'from-blue-400 to-cyan-500' },
+                    { name: 'Learner', icon: '📈', range: '50-69%', gradient: 'from-emerald-400 to-teal-500' },
+                    { name: 'Starter', icon: '🌱', range: '0-49%', gradient: 'from-gray-300 to-gray-400' },
                   ].map((level, i) => {
                     const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
                     const isCurrentLevel = level.name === currentLevel;
-                    const currentIndex = ['Master', 'Expert', 'Advanced', 'Intermediate', 'Beginner'].indexOf(currentLevel);
+                    const currentIndex = ['Master', 'Pro', 'Improver', 'Learner', 'Starter'].indexOf(currentLevel);
                     const isUnlocked = i >= currentIndex;
 
                     return (
@@ -5253,6 +5493,26 @@ const App = () => {
                     className={`w-10 h-5 rounded-full transition-all ${isTranslationOn ? 'bg-orange-500' : 'bg-gray-300'}`}
                   >
                     <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isTranslationOn ? 'ml-5' : 'ml-0.5'}`} />
+                  </button>
+                </div>
+
+                {/* Battle Tips Toggle */}
+                <div className="flex items-center justify-between py-3 border-t border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Lightbulb size={16} className="text-yellow-500" />
+                    <span className="text-sm text-gray-700">Battle Tips</span>
+                    <div className="group relative">
+                      <Info size={12} className="text-gray-400 cursor-help" />
+                      <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                        Show grammar tips during battles. Tips are always saved for your progress report.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsBattleTipsOn(!isBattleTipsOn)}
+                    className={`w-10 h-5 rounded-full transition-all ${isBattleTipsOn ? 'bg-yellow-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isBattleTipsOn ? 'ml-5' : 'ml-0.5'}`} />
                   </button>
                 </div>
 

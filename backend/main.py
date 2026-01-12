@@ -19,7 +19,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch, mm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -1768,6 +1768,27 @@ Max 3 weak points, 2 strong points. Be encouraging."""
                 # Return base64 encoded PDF
                 pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
                 
+                # --- SAVE TO HISTORY (FIX) ---
+                try:
+                    history_ref = user_ref.collection('pdfHistory')
+                    history_ref.add({
+                        'generatedAt': firestore.SERVER_TIMESTAMP,
+                        'filter': date_filter,
+                        'filterLabel': filter_label,
+                        'pages': 5,
+                        'quizCount': 0, 
+                        'vocabCount': 0,
+                        'correctionsCount': len(all_corrections),
+                        'pdf': pdf_base64
+                    })
+                    
+                    docs = history_ref.order_by('generatedAt', direction=firestore.Query.DESCENDING).get()
+                    if len(docs) > 10:
+                        for doc in docs[10:]:
+                            doc.reference.delete()
+                except Exception as h_err:
+                    print(f"[HISTORY_SAVE_ERR] {h_err}")
+                
                 return (json.dumps({
                     "pdf": pdf_base64,
                     "correctionsCount": len(all_corrections),
@@ -1782,6 +1803,66 @@ Max 3 weak points, 2 strong points. Be encouraging."""
                 return (json.dumps({"error": str(e)}), 500, headers)
 
                 return (json.dumps({"error": str(e)}), 500, headers)
+
+        # ========================================
+        # GET PDF HISTORY (Metadata Only)
+        # ========================================
+        if req_type == 'get_pdf_history':
+            user_id = data.get('userId')
+            if not user_id: return (json.dumps({"error": "userId required"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                print(f"[GET_PDF_HISTORY] Fetching for user: {user_id}")
+                
+                # Order by generatedAt DESC and limit to 10
+                history_ref = db.collection('users').document(user_id).collection('pdfHistory') \
+                                .order_by('generatedAt', direction=firestore.Query.DESCENDING).limit(10)
+                
+                history = []
+                for doc in history_ref.stream():
+                    d = doc.to_dict()
+                    # Return metadata ONLY (exclude large 'pdf' string)
+                    history.append({
+                        'id': doc.id,
+                        'generatedAt': d.get('generatedAt').isoformat() if d.get('generatedAt') else None,
+                        'filter': d.get('filter'),
+                        'filterLabel': d.get('filterLabel'),
+                        'pages': d.get('pages', 6),
+                        'quizCount': d.get('quizCount', 0),
+                        'vocabCount': d.get('vocabCount', 0),
+                        'correctionsCount': d.get('correctionsCount', 0)
+                    })
+                
+                print(f"[GET_PDF_HISTORY] ✓ Returning {len(history)} items")
+                return (json.dumps({"history": history, "count": len(history)}), 200, headers)
+            except Exception as e:
+                print(f"[GET_HISTORY_ERR] {e}")
+                import traceback
+                traceback.print_exc()
+                return (json.dumps({"error": str(e)}), 500, headers)
+
+        # ========================================
+        # GET PDF BY ID (Full Download)
+        # ========================================
+        if req_type == 'get_pdf_by_id':
+            user_id = data.get('userId')
+            pdf_id = data.get('pdfId')
+            if not user_id or not pdf_id: return (json.dumps({"error": "Missing params"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                doc_ref = db.collection('users').document(user_id).collection('pdfHistory').document(pdf_id)
+                doc = doc_ref.get()
+                
+                if not doc.exists:
+                    return (json.dumps({"error": "PDF not found"}), 404, headers)
+                
+                data = doc.to_dict()
+                return (json.dumps({"pdf": data.get('pdf')}), 200, headers)
+            except Exception as e:
+                 print(f"[GET_PDF_ERR] {e}")
+                 return (json.dumps({"error": str(e)}), 500, headers)
 
         # ========================================
         # GENERATE PRACTICE PDF (Workbook)
@@ -1992,17 +2073,23 @@ Return JSON:
                 total_sessions = stats.get('sessions', 0)
                 vocab_history = stats.get('vocabHistory', [])
                 
-                # Calculate level
-                if points >= 50000:
-                    level_name, level_icon = "Fluent Speaker", "🏆"
-                elif points >= 20000:
-                    level_name, level_icon = "Advanced", "💎"
-                elif points >= 10000:
-                    level_name, level_icon = "Intermediate", "🥈"
-                elif points >= 5000:
-                    level_name, level_icon = "Developing", "🥉"
-                else:
-                    level_name, level_icon = "Beginner", "🌱"
+                # Calculate Level based on AVG SCORE (matches Frontend logic)
+                # avg_score is calculated above
+                level_name = "Starter"
+                level_icon = "☆"
+                
+                if avg_score >= 95:
+                    level_name = "Master"
+                    level_icon = "★★★★"
+                elif avg_score >= 85:
+                    level_name = "Pro"
+                    level_icon = "★★★"
+                elif avg_score >= 70:
+                    level_name = "Improver"
+                    level_icon = "★★"
+                elif avg_score >= 50:
+                    level_name = "Learner"
+                    level_icon = "★"
                 
                 # Date filter
                 now = datetime.now()
@@ -2068,22 +2155,26 @@ Return JSON:
                 else:
                     time_spent_str = f"{period_time_minutes}m" if period_time_minutes > 0 else "0m"
                 
-                # Shield based on accuracy - Unicode stars approach
-                if period_avg_accuracy >= 90:
+                # Shield based on accuracy - Unicode stars approach (Stage naming)
+                if period_avg_accuracy >= 95:
                     shield_label = "MASTER"
                     shield_stars = "★★★★"
                     shield_color = '#FFD700'  # Gold
-                elif period_avg_accuracy >= 75:
-                    shield_label = "EXPERT"
+                elif period_avg_accuracy >= 85:
+                    shield_label = "PRO"
                     shield_stars = "★★★"
                     shield_color = '#C0C0C0'  # Silver
-                elif period_avg_accuracy >= 60:
-                    shield_label = "SKILLED"
+                elif period_avg_accuracy >= 70:
+                    shield_label = "IMPROVER"
                     shield_stars = "★★"
                     shield_color = '#CD7F32'  # Bronze
-                else:
+                elif period_avg_accuracy >= 50:
                     shield_label = "LEARNER"
                     shield_stars = "★"
+                    shield_color = '#10B981'  # Green
+                else:
+                    shield_label = "STARTER"
+                    shield_stars = "☆"
                     shield_color = '#6B7280'  # Gray
                 
                 # AI Content Generation
@@ -2132,11 +2223,32 @@ Return JSON:
                 if new_vocab:
                     user_ref.update({"stats.vocabHistory": firestore.ArrayUnion(new_vocab)})
                 
+                # ===== CALCULATE TOP FOCUS AREAS (Restored) =====
+                mistake_counts = {}
+                for c in all_corrections:
+                    m_type = c.get('type', 'General').lower()
+                    if 'grammar' in m_type: m_type = 'Grammar'
+                    elif 'spelling' in m_type: m_type = 'Spelling'
+                    elif 'vocab' in m_type: m_type = 'Vocabulary'
+                    elif 'tense' in m_type: m_type = 'Verb Tenses'
+                    else: m_type = m_type.title()
+                    mistake_counts[m_type] = mistake_counts.get(m_type, 0) + 1
+                
+                sorted_types = sorted(mistake_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+
                 # ===== GENERATE PDF =====
                 buffer = BytesIO()
                 doc = SimpleDocTemplate(buffer, pagesize=A4, 
                                         rightMargin=20*mm, leftMargin=20*mm,
                                         topMargin=20*mm, bottomMargin=20*mm)
+                
+                def add_footer(canvas, doc):
+                    canvas.saveState()
+                    canvas.setFont('Helvetica', 9)
+                    canvas.setFillColor(colors.HexColor('#9CA3AF'))
+                    text = "Fluency Pro - Complete Learning Pack | Page %d of 6" % doc.page
+                    canvas.drawCentredString(A4[0]/2, 10*mm, text)
+                    canvas.restoreState()
                 
                 styles = getSampleStyleSheet()
                 
@@ -2168,23 +2280,29 @@ Return JSON:
                     Paragraph(f"<font size='11' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='9' color='#9CA3AF'>{filter_label}</font>", 
                               ParagraphStyle('Date', alignment=TA_CENTER))
                 ]]
-                header_table = Table(header_data, colWidths=[35*mm, 95*mm, 40*mm])
+                header_table = Table(header_data, colWidths=[42*mm, 88*mm, 42*mm])
                 header_table.setStyle(TableStyle([
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#10B981')),  # Sleeker 1px border
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-                    ('TOPPADDING', (0, 0), (-1, -1), 8),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+                    ('TOPPADDING', (0, 0), (-1, -1), 15),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 8),
                 ]))
                 story.append(header_table)
                 story.append(Spacer(1, 15))
                 
-                # Stats Box - "X days" format for streak
+                # Stats Box Label - Clarify it's Lifetime stats
+                story.append(Paragraph("<font color='#6B7280'><b>📊 YOUR DASHBOARD STATS (LIFETIME)</b></font>", 
+                                       ParagraphStyle('StatsLabel', fontSize=10, alignment=TA_CENTER, spaceAfter=8)))
+                
+                # Stats Box - SHOW DASHBOARD STATS (Lifetime)
                 stats_data = [
-                    [f"{period_sessions}", f"{time_spent_str}", f"{period_avg_accuracy}%", f"{streak} days"],
-                    ["Sessions", "Time Spent", "Accuracy", "Streak"]
+                    [f"{total_sessions}", f"{int(avg_score)}%", f"{streak}"],
+                    ["Total Sessions", "Avg Accuracy", "Day Streak"]
                 ]
-                stats_table = Table(stats_data, colWidths=[40*mm, 45*mm, 40*mm, 40*mm])
+                stats_table = Table(stats_data, colWidths=[60*mm, 60*mm, 50*mm])
                 stats_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F0FDF4')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#047857')),
@@ -2193,147 +2311,225 @@ Return JSON:
                     ('FONTSIZE', (0, 0), (-1, 0), 26),
                     ('FONTSIZE', (0, 1), (-1, 1), 11),
                     ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 15),
-                    ('TOPPADDING', (0, 0), (-1, 0), 15),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                    ('TOPPADDING', (0, 0), (-1, 0), 10),
                     ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
                 ]))
                 story.append(stats_table)
+                
+                # Period Stats Row (Highlighted, Extra Spacing)
+                story.append(Spacer(1, 12))
+                period_text = f"<b>{filter_label} Stats:</b>  {period_sessions} Sessions  |  {time_spent_str} Time Spent  |  {period_avg_accuracy}% Accuracy"
+                p_style = ParagraphStyle('PeriodStats', parent=body_style, alignment=TA_CENTER, textColor=colors.HexColor('#1F2937'), backColor=colors.HexColor('#E5E7EB'), borderPadding=6)
+                story.append(Paragraph(period_text, p_style))
+                
                 story.append(Paragraph(f"{level_icon} Level: {level_name} | Total XP: {points:,.0f}", 
-                                       ParagraphStyle('Level', fontSize=14, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=15)))
+                                       ParagraphStyle('Level', fontSize=14, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=12)))
                 story.append(Spacer(1, 20))
                 
                 # AI Insights
                 insights = content.get('insights', {})
-                story.append(Paragraph("<b>AI ANALYSIS</b>", section_header))
+                story.append(Paragraph("<b>PERFORMANCE ANALYSIS</b>", section_header))
                 
-                # Two-column insights
                 weak_points = insights.get('weakPoints', [])
                 strong_points = insights.get('strongPoints', [])
                 
+                # Colored Blocks for Analysis
+                # Weak Points (Reddish)
                 weak_text = "<b><font color='#DC2626'>AREAS TO IMPROVE</font></b><br/>"
                 for wp in weak_points[:3]:
-                    weak_text += f"<b>{wp.get('category', '')}:</b> {wp.get('detail', '')}<br/><br/>"
+                    weak_text += f"<font size='11'>• <b>{wp.get('category', '')}:</b> {wp.get('detail', '')}</font><br/><br/>"
                 
-                strong_text = "<b><font color='#16A34A'>YOUR STRENGTHS</font></b><br/>"
-                for sp in strong_points[:2]:
-                    strong_text += f"<b>{sp.get('category', '')}:</b> {sp.get('detail', '')}<br/><br/>"
-                
-                insights_data = [[
-                    Paragraph(weak_text, ParagraphStyle('Weak', fontSize=12, textColor=colors.HexColor('#374151'))),
-                    Paragraph(strong_text, ParagraphStyle('Strong', fontSize=12, textColor=colors.HexColor('#374151')))
-                ]]
-                insights_table = Table(insights_data, colWidths=[85*mm, 85*mm])
-                insights_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#FEF2F2')),
-                    ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F0FDF4')),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                weak_data = [[Paragraph(weak_text, body_style)]]
+                weak_table = Table(weak_data, colWidths=[175*mm])
+                weak_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEF2F2')),
                     ('LEFTPADDING', (0, 0), (-1, -1), 10),
                     ('RIGHTPADDING', (0, 0), (-1, -1), 10),
                     ('TOPPADDING', (0, 0), (-1, -1), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
                 ]))
-                story.append(insights_table)
-                story.append(Spacer(1, 15))
+                story.append(weak_table)
+                story.append(Spacer(1, 10))
                 
+                # Strong Points (Greenish)
+                strong_text = "<b><font color='#16A34A'>YOUR STRENGTHS</font></b><br/>"
+                for sp in strong_points[:2]:
+                    strong_text += f"<font size='11'>• <b>{sp.get('category', '')}:</b> {sp.get('detail', '')}</font><br/><br/>"
+                
+                strong_data = [[Paragraph(strong_text, body_style)]]
+                strong_table = Table(strong_data, colWidths=[175*mm])
+                strong_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ]))
+                story.append(strong_table)
+                
+                story.append(Spacer(1, 15))
+
+                # ===== TOP FOCUS AREAS (Restored & Counted) =====
+                if sorted_types:
+                    story.append(Spacer(1, 10))
+                    focus_text = "<b><font size='12' color='#DC2626'>TOP FOCUS AREAS:</font></b> "
+                    # Show counts: "Grammar (9)"
+                    focus_items = [f"<b>{m_type}</b> ({count})" for m_type, count in sorted_types]
+                    focus_text += "  •  ".join(focus_items)
+                    story.append(Paragraph(focus_text, ParagraphStyle('Focus', alignment=TA_CENTER)))
+
+                story.append(Spacer(1, 15))
                 story.append(Paragraph("<i>'Every mistake is a step towards mastery. Keep practicing!'</i>", 
                                        ParagraphStyle('Quote', fontSize=13, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER, spaceBefore=10)))
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 1 of 5", footer_style))
+                
+                # Page break before Quiz
                 story.append(PageBreak())
                 
-                # ===== PAGES 2-3: Grammar Challenge =====
+                # ===== GRAMMAR QUIZ =====
                 quiz = content.get('quiz', [])
                 story.append(Paragraph("<b>PART 1: GRAMMAR CHALLENGE</b>", section_header))
-                story.append(Paragraph("Fill in the blanks with the correct answer. Check the Answer Key on Page 4!", body_style))
+                story.append(Paragraph("Fill in the blanks with the correct answer.", body_style))
                 story.append(Spacer(1, 15))
                 
                 for i, q in enumerate(quiz[:25], 1):
-                    story.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
+                    # Keep Question + Options together
+                    q_block = []
+                    q_block.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
+                    q_block.append(Spacer(1, 6))
+                    
                     choices = q.get('choices', [])
                     choices_text = "   ".join(choices[:4])
-                    story.append(Paragraph(choices_text, options_style))
+                    q_block.append(Paragraph(choices_text, options_style))
+                    q_block.append(Spacer(1, 8))
                     
-                    # Page break after Q12 for visual balance
-                    if i == 12:
-                        story.append(Spacer(1, 10))
-                        story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 2 of 5", footer_style))
-                        story.append(PageBreak())
-                        story.append(Paragraph("<b>GRAMMAR CHALLENGE (Continued)</b>", section_header))
-                        story.append(Spacer(1, 15))
+                    story.append(KeepTogether(q_block))
                 
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 3 of 5", footer_style))
+                story.append(Spacer(1, 20))
+
+                # ===== ANSWER KEY (Immediately after Quiz) =====
+                story.append(Paragraph("<b>ANSWER KEY</b>", section_header))
+                for i, q in enumerate(quiz[:25], 1):
+                    key_block = []
+                    key_block.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
+                    key_block.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
+                    story.append(KeepTogether(key_block))
+                
                 story.append(PageBreak())
                 
-                # ===== PAGE 4: Vocabulary + Answer Key =====
+                # ===== VOCABULARY =====
                 vocab = content.get('vocabulary', [])
                 story.append(Paragraph("<b>PART 2: VOCABULARY BUILDER</b>", section_header))
                 story.append(Paragraph("Master these 10 new words to upgrade your English!", body_style))
                 story.append(Spacer(1, 15))
                 
                 for i, v in enumerate(vocab[:10], 1):
-                    story.append(Paragraph(f"{i}. {v.get('word', '')}", vocab_word))
-                    story.append(Paragraph(f"<b>Definition:</b> {v.get('definition', '')}", vocab_def))
-                    story.append(Paragraph(f"<b>Example:</b> <i>\"{v.get('example', '')}\"</i>", vocab_def))
-                    story.append(Spacer(1, 12))  # More spacing between vocab items
+                    v_block = []
+                    v_block.append(Paragraph(f"{i}. {v.get('word', '')}", vocab_word))
+                    v_block.append(Paragraph(f"<b>Definition:</b> {v.get('definition', '')}", vocab_def))
+                    v_block.append(Paragraph(f"<b>Example:</b> <i>\"{v.get('example', '')}\"</i>", vocab_def))
+                    v_block.append(Spacer(1, 12))
+                    story.append(KeepTogether(v_block))
                 
-                story.append(Spacer(1, 15))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 4 of 6", footer_style))
-                story.append(PageBreak())  # NEW PAGE FOR ANSWER KEY
-                
-                # ===== PAGE 5: Answer Key =====
-                story.append(Paragraph("<b>ANSWER KEY</b>", section_header))
-                story.append(Paragraph("Check your answers:", body_style))
-                story.append(Spacer(1, 10))
-                
-                # Answer key in compact format
-                for i, q in enumerate(quiz[:25], 1):
-                    story.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
-                    story.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
-                
-                story.append(Spacer(1, 15))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 5 of 6", footer_style))
                 story.append(PageBreak())
                 
-                # ===== PAGE 5: Recent Corrections =====
+                # ===== CORRECTIONS (Limit 35) =====
                 story.append(Paragraph("<b>YOUR RECENT CORRECTIONS</b>", section_header))
                 story.append(Paragraph("Review these mistakes to avoid repeating them!", body_style))
                 story.append(Spacer(1, 15))
                 
-                for i, corr in enumerate(all_corrections[:10], 1):
+                for i, corr in enumerate(all_corrections[:35], 1):
                     original = corr.get('original', '')
                     corrected = corr.get('corrected', '')
                     corr_type = corr.get('type', 'General')
                     explanation = corr.get('explanation', '')
                     
-                    story.append(Paragraph(f"<b>#{i} | {corr_type}</b>", ParagraphStyle('CorrH', fontSize=11, textColor=colors.HexColor('#9CA3AF'), spaceAfter=4)))
-                    # Use Unicode symbols for X and checkmark
-                    story.append(Paragraph(f"<font color='#DC2626'><b>✗</b> YOUR VERSION:</font> \"{original}\"", body_style))
-                    story.append(Paragraph(f"<font color='#059669'><b>✓</b> CORRECT:</font> \"{corrected}\"", body_style))
-                    
+                    c_block = []
+                    c_block.append(Paragraph(f"<b>#{i} | {corr_type}</b>", ParagraphStyle('CorrH', fontSize=11, textColor=colors.HexColor('#9CA3AF'), spaceAfter=4)))
+                    c_block.append(Paragraph(f"<font color='#DC2626'><b>✗</b> YOUR VERSION:</font> \"{original}\"", body_style))
+                    c_block.append(Paragraph(f"<font color='#059669'><b>✓</b> CORRECT:</font> \"{corrected}\"", body_style))
                     if explanation:
-                        story.append(Paragraph(f"TIP: {explanation}", tip_style))
-                    story.append(Spacer(1, 12))
+                        c_block.append(Paragraph(f"TIP: {explanation}", tip_style))
+                    c_block.append(Spacer(1, 12))
+                    story.append(KeepTogether(c_block))
                 
+                # Learning Notes Box
+                story.append(Spacer(1, 20))
+                notes_text = """<b><font color='#4338CA'>📚 HOW TO IMPROVE FROM CORRECTIONS:</font></b><br/><br/>
+                <font size='10'>1. <b>Read aloud</b> the correct version 3 times to build muscle memory.<br/>
+                2. <b>Write it down</b> - physically writing reinforces learning.<br/>
+                3. <b>Create sentences</b> using the corrected phrase in new contexts.<br/>
+                4. <b>Review weekly</b> - revisit this PDF to refresh your memory.</font>"""
+                notes_data = [[Paragraph(notes_text, body_style)]]
+                notes_table = Table(notes_data, colWidths=[175*mm])
+                notes_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#EEF2FF')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 12),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+                    ('TOPPADDING', (0, 0), (-1, -1), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#6366F1')),
+                ]))
+                story.append(notes_table)
                 story.append(Spacer(1, 15))
-                story.append(Paragraph("<i>'Mistakes are proof that you are trying. Keep practicing and you'll master English!'</i>", 
-                                       ParagraphStyle('Quote', fontSize=13, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER)))
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Great job! Keep learning with Fluency Pro!", 
-                                       ParagraphStyle('End', fontSize=15, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold')))
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 6 of 6", footer_style))
                 
-                # Build PDF
-                doc.build(story)
+                story.append(Paragraph("Great job! Keep learning with Fluency Pro!", 
+                                       ParagraphStyle('End', fontSize=15, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold', spaceBefore=20)))
+                
+                # Build with Footer Callback
+                doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
                 pdf_bytes = buffer.getvalue()
                 buffer.close()
                 
                 pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
                 
+                # --- SAVE TO HISTORY ---
+                history_id = None
+                creation_time = now.isoformat()
+
+                try:
+                    history_ref = user_ref.collection('pdfHistory')
+                    print(f"[HISTORY_SAVE] Creating new history document...")
+                    
+                    # Create new history doc
+                    update_time, doc_ref = history_ref.add({
+                        'generatedAt': firestore.SERVER_TIMESTAMP,
+                        'filter': date_filter,
+                        'filterLabel': filter_label,
+                        'pages': 6,
+                        'quizCount': len(quiz),
+                        'vocabCount': len(vocab),
+                        'correctionsCount': len(all_corrections),
+                        'pdf': pdf_base64 # Store the full PDF
+                    })
+                    history_id = doc_ref.id
+                    print(f"[HISTORY_SAVE] ✓ Created document: {history_id}")
+                    
+                    # Cleanup old history (keep last 10)
+                    # IMPORTANT: Exclude the newly created document to avoid race condition
+                    all_docs = history_ref.order_by('generatedAt', direction=firestore.Query.DESCENDING).get()
+                    print(f"[HISTORY_CLEANUP] Total docs found: {len(all_docs)}")
+                    
+                    if len(all_docs) > 10:
+                        # Only delete docs that are NOT the new one
+                        docs_to_delete = [d for d in all_docs[10:] if d.id != history_id]
+                        print(f"[HISTORY_CLEANUP] Deleting {len(docs_to_delete)} old docs")
+                        for doc in docs_to_delete:
+                            doc.reference.delete()
+                    else:
+                        print(f"[HISTORY_CLEANUP] No cleanup needed ({len(all_docs)} <= 10)")
+                        
+                except Exception as h_err:
+                    print(f"[HISTORY_SAVE_ERR] {h_err}")
+                    import traceback
+                    traceback.print_exc()
+                
                 return (json.dumps({
                     "pdf": pdf_base64,
-                    "pages": 5,
+                    "historyId": history_id,
+                    "generatedAt": creation_time,
+                    "filterLabel": filter_label,
+                    "pages": 6,
                     "quizCount": len(quiz),
                     "vocabCount": len(vocab),
                     "correctionsCount": len(all_corrections)
