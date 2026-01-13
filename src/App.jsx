@@ -2435,6 +2435,18 @@ const App = () => {
       setView('dashboard'); setActiveSession(null);
 
     } else {
+      // Check message count for battles - need at least 3 for proper analysis
+      if (totalSent < 3) {
+        console.log('[BATTLE] Early exit with <3 messages, skipping analysis');
+        // Skip analysis for early exits, go straight to dashboard
+        setView('dashboard');
+        setActiveSession(null);
+        setIsEnding(false);
+        setShowExitWarning(false);
+        isEndingRef.current = false;
+        return; // Exit early without analysis
+      }
+
       setView('analyzing');
       try {
         const myMsgs = myMessages.map(m => m.text);
