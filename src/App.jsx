@@ -11,7 +11,7 @@ import {
 
 import {
   Send, Zap, Swords, Sword, MessageSquare, Trophy, Briefcase, Coffee, Stethoscope,
-  Train, Plane, Loader2, LogOut, MessageCircle, Target,
+  Train, Plane, Loader2, LogOut, MessageCircle, Target, Home,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
   ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb, Globe,
   FileText, Download, TrendingUp, TrendingDown, BarChart3, BookOpen, History
