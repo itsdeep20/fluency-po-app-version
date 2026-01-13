@@ -4222,9 +4222,34 @@ const App = () => {
                 {roomCode ? (
                   <div className="text-center space-y-4">
                     <div className="text-6xl font-mono font-black text-emerald-600 bg-emerald-50 py-6 rounded-2xl">{roomCode}</div>
-                    <p className="text-gray-500">Share this code with your friend!</p>
-                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`Join me on Fluency Pro! Code: ${roomCode}`)}`)} className="w-full py-4 bg-green-500 text-white font-bold rounded-2xl">Share on WhatsApp</button>
-                  </div >
+
+                    {/* Step-by-step instructions */}
+                    <div className="bg-gray-50 rounded-xl p-4 text-left">
+                      <div className="text-xs font-bold text-gray-600 mb-2 uppercase tracking-wide">How to Join:</div>
+                      <div className="space-y-2 text-sm text-gray-600">
+                        <div className="flex items-start gap-2">
+                          <span className="bg-emerald-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">1</span>
+                          <span>Share this code with your friend</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="bg-emerald-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">2</span>
+                          <span>Friend opens <strong>Fluency Pro</strong> app</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="bg-emerald-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">3</span>
+                          <span>Clicks <strong>"Play with Friend"</strong></span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="bg-emerald-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">4</span>
+                          <span>Enters this code: <strong className="text-emerald-600">{roomCode}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`🎮 Let's practice English together!\n\n📱 Open Fluency Pro app\n👆 Click "Play with Friend"\n🔢 Enter code: ${roomCode}\n\n🔗 Download: https://project-fluency-ai-pro-d3189.web.app`)}`)} className="w-full py-4 bg-green-500 hover:bg-green-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-colors">
+                      <MessageCircle size={20} /> Share on WhatsApp
+                    </button>
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     <button onClick={createPrivateRoom} disabled={isCreatingRoom} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors">
