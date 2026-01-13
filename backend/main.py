@@ -1236,7 +1236,27 @@ CRITICAL - ENGLISH ONLY:
              history = data.get('history', [])
              stage = data.get('stage', '')
              stage_info = data.get('stageInfo', {})  # Full stage context for transitions
+             difficulty = data.get('difficulty', 'Medium') # Extract difficulty
              
+             # --- DIFFICULTY LOGIC ---
+             if difficulty == 'Easy':
+                 diff_instruction = """EASY MODE (LENIENT):
+- Ignore informal language (gonna, infinite dots...)
+- Ignore capitalization/punctuation
+- Only flag REAL spelling/grammar errors
+- Perfect casual English = 100% accuracy"""
+             elif difficulty == 'Hard':
+                 diff_instruction = """HARD MODE (STRICT):
+- Flag informal language as 'suggestion'
+- Expect proper punctuation and capitalization
+- Penalize casual contractions if too frequent
+- Be strict about article usage (a/an/the)"""
+             else: # Medium
+                 diff_instruction = """MEDIUM MODE (BALANCED):
+- Flag clear errors (spelling, wrong words)
+- Be lenient on casual style/punctuation
+- Perfect casual English = 100% accuracy"""
+
              # Skip warmup messages
              if msg.lower() == 'warmup':
                  warmup_reply = "Ready to chat! ☕"
@@ -1284,8 +1304,11 @@ User said: "{msg}"
 
 YOUR RESPONSE: Keep it SHORT (1-2 sentences), end with a caring question.
 
-=== JOB 2: GRAMMAR CHECK (VERY IMPORTANT) ===
+=== JOB 2: GRAMMAR CHECK ===
 Check the user's message: "{msg}"
+
+DIFFICULTY LEVEL: {difficulty}
+{diff_instruction}
 
 STRICTLY CHECK FOR:
 - SPELLING: "soory"→"sorry", "mor"→"more", "wey"→"way"
@@ -1420,10 +1443,11 @@ RULES:
    - NEVER use Hindi words like 'yaar', 'achha', 'theek hai', 'kya', 'na', 'ji' etc in your responses.
    - Your job is to MODEL correct English for them to learn from.
 
-=== JOB 2: ULTRA-STRICT GRAMMAR CHECK ===
+=== JOB 2: GRAMMAR CHECK ===
 Check the user's message: "{msg}"
 
-🚨 CRITICAL: YOU MUST FLAG EVERY SINGLE ERROR 🚨
+DIFFICULTY LEVEL: {difficulty}
+{diff_instruction}
 
 COMMON ERRORS TO CATCH:
 1. MISSPELLINGS: speacial→special, mor→more, wey→way, undersytndt→understand
