@@ -967,34 +967,30 @@ Return ONLY the translation in {target_language} script. No explanations."""
                 'text': text, 'senderId': sender_id, 'createdAt': firestore.SERVER_TIMESTAMP
             })
             
-            # --- DIFFICULTY-BASED ACCURACY ANALYSIS ---
-            # Adjust scoring strictness based on user's difficulty setting
+            # --- DIFFICULTY AFFECTS BOT VOCABULARY/STYLE ONLY - NOT SCORING ---
             if difficulty == 'Easy':
-                difficulty_prompt = """EASY MODE - Be VERY lenient:
-- Only count OBVIOUS, glaring errors
-- Ignore punctuation, capitalization, informal speech
-- Award 95%+ for understandable messages
-- Perfect casual messages like "Yeah", "OK", "lol" = 100%
-- Minimum score should be 70%"""
+                vocab_style = """EASY MODE - Your speaking style:
+- Use simple, common everyday words
+- Keep sentences short and casual
+- Use contractions (I'm, you're, gonna is OK)
+- Be very friendly and approachable"""
             elif difficulty == 'Hard':
-                difficulty_prompt = """HARD MODE - Be strict but fair:
-- Count grammar, spelling, punctuation errors
-- Expect proper sentence structure
-- Deduct for informal contractions in formal context
-- Still be encouraging in feedback
-- Apply standard English rules"""
+                vocab_style = """HARD MODE - Your speaking style:
+- Use richer, more sophisticated vocabulary
+- Use proper English (formal but natural)
+- Avoid excessive contractions
+- Keep sentences concise but complex in structure
+- DO NOT make sentences overly long - just use higher-level English"""
             else:  # Medium (default)
-                difficulty_prompt = """MEDIUM MODE - Balanced scoring:
-- Focus on CLEAR errors (wrong verb, missing article, spelling)
-- Be LENIENT on casual speech, contractions, informal style
-- Perfect casual messages = 100%"""
+                vocab_style = """MEDIUM MODE - Your speaking style:
+- Mix simple and slightly advanced vocabulary
+- Natural casual-formal balance
+- Normal conversational English"""
             
             model = get_model()
             accuracy_prompt = f"""You are a friendly, encouraging English coach. Analyze this sentence for grammar and spelling errors.
 
 Sentence: "{text}"
-
-{difficulty_prompt}
 
 ACCURACY FORMULA (STRICTER):
 Accuracy = 100 - (errors × 75 / wordCount)
@@ -1092,6 +1088,9 @@ CRITICAL - ENGLISH ONLY:
 - If user sends message in Hindi/Hinglish, respond in English and gently encourage them: "Nice try! Let me reply in English to help you practice 😊" then continue in English.
 - NEVER use Hindi words like 'yaar', 'achha', 'theek hai', 'kya', 'na' etc in your responses.
 - Your job is to MODEL correct English for them to learn from.
+
+YOUR SPEAKING STYLE:
+{vocab_style}
 """
                 
                 try:
@@ -1243,24 +1242,26 @@ CRITICAL - ENGLISH ONLY:
              stage_info = data.get('stageInfo', {})  # Full stage context for transitions
              difficulty = data.get('difficulty', 'Medium') # Extract difficulty
              
-             # --- DIFFICULTY LOGIC ---
+             # --- DIFFICULTY LOGIC (AFFECTS BOT VOCABULARY/STYLE ONLY - NOT SCORING) ---
              if difficulty == 'Easy':
-                 diff_instruction = """EASY MODE (LENIENT):
-- Ignore informal language (gonna, infinite dots...)
-- Ignore capitalization/punctuation
-- Only flag REAL spelling/grammar errors
-- Perfect casual English = 100% accuracy"""
+                 vocab_style_instruction = """VOCABULARY & STYLE (EASY):
+- Use simple, common everyday words
+- Keep sentences short and casual
+- Use contractions (I'm, you're, don't)
+- Be very friendly and approachable
+- Avoid formal or complex vocabulary"""
              elif difficulty == 'Hard':
-                 diff_instruction = """HARD MODE (STRICT):
-- Flag informal language as 'suggestion'
-- Expect proper punctuation and capitalization
-- Penalize casual contractions if too frequent
-- Be strict about article usage (a/an/the)"""
+                 vocab_style_instruction = """VOCABULARY & STYLE (HARD):
+- Use richer, more sophisticated vocabulary
+- Use proper English (formal but natural)
+- Avoid excessive contractions
+- Keep sentences concise but complex in structure
+- DO NOT make sentences overly long - just use higher-level English"""
              else: # Medium
-                 diff_instruction = """MEDIUM MODE (BALANCED):
-- Flag clear errors (spelling, wrong words)
-- Be lenient on casual style/punctuation
-- Perfect casual English = 100% accuracy"""
+                 vocab_style_instruction = """VOCABULARY & STYLE (MEDIUM):
+- Mix simple and slightly advanced vocabulary
+- Natural casual-formal balance
+- Normal conversational English"""
 
              # Skip warmup messages
              if msg.lower() == 'warmup':
@@ -1447,12 +1448,12 @@ RULES:
    - If user sends message in Hindi/Hinglish, respond in English and gently say something like "I understand! Let me help you practice in English 😊" then continue normally.
    - NEVER use Hindi words like 'yaar', 'achha', 'theek hai', 'kya', 'na', 'ji' etc in your responses.
    - Your job is to MODEL correct English for them to learn from.
+7. YOUR SPEAKING STYLE:
+{vocab_style_instruction}
 
 === JOB 2: GRAMMAR CHECK ===
 Check the user's message: "{msg}"
 
-DIFFICULTY LEVEL: {difficulty}
-{diff_instruction}
 
 COMMON ERRORS TO CATCH:
 1. MISSPELLINGS: speacial→special, mor→more, wey→way, undersytndt→understand
