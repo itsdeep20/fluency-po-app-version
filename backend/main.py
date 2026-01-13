@@ -833,27 +833,44 @@ Return ONLY the translation in {target_language} script. No explanations."""
             room_id = data.get('roomId')
             text = data.get('text')
             sender_id = data.get('senderId')
+            difficulty = data.get('difficulty', 'Medium')  # Easy, Medium, Hard
             
             # Save user message
             db.collection('queue').document(room_id).collection('messages').add({
                 'text': text, 'senderId': sender_id, 'createdAt': firestore.SERVER_TIMESTAMP
             })
             
-            # --- PER-MESSAGE ACCURACY ANALYSIS ---
-            # Analyze user's message for errors (EASIER scoring for Battle Mode)
+            # --- DIFFICULTY-BASED ACCURACY ANALYSIS ---
+            # Adjust scoring strictness based on user's difficulty setting
+            if difficulty == 'Easy':
+                difficulty_prompt = """EASY MODE - Be VERY lenient:
+- Only count OBVIOUS, glaring errors
+- Ignore punctuation, capitalization, informal speech
+- Award 95%+ for understandable messages
+- Perfect casual messages like "Yeah", "OK", "lol" = 100%
+- Minimum score should be 70%"""
+            elif difficulty == 'Hard':
+                difficulty_prompt = """HARD MODE - Be strict but fair:
+- Count grammar, spelling, punctuation errors
+- Expect proper sentence structure
+- Deduct for informal contractions in formal context
+- Still be encouraging in feedback
+- Apply standard English rules"""
+            else:  # Medium (default)
+                difficulty_prompt = """MEDIUM MODE - Balanced scoring:
+- Focus on CLEAR errors (wrong verb, missing article, spelling)
+- Be LENIENT on casual speech, contractions, informal style
+- Perfect casual messages = 100%"""
+            
             model = get_model()
             accuracy_prompt = f"""You are a friendly, encouraging English coach. Analyze this sentence for grammar and spelling errors.
 
 Sentence: "{text}"
 
-ACCURACY FORMULA (EASY - Battle Mode):
-Accuracy = 100 - (errors × 50 / wordCount)
+{difficulty_prompt}
 
-RULES:
-- All message lengths treated equally (no harsh penalties)
-- Focus on CLEAR errors only (wrong verb, missing article, spelling)
-- Be LENIENT on casual speech, contractions, and informal style
-- Perfect casual messages like "Yeah", "OK", "Nice!" = 100%
+ACCURACY FORMULA:
+Accuracy = 100 - (errors × 50 / wordCount)
 
 FEEDBACK STYLE - Be POLITE and ENCOURAGING:
 - Use friendly language like "Try saying...", "A small tweak...", "Almost perfect!"

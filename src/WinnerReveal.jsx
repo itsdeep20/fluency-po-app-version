@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Trophy, Star, Zap, MessageCircle, Share2, Home, RotateCw, CheckCircle2, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose }) => {
+const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose, soundEnabled = true }) => {
     const [step, setStep] = useState(0); // 0: Intro, 1: Counting, 2: Final Result
 
     // Check for insufficient messages (early exit case)
@@ -30,6 +30,9 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
 
     // Sound Effects using Web Audio API
     const playSound = (type) => {
+        // Check if sound is enabled
+        if (!soundEnabled) return;
+
         try {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -74,7 +77,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
 
     useEffect(() => {
         // Sequence Logic
-        playSound('drumroll');
+        if (soundEnabled) playSound('drumroll');
         setTimeout(() => {
             setStep(1); // Start counting skills
         }, 1000);

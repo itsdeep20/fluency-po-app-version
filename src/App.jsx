@@ -2165,7 +2165,7 @@ const App = () => {
         const res = await fetch(`${BACKEND_URL}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid })
+          body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid, difficulty: difficultyLevel })
         });
 
         // V8: Parse accuracy from response
@@ -4102,6 +4102,7 @@ const App = () => {
               dualAnalysis={dualAnalysis}
               myUserId={user.uid}
               opponentData={battleOpponentData}
+              soundEnabled={soundEnabled}
               feedbackState={{ rating: feedbackRating, text: feedbackText, submitted: feedbackSubmitted }}
               onFeedback={async (rating, text) => {
                 try {
