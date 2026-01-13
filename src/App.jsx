@@ -2434,6 +2434,20 @@ const App = () => {
           }
         }
 
+        // EARLY END FIX: <3 messages should NOT affect accuracy at all
+        if (totalSent < 3) {
+          // Only update streak and points, DON'T update avgScore/sessions count
+          const n = {
+            ...prev,
+            points: prev.points + sessionPoints, // Still add any points earned
+            streak: newStreak,
+            lastPracticeDate: todayStr
+          };
+          setTimeout(() => saveUserData(n, null), 10);
+          return n;
+        }
+
+        // NORMAL: 3+ messages update everything
         const newTotalSessions = prev.sessions + 1;
         const newTotalPoints = prev.points + sessionPoints;
         // HYBRID FORMULA: Simple average for first 5 sessions, then EMA
@@ -2694,6 +2708,20 @@ const App = () => {
             }
           }
 
+          // EARLY END FIX: <3 messages should NOT affect accuracy at all
+          if (totalSent < 3) {
+            // Only update streak and battleWins, DON'T update avgScore/sessions
+            const n = {
+              ...prev,
+              streak: newStreak,
+              lastPracticeDate: todayStr,
+              battleWins: (prev.battleWins || 0) + (didIWin ? 1 : 0)
+            };
+            setTimeout(() => saveUserData(n, null), 10);
+            return n;
+          }
+
+          // NORMAL: 3+ messages update everything
           const newTotalSessions = prev.sessions + 1;
           // V8: Battle Mode uses same HYBRID formula as Simulation
           console.log('[V8 BATTLE_SCORE] Contributing to avgScore:', myScore, 'sessions:', prev.sessions);
