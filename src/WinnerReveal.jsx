@@ -6,6 +6,24 @@ import confetti from 'canvas-confetti';
 const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose, soundEnabled = true }) => {
     const [step, setStep] = useState(0); // 0: Intro, 1: Counting, 2: Final Result
 
+    // GUARD: If dualAnalysis is null/undefined, show loading or return early
+    if (!dualAnalysis) {
+        return (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl p-8 text-center max-w-sm">
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-emerald-500 border-t-transparent mx-auto mb-4"></div>
+                    <p className="text-gray-600 font-medium">Loading results...</p>
+                    <button
+                        onClick={onDashboard}
+                        className="mt-4 px-6 py-2 bg-gray-800 text-white rounded-xl font-bold"
+                    >
+                        Back to Home
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     // Check for insufficient messages (early exit case)
     const isInsufficientMessages = dualAnalysis?.insufficientMessages === true;
 
