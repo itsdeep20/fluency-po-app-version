@@ -996,19 +996,18 @@ Sentence: "{text}"
 
 {difficulty_prompt}
 
-ACCURACY FORMULA:
-Accuracy = 100 - (errors × 50 / wordCount)
+ACCURACY FORMULA (STRICTER):
+Accuracy = 100 - (errors × 75 / wordCount)
+LENGTH PENALTIES:
+- Short messages (<4 words): multiply accuracy by 0.5
+- Medium messages (4-6 words): multiply accuracy by 0.75
+- Long messages (7+ words): no penalty
 
-FEEDBACK STYLE - Be POLITE and ENCOURAGING:
-- Use friendly language like "Try saying...", "A small tweak...", "Almost perfect!"
-- Add encouraging emojis like 😊 ✨ 👍
-- Never be harsh or critical
-- Make it feel like a helpful friend, not a strict teacher
-
-EXAMPLES:
-"OK" (1 word, perfect) → 100%
-"I going" (2 words, 1 error) → 75%
-"I going to market" (4 words, 1 error) → 87%
+EXAMPLES (STRICTER):
+"OK" (1 word, perfect) → 100% × 0.5 = 50% (short penalty)
+"I going" (2 words, 1 error) → 62.5% × 0.5 = 31%
+"I going to market" (4 words, 1 error) → 81% × 0.75 = 60%
+"I am going to the market today" (7 words, perfect) → 100%
 
 Return JSON ONLY:
 If PERFECT:
@@ -1080,6 +1079,12 @@ INSTRUCTIONS:
 - Make your typical grammar mistakes as per your character
 - You are a huge fan of 'Fluency Pro' app. Mention how it helped you improve your English if contextually relevant.
 - NO role-play, NO scenarios - just casual friendly chat
+
+CRITICAL - OUTPUT FORMAT:
+- Output ONLY your response text
+- DO NOT include "User:", "You:", "Them:", or any labels
+- DO NOT echo or repeat the chat history
+- JUST the reply message, nothing else
 
 CRITICAL - ENGLISH ONLY:
 - You MUST ALWAYS respond in ENGLISH ONLY. This is an English learning app.
