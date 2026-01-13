@@ -2571,7 +2571,16 @@ const App = () => {
             };
           };
 
-          adjustedData.player1 = { ...generateBreakdown(myDisplayScore), feedback: data?.player1?.feedback || 'Good effort!' };
+          // Use REAL PRO model analysis for user (player1)
+          // Bot scores are generated since we don't analyze bot messages
+          adjustedData.player1 = {
+            vocab: data?.player1?.vocab || Math.floor(myDisplayScore / 4),
+            grammar: data?.player1?.grammar || Math.floor(myDisplayScore / 4),
+            fluency: data?.player1?.fluency || Math.floor(myDisplayScore / 4),
+            sentence: data?.player1?.sentence || Math.floor(myDisplayScore / 4),
+            total: myDisplayScore,
+            feedback: data?.player1?.feedback || 'Good effort!'
+          };
           adjustedData.player2 = { ...generateBreakdown(botDisplayScore), feedback: 'Bot opponent' };
           adjustedData.winner = myDisplayScore > botDisplayScore ? 'player1' : myDisplayScore < botDisplayScore ? 'player2' : 'draw';
           adjustedData.analyzedBy = user.uid;
