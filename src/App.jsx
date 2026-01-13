@@ -642,6 +642,18 @@ const App = () => {
 
 
   // Effects
+
+  // Dark Mode Effect - Apply class to document
+  useEffect(() => {
+    if (isDarkTheme) {
+      document.documentElement.classList.add('dark');
+      document.body.style.backgroundColor = '#111827';
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.body.style.backgroundColor = '#ffffff';
+    }
+  }, [isDarkTheme]);
+
   useEffect(() => {
     if (auth) {
       setPersistence(auth, browserLocalPersistence).catch(console.error);
@@ -5272,6 +5284,7 @@ const App = () => {
                     className="w-full p-3 bg-white rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none"
                   >
                     <option value="Hindi">हिंदी (Hindi)</option>
+                    <option value="Punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
                     <option value="Tamil">தமிழ் (Tamil)</option>
                     <option value="Telugu">తెలుగు (Telugu)</option>
                     <option value="Bengali">বাংলা (Bengali)</option>
@@ -5279,6 +5292,8 @@ const App = () => {
                     <option value="Gujarati">ગુજરાતી (Gujarati)</option>
                     <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
                     <option value="Malayalam">മലയാളം (Malayalam)</option>
+                    <option value="Odia">ଓଡ଼ିଆ (Odia)</option>
+                    <option value="Assamese">অসমীয়া (Assamese)</option>
                   </select>
                 </div>
 
@@ -5814,6 +5829,7 @@ const App = () => {
                     className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-500"
                   >
                     <option value="Hindi">हिंदी (Hindi)</option>
+                    <option value="Punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
                     <option value="Tamil">தமிழ் (Tamil)</option>
                     <option value="Telugu">తెలుగు (Telugu)</option>
                     <option value="Bengali">বাংলা (Bengali)</option>
@@ -5821,6 +5837,8 @@ const App = () => {
                     <option value="Gujarati">ગુજરાતી (Gujarati)</option>
                     <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
                     <option value="Malayalam">മലയാളം (Malayalam)</option>
+                    <option value="Odia">ଓଡ଼ିଆ (Odia)</option>
+                    <option value="Assamese">অসমীয়া (Assamese)</option>
                   </select>
                 </div>
               </motion.div>
