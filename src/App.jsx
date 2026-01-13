@@ -795,13 +795,16 @@ const App = () => {
         return {
           id: docSnap.id,
           type: (data.type === '1v1' || data.type === 'battle-bot') ? 'battle' : 'simulation',
+          battleType: data.type, // 'battle-bot', '1v1', or undefined for simulations
           title: data.simName || data.opponentName || 'Session',
           simId: data.simId,
+          opponentId: data.opponentId, // For 1v1 human replay
+          opponentName: data.opponentName || data.simName,
           lastMessage: data.lastMessage || `Score: ${data.score || data.accuracy || 0}%`,
           timestamp: data.timestamp?.toDate() || new Date(),
           accuracy: data.accuracy || data.score || 0,
           points: data.points,
-          opponentAvatar: data.opponentAvatar || (data.type === '1v1' ? '👤' : (sim?.icon && '🤖')),
+          opponentAvatar: data.opponentAvatar || sim?.icon || '🤖',
           won: data.won
         };
       });
@@ -2675,6 +2678,7 @@ const App = () => {
           await addDoc(sessionsRef, {
             type: capturedSession.type === 'battle-bot' ? 'battle-bot' : '1v1',
             score: myData?.total || 0,
+            opponentId: capturedSession.opponent?.id, // For replay with same opponent
             opponentName: capturedSession.opponent?.name || 'Opponent',
             opponentAvatar: capturedSession.opponent?.avatar || '👤',
             won: didIWin,
