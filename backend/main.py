@@ -1310,11 +1310,11 @@ User said: "{msg}"
 
 YOUR RESPONSE: Keep it SHORT (1-2 sentences), end with a caring question.
 
+YOUR SPEAKING STYLE:
+{vocab_style_instruction}
+
 === JOB 2: GRAMMAR CHECK ===
 Check the user's message: "{msg}"
-
-DIFFICULTY LEVEL: {difficulty}
-{diff_instruction}
 
 STRICTLY CHECK FOR:
 - SPELLING: "soory"→"sorry", "mor"→"more", "wey"→"way"
