@@ -275,15 +275,13 @@ const SIMULATIONS = [
     greeting: "Good morning! ✈️ I'm Simran at check-in. May I see your ID and booking please?"
   },
   {
-    id: 'sim_friend', cat: 'Social', title: 'Casual Chat', icon: Users, color: 'bg-pink-500',
-    desc: 'Small talk practice.',
+    id: 'sim_friend', cat: 'Wellness', title: 'Supportive Chat', icon: Users, color: 'bg-purple-500',
+    desc: 'Talk to a caring friend.',
     stages: [
-      { name: 'Meeting', icon: '👋', npc: 'Your Friend Arjun' },
-      { name: 'Catching Up', icon: '💬', npc: 'Your Friend Arjun' },
-      { name: 'Discussing Plans', icon: '🎬', npc: 'Your Friend Arjun' },
-      { name: 'Making Plans', icon: '📅', npc: 'Your Friend Arjun' }
+      { name: 'Opening Up', icon: '💭', npc: 'Your Friend Aisha' },
+      { name: 'Feeling Better', icon: '✨', npc: 'Your Friend Aisha' }
     ],
-    greeting: "Hey! 👋 Long time no see! How have you been?"
+    greeting: "Hey! 💜 I'm always here for you. How are you really feeling today?"
   },
 ];
 
