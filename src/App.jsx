@@ -4217,11 +4217,11 @@ const App = () => {
                 </div>
                 <div className="border-t border-gray-100 pt-6">
                   <button
-                    onClick={() => { setShowProfile(false); setView('dashboard'); }}
-                    className="w-full flex items-center justify-center gap-2 py-4 bg-gray-100 text-gray-700 rounded-2xl font-bold hover:bg-gray-200 transition-colors"
+                    onClick={() => setShowProfile(false)}
+                    className="w-full flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl font-bold hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg"
                   >
                     <Home size={20} />
-                    Go to Dashboard
+                    Done ✨
                   </button>
                 </div>
               </motion.div>
