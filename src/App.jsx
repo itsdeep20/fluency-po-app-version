@@ -381,7 +381,7 @@ const App = () => {
   const [isDarkTheme, setIsDarkTheme] = useState(false);
   const [motherTongue, setMotherTongue] = useState('Hindi');
   // Enhanced Settings
-  const [sessionDuration, setSessionDuration] = useState(5); // 3, 5, or 7 minutes
+  const [sessionDuration, setSessionDuration] = useState(7); // 3, 5, 7 minutes or 0 for Never
   const [soundEnabled, setSoundEnabled] = useState(true); // Sound effects toggle
   const [difficultyLevel, setDifficultyLevel] = useState('Medium'); // Easy, Medium, Hard
   const [feedbackText, setFeedbackText] = useState('');
@@ -1798,8 +1798,14 @@ const App = () => {
     setVisibleMessageIds(new Set(['sys' + Date.now()])); // Show initial system msg
     isSyncingInitialRef.current = true;
 
-    setTimeRemaining(sessionDuration * 60); // Use sessionDuration from settings (3/5/7 min)
-    setTimerActive(true);
+    // Timer: Only activate if sessionDuration > 0 (0 means 'Never ends')
+    if (sessionDuration > 0) {
+      setTimeRemaining(sessionDuration * 60);
+      setTimerActive(true);
+    } else {
+      setTimeRemaining(0);
+      setTimerActive(false); // Timer disabled for 'Never' mode
+    }
     setSessionPoints(0);
     setSessionStartTime(Date.now()); // Track session start for duration calculation
     setMessageAccuracies([]); // V7: Reset accuracy tracking
@@ -5445,15 +5451,18 @@ const App = () => {
                 <div className="p-4 bg-gray-50 rounded-xl mb-3">
                   <div className="font-semibold text-gray-900 mb-2">Session Timer</div>
                   <div className="flex gap-2">
-                    {[3, 5, 7].map(mins => (
+                    {[3, 5, 7, 0].map(mins => (
                       <button
                         key={mins}
                         onClick={() => setSessionDuration(mins)}
                         className={`flex-1 py-2 rounded-xl font-bold transition-all ${sessionDuration === mins ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
                       >
-                        {mins} min
+                        {mins === 0 ? '∞' : `${mins} min`}
                       </button>
                     ))}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2 text-center">
+                    {sessionDuration === 0 ? 'Session never ends automatically' : `Session auto-ends after ${sessionDuration} minutes`}
                   </div>
                 </div>
 
@@ -5598,11 +5607,15 @@ const App = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {timerActive && (
+              {timerActive ? (
                 <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
                   <Clock size={12} /> {formatTime(timeRemaining)}
                 </div>
-              )}
+              ) : sessionDuration === 0 ? (
+                <div className="text-xs text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-full">
+                  <Clock size={12} /> ∞ No Limit
+                </div>
+              ) : null}
               <button
                 onClick={handleEndClick}
                 disabled={isEnding}
