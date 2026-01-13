@@ -676,6 +676,26 @@ const App = () => {
     }
   }, [showSessionSummary]);
 
+  // Save settings to Firestore when any setting changes
+  useEffect(() => {
+    if (!user) return;
+    // Skip initial load (settings loaded from Firestore will trigger this)
+    if (!window._settingsInitialized) {
+      window._settingsInitialized = true;
+      return;
+    }
+    const settings = {
+      isDarkTheme,
+      motherTongue,
+      sessionDuration,
+      soundEnabled,
+      difficultyLevel
+    };
+    console.log('[SETTINGS] Saving to Firestore:', settings);
+    setDoc(doc(db, 'users', user.uid), { settings }, { merge: true })
+      .catch(e => console.error('[SETTINGS] Save error:', e));
+  }, [user, isDarkTheme, motherTongue, sessionDuration, soundEnabled, difficultyLevel]);
+
   useEffect(() => {
     if (!user) {
       setStats({ streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null });
@@ -691,6 +711,16 @@ const App = () => {
         const data = snap.data();
         setStats(prev => ({ ...prev, ...data.stats }));
         if (data.userAvatar) setUserAvatar(data.userAvatar);
+
+        // Load saved settings from Firestore
+        if (data.settings) {
+          if (data.settings.isDarkTheme !== undefined) setIsDarkTheme(data.settings.isDarkTheme);
+          if (data.settings.motherTongue) setMotherTongue(data.settings.motherTongue);
+          if (data.settings.sessionDuration) setSessionDuration(data.settings.sessionDuration);
+          if (data.settings.soundEnabled !== undefined) setSoundEnabled(data.settings.soundEnabled);
+          if (data.settings.difficultyLevel) setDifficultyLevel(data.settings.difficultyLevel);
+          console.log('[SETTINGS] Loaded from Firestore:', data.settings);
+        }
 
         // MIGRATION: Add email for existing users who don't have it (runs once per user)
         // Use auth.currentUser to get fresh user data (avoid stale closure issues)
@@ -1770,7 +1800,7 @@ const App = () => {
     setVisibleMessageIds(new Set(['sys' + Date.now()])); // Show initial system msg
     isSyncingInitialRef.current = true;
 
-    setTimeRemaining(420);
+    setTimeRemaining(sessionDuration * 60); // Use sessionDuration from settings (3/5/7 min)
     setTimerActive(true);
     setSessionPoints(0);
     setSessionStartTime(Date.now()); // Track session start for duration calculation
