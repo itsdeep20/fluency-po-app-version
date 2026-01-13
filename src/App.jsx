@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import {
@@ -6,15 +6,15 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
-  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc, increment, arrayUnion
+  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc, increment
 } from 'firebase/firestore';
 
 import {
   Send, Zap, Swords, Sword, MessageSquare, Trophy, Briefcase, Coffee, Stethoscope,
-  Train, Plane, Loader2, LogOut, MessageCircle, Target,
+  Train, Plane, Loader2, LogOut, MessageCircle, Target, Home,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
   ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb, Globe,
-  FileText, Download, TrendingUp, TrendingDown, BarChart3, BookOpen
+  FileText, Download, TrendingUp, TrendingDown, BarChart3, BookOpen, History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -275,15 +275,13 @@ const SIMULATIONS = [
     greeting: "Good morning! ✈️ I'm Simran at check-in. May I see your ID and booking please?"
   },
   {
-    id: 'sim_friend', cat: 'Social', title: 'Casual Chat', icon: Users, color: 'bg-pink-500',
-    desc: 'Small talk practice.',
+    id: 'sim_friend', cat: 'Wellness', title: 'Supportive Chat', icon: Users, color: 'bg-purple-500',
+    desc: 'Talk to a caring friend.',
     stages: [
-      { name: 'Meeting', icon: '👋', npc: 'Your Friend Arjun' },
-      { name: 'Catching Up', icon: '💬', npc: 'Your Friend Arjun' },
-      { name: 'Discussing Plans', icon: '🎬', npc: 'Your Friend Arjun' },
-      { name: 'Making Plans', icon: '📅', npc: 'Your Friend Arjun' }
+      { name: 'Opening Up', icon: '💭', npc: 'Your Friend Aisha' },
+      { name: 'Feeling Better', icon: '✨', npc: 'Your Friend Aisha' }
     ],
-    greeting: "Hey! 👋 Long time no see! How have you been?"
+    greeting: "Hey! 💜 I'm always here for you. How are you really feeling today?"
   },
 ];
 
@@ -326,7 +324,7 @@ const App = () => {
   const [inputText, setInputText] = useState("");
   const [currentStage, setCurrentStage] = useState("");
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
-  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null });
+  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null });
   const [userAvatar, setUserAvatar] = useState('🦁');
   const [sessionPoints, setSessionPoints] = useState(0);
   const [isBotTyping, setIsBotTyping] = useState(false);
@@ -345,9 +343,12 @@ const App = () => {
   const searchTimeoutRef = useRef(null);
   const matchListener = useRef(null);
   const chatListener = useRef(null);
+  const lastOpponentMsgTimeRef = useRef(Date.now()); // Track last opponent message for inactivity
+  const inactivityTimerRef = useRef(null); // Timer to check opponent inactivity
   // Stale Closure Fix Refs (Bug 6)
   const messagesRef = useRef([]);
   const battleAccuraciesRef = useRef([]);
+  const battleCorrectionsRef = useRef([]); // Ref for battle corrections (stale closure fix)
 
   // Sync refs with state immediately
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -379,6 +380,10 @@ const App = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isDarkTheme, setIsDarkTheme] = useState(false);
   const [motherTongue, setMotherTongue] = useState('Hindi');
+  // Enhanced Settings
+  const [sessionDuration, setSessionDuration] = useState(5); // 3, 5, or 7 minutes
+  const [soundEnabled, setSoundEnabled] = useState(true); // Sound effects toggle
+  const [difficultyLevel, setDifficultyLevel] = useState('Medium'); // Easy, Medium, Hard
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
@@ -400,15 +405,10 @@ const App = () => {
   const [showAccuracyInfo, setShowAccuracyInfo] = useState(false); // Accuracy explanation popup
   const [showPointsInfo, setShowPointsInfo] = useState(false); // Points explanation popup
   const [showStudyGuideModal, setShowStudyGuideModal] = useState(false); // Study Guide PDF modal
-  const [studyGuideFilter, setStudyGuideFilter] = useState('new'); // 'new', '7days', '30days', 'all'
+  const [studyGuideFilter, setStudyGuideFilter] = useState('3days'); // '3days', '7days', '30days', 'all'
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfGenerationStep, setPdfGenerationStep] = useState(''); // Current animation step
   const [pdfProgress, setPdfProgress] = useState(0); // Progress percentage 0-100
-  const [pdfHistory, setPdfHistory] = useState([]); // List of past PDFs
-  const [showPdfHistory, setShowPdfHistory] = useState(false); // Toggle history section
-  const [loadingHistory, setLoadingHistory] = useState(false); // Loading PDF history
-  const [downloadingPdfId, setDownloadingPdfId] = useState(null); // ID of PDF being re-downloaded
-  const [showBattleTips, setShowBattleTips] = useState(false); // Battle mode: show corrections toggle (default OFF)
   const [isGeneratingWorkbook, setIsGeneratingWorkbook] = useState(false); // State for practice workbook
   const [workbookStep, setWorkbookStep] = useState('');
   const [workbookProgress, setWorkbookProgress] = useState(0);
@@ -435,12 +435,17 @@ const App = () => {
   const isSyncingInitialRef = useRef(true);
   const [isEnding, setIsEnding] = useState(false);
   const [showExitWarning, setShowExitWarning] = useState(false);
+  const [sessionEndReason, setSessionEndReason] = useState(null); // 'timeout' | 'opponent_left' | 'time_up' | null
   const messagesEndRef = useRef(null);
 
   // AI Assist & Translation Feature States
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [isAiAssistOn, setIsAiAssistOn] = useState(true); // ON by default
   const [isTranslationOn, setIsTranslationOn] = useState(true); // ON by default
+  const [isBattleTipsOn, setIsBattleTipsOn] = useState(false); // OFF by default - Battle Tips
+  const [battleCorrections, setBattleCorrections] = useState([]); // Track battle corrections for PDF
+  // Sync battleCorrections to ref for stale closure prevention
+  useEffect(() => { battleCorrectionsRef.current = battleCorrections; }, [battleCorrections]);
   const [showAiAssistPopup, setShowAiAssistPopup] = useState(null); // { messageId, message, context }
   const [showTranslationPopup, setShowTranslationPopup] = useState(null); // { messageId, translation }
   const [isLoadingAssist, setIsLoadingAssist] = useState(false);
@@ -470,6 +475,62 @@ const App = () => {
   const invitationListenerRef = useRef(null);
   const heartbeatRef = useRef(null);
 
+  // PDF History - Centralized State Management
+  const [pdfHistory, setPdfHistory] = useState([]);
+  const [showPdfHistory, setShowPdfHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [downloadingPdfId, setDownloadingPdfId] = useState(null);
+
+  // Centralized function to refresh PDF history from server
+  const refreshPdfHistory = useCallback(async () => {
+    if (!user) {
+      console.log('[PDF History] No user, skipping refresh');
+      return;
+    }
+
+    console.log('[PDF History] Refreshing from server...');
+    setLoadingHistory(true);
+
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${BACKEND_URL}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          type: 'get_pdf_history',
+          userId: user.uid
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (data.history && Array.isArray(data.history)) {
+        setPdfHistory(data.history);
+        console.log(`[PDF History] ✓ Loaded ${data.history.length} items`);
+      } else if (data.error) {
+        console.error('[PDF History] Server error:', data.error);
+      }
+    } catch (e) {
+      console.error('[PDF History] Refresh failed:', e);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [user]);
+
+  // Load history when modal opens
+  useEffect(() => {
+    if ((showStudyGuideModal || showProgressReport) && user) {
+      refreshPdfHistory();
+    }
+  }, [showStudyGuideModal, showProgressReport, user, refreshPdfHistory]);
+
   const resetChatStates = () => {
     isSyncingQueue.current = false;
     typingQueue.current = [];
@@ -479,177 +540,6 @@ const App = () => {
     setVisibleMessageIds(new Set());
     setIsOpponentTyping(false);
     setMessages([]); // CRITICAL: Purge old messages
-  };
-
-  // Analytics Tracking Function - Tracks all 4 analytics features
-  const trackAnalytics = async (eventType, eventData = {}) => {
-    if (!user) return;
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const currentHour = new Date().getHours();
-
-      if (eventType === 'session_complete') {
-        // 1. USER ENGAGEMENT TRACKING
-        const engagementRef = doc(db, 'users', user.uid, 'analytics', 'engagement');
-        await setDoc(engagementRef, {
-          lastUpdated: serverTimestamp(),
-          totalSessions: increment(1),
-          [`sessionsPerDay.${today}`]: increment(1),
-          [`peakHours.${currentHour}`]: increment(1),
-          daysActive: arrayUnion(today),
-          totalDuration: increment(eventData.duration || 0)
-        }, { merge: true });
-
-        // 2. LEARNING PROGRESS TRACKING
-        if (eventData.corrections && eventData.corrections.length > 0) {
-          const progressRef = doc(db, 'users', user.uid, 'analytics', 'progress');
-          const categoryUpdates = {};
-          const mistakeUpdates = {};
-
-          eventData.corrections.forEach(corr => {
-            const category = corr?.type || 'General';
-            // Track count per category
-            categoryUpdates[`mistakesByCategory.${category}`] = increment(1);
-            // Track accuracy per category (we'll calculate later from total mistakes vs sessions)
-          });
-
-          await setDoc(progressRef, {
-            lastUpdated: serverTimestamp(),
-            totalCorrections: increment(eventData.corrections.length),
-            sessionsWithMistakes: increment(eventData.corrections.length > 0 ? 1 : 0),
-            lastSessionAccuracy: eventData.accuracy || 0,
-            ...categoryUpdates
-          }, { merge: true });
-        }
-
-        // 3. FEATURE USAGE - Track simulation usage
-        if (eventData.simName) {
-          await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'simulations'), {
-            [`usage.${eventData.simId || 'unknown'}`]: increment(1),
-            lastUpdated: serverTimestamp()
-          }, { merge: true });
-        }
-      }
-
-      if (eventType === 'battle_complete') {
-        const battleType = eventData.battleType || 'unknown'; // 'random', 'bot', 'friend_invite'
-
-        // 1. GLOBAL Battle Stats (including battle type breakdown)
-        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'battles'), {
-          totalMatches: increment(1),
-          [`battlesPerDay.${today}`]: increment(1),
-          [`battlesByType.${battleType}`]: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-
-        // 2. USER Battle Analytics (including battle type breakdown)
-        const battleRef = doc(db, 'users', user.uid, 'analytics', 'battles');
-        await setDoc(battleRef, {
-          totalBattles: increment(1),
-          wins: increment(eventData.won ? 1 : 0),
-          losses: increment(eventData.won === false ? 1 : 0),
-          draws: increment(eventData.won === null ? 1 : 0),
-          totalMessages: increment(eventData.messagesCount || 0),
-          totalScore: increment(eventData.score || 0),
-          [`battlesByType.${battleType}`]: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-
-        // 3. Track mistakes by category in battles (same as simulations)
-        if (eventData.corrections && eventData.corrections.length > 0) {
-          const progressRef = doc(db, 'users', user.uid, 'analytics', 'progress');
-          const categoryUpdates = {};
-          eventData.corrections.forEach(corr => {
-            const category = corr?.type || 'General';
-            categoryUpdates[`battleMistakesByCategory.${category}`] = increment(1);
-          });
-          await setDoc(progressRef, {
-            totalBattleCorrections: increment(eventData.corrections.length),
-            ...categoryUpdates,
-            lastUpdated: serverTimestamp()
-          }, { merge: true });
-        }
-      }
-
-      if (eventType === 'voice_used') {
-        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'voice'), {
-          totalUsage: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
-      if (eventType === 'invite_sent') {
-        // Global invite tracking
-        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'invites'), {
-          totalSent: increment(1),
-          [`sentPerDay.${today}`]: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-        // User-level invite tracking
-        await setDoc(doc(db, 'users', user.uid, 'analytics', 'social'), {
-          invitesSent: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
-      if (eventType === 'invite_accepted') {
-        // Global invite tracking
-        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'invites'), {
-          totalAccepted: increment(1),
-          [`acceptedPerDay.${today}`]: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-        // User-level invite tracking (user who accepted)
-        await setDoc(doc(db, 'users', user.uid, 'analytics', 'social'), {
-          invitesAccepted: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
-      if (eventType === 'pdf_download') {
-        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'pdf'), {
-          totalDownloads: increment(1),
-          [`downloads.${today}`]: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
-      if (eventType === 'tips_toggled') {
-        await setDoc(doc(db, 'users', user.uid, 'analytics', 'features'), {
-          tipsToggles: increment(1),
-          lastTipsSetting: eventData.enabled,
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
-      if (eventType === 'ai_assist_used') {
-        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'aiAssist'), {
-          totalUsage: increment(1),
-          [`usagePerDay.${today}`]: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-        await setDoc(doc(db, 'users', user.uid, 'analytics', 'features'), {
-          aiAssistCount: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
-      if (eventType === 'hindi_translate_used') {
-        await setDoc(doc(db, 'analytics', 'global', 'featureUsage', 'hindiTranslate'), {
-          totalUsage: increment(1),
-          [`usagePerDay.${today}`]: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-        await setDoc(doc(db, 'users', user.uid, 'analytics', 'features'), {
-          hindiTranslateCount: increment(1),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
-      }
-
-    } catch (e) {
-      console.error('[ANALYTICS] Error tracking:', e);
-      // Silently fail - analytics should never break main flow
-    }
   };
 
   const typingListener = useRef(null);
@@ -737,9 +627,35 @@ const App = () => {
     }
   };
 
+  // Analytics tracking helper - increment counters in Firestore
+  const trackAnalytics = async (field) => {
+    if (!user) return;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        analytics: { [field]: increment(1) }
+      }, { merge: true });
+      console.log('[ANALYTICS] Tracked:', field);
+    } catch (e) {
+      console.error('[ANALYTICS] Error tracking:', field, e);
+    }
+  };
+
 
 
   // Effects
+
+  // Dark Mode Effect - Apply class to document
+  useEffect(() => {
+    if (isDarkTheme) {
+      document.documentElement.classList.add('dark');
+      document.body.style.backgroundColor = '#111827';
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.body.style.backgroundColor = '#ffffff';
+    }
+  }, [isDarkTheme]);
+
   useEffect(() => {
     if (auth) {
       setPersistence(auth, browserLocalPersistence).catch(console.error);
@@ -758,9 +674,29 @@ const App = () => {
     }
   }, [showSessionSummary]);
 
+  // Save settings to Firestore when any setting changes
+  useEffect(() => {
+    if (!user) return;
+    // Skip initial load (settings loaded from Firestore will trigger this)
+    if (!window._settingsInitialized) {
+      window._settingsInitialized = true;
+      return;
+    }
+    const settings = {
+      isDarkTheme,
+      motherTongue,
+      sessionDuration,
+      soundEnabled,
+      difficultyLevel
+    };
+    console.log('[SETTINGS] Saving to Firestore:', settings);
+    setDoc(doc(db, 'users', user.uid), { settings }, { merge: true })
+      .catch(e => console.error('[SETTINGS] Save error:', e));
+  }, [user, isDarkTheme, motherTongue, sessionDuration, soundEnabled, difficultyLevel]);
+
   useEffect(() => {
     if (!user) {
-      setStats({ streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null });
+      setStats({ streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null });
       setRecentChats([]);
       return;
     }
@@ -773,27 +709,78 @@ const App = () => {
         const data = snap.data();
         setStats(prev => ({ ...prev, ...data.stats }));
         if (data.userAvatar) setUserAvatar(data.userAvatar);
+
+        // Load saved settings from Firestore
+        if (data.settings) {
+          if (data.settings.isDarkTheme !== undefined) setIsDarkTheme(data.settings.isDarkTheme);
+          if (data.settings.motherTongue) setMotherTongue(data.settings.motherTongue);
+          if (data.settings.sessionDuration) setSessionDuration(data.settings.sessionDuration);
+          if (data.settings.soundEnabled !== undefined) setSoundEnabled(data.settings.soundEnabled);
+          if (data.settings.difficultyLevel) setDifficultyLevel(data.settings.difficultyLevel);
+          console.log('[SETTINGS] Loaded from Firestore:', data.settings);
+        }
+
+        // MIGRATION: Add email for existing users who don't have it (runs once per user)
+        // Use auth.currentUser to get fresh user data (avoid stale closure issues)
+        const currentAuthUser = auth.currentUser;
+        const needsEmailMigration = (!data.email || data.email === '' || data.email === null) && currentAuthUser?.email;
+        console.log('[MIGRATION_DEBUG] Check:', {
+          dataEmail: data.email,
+          authEmail: currentAuthUser?.email,
+          needsMigration: needsEmailMigration
+        });
+        if (needsEmailMigration) {
+          console.log('[MIGRATION] Adding email for existing user:', currentAuthUser.email);
+          await setDoc(docRef, {
+            email: currentAuthUser.email,
+            displayName: currentAuthUser.displayName || data.displayName || 'Player',
+            uid: currentAuthUser.uid
+          }, { merge: true });
+          console.log('[MIGRATION] Successfully added email!');
+        }
+
+        // Update last active timestamp (throttled to once per session)
+        if (!window._lastActiveUpdated) {
+          window._lastActiveUpdated = true;
+          await setDoc(docRef, { lastActiveAt: serverTimestamp() }, { merge: true });
+        }
       } else {
-        // Initial setup if doc doesn't exist
+        // Initial setup if doc doesn't exist - include user details and analytics
+        const deviceType = /Mobile|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
         await setDoc(docRef, {
           uid: user.uid,
-          email: user.email || null,
-          displayName: user.displayName || null,
-          photoURL: user.photoURL || null,
-          createdAt: new Date().toISOString(),
-          stats: { streak: 0, points: 0, level: 'Beginner', sessions: 0, avgScore: 0, lastPracticeDate: null },
+          email: user.email || '',
+          displayName: user.displayName || 'Player',
+          createdAt: serverTimestamp(),
+          lastActiveAt: serverTimestamp(),
+          deviceType: deviceType,
+          stats: { streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null },
           userAvatar,
-          lastBots: []
+          lastBots: [],
+          // Analytics structure
+          analytics: {
+            aiAssistClicks: 0,
+            translationClicks: 0,
+            pdfGenerations: 0,
+            explainClicks: 0,
+            battleBotsJoined: 0,
+            battleHumansRandom: 0,
+            battleHumansInvite: 0,
+            battleHumansRoom: 0,
+            invitesSent: 0,
+            invitesAccepted: 0,
+            invitesDeclined: 0,
+            totalTimeSpentSeconds: 0
+          },
+          // Settings state
+          settings: {
+            isAiAssistOn: true,
+            isTranslationOn: true,
+            isBattleTipsOn: false,
+            isSpeakerOn: false,
+            motherTongue: 'Hindi'
+          }
         });
-      }
-      // Always update profile info (in case user changed Google name/photo)
-      if (user.email || user.displayName) {
-        await setDoc(docRef, {
-          email: user.email || null,
-          displayName: user.displayName || null,
-          photoURL: user.photoURL || null,
-          lastLogin: new Date().toISOString()
-        }, { merge: true });
       }
     }, (err) => console.error("Stats listener error:", err));
 
@@ -853,7 +840,7 @@ const App = () => {
         setDoc(presenceDocRef, {
           name: user.displayName || 'Player',
           avatar: userAvatar,
-          level: stats.level || 'Beginner',
+          level: getLevelFromAccuracy(stats.avgScore || 0).name,
           lastSeen: serverTimestamp(),
           isOnline: isVisible, // Only online if tab is visible
           view: 'dashboard'
@@ -957,37 +944,12 @@ const App = () => {
 
     const invitationDocRef = doc(db, 'invitations', user.uid);
 
-    // SAFER SELF-HEALING: Only delete if the invite is clearly stale 
-    // If createdAt is null/missing (serverTimestamp not resolved), treat as FRESH
-    getDoc(invitationDocRef).then(snap => {
-      if (snap.exists()) {
-        const data = snap.data();
-        console.log('[INVITE_CLEANUP] Found invite doc:', data.status, 'from:', data.fromName);
-
-        // If serverTimestamp hasn't resolved yet, createdAt will be null - treat as fresh
-        if (!data.createdAt) {
-          console.log('[INVITE_CLEANUP] No createdAt (fresh), keeping invite');
-          return;
-        }
-
-        const createdAt = data.createdAt?.toDate?.() || new Date(0);
-        const ageMs = Date.now() - createdAt.getTime();
-        console.log('[INVITE_CLEANUP] Invite age:', Math.round(ageMs / 1000), 'seconds');
-
-        // Only delete if older than 60 seconds or already processed
-        if (ageMs > 60000 || data.status === 'accepted' || data.status === 'declined') {
-          console.log('[INVITE_CLEANUP] Deleting stale/processed invite');
-          deleteDoc(invitationDocRef).catch(e => console.warn('Stale cleanup:', e.message));
-        } else {
-          console.log('[INVITE_CLEANUP] Invite is fresh, keeping it');
-        }
-      }
-    }).catch(e => console.warn('Self-check skip:', e.message));
+    // SELF-HEALING: Clear any stale invitation doc at my ID when I load dashboard
+    deleteDoc(invitationDocRef).catch(e => console.warn('Self-cleanup skip:', e.message));
 
     const unsub = onSnapshot(invitationDocRef, (snap) => {
       if (snap.exists()) {
         const inv = snap.data();
-        console.log('[INVITE_LISTEN] Received invite:', inv.status, 'from:', inv.fromName);
         if (inv.status === 'pending') {
           setIncomingInvitation({ id: snap.id, ...inv });
         } else if (inv.status === 'cancelled') {
@@ -1034,6 +996,38 @@ const App = () => {
       return () => clearInterval(timerRef.current);
     }
   }, [timerActive]);
+
+  // Opponent Inactivity Timer - Auto-end if opponent inactive for 60 seconds (human battles only)
+  useEffect(() => {
+    if (view === 'chat' && activeSession?.type === 'human' && timerActive) {
+      // Reset last message time when entering battle
+      lastOpponentMsgTimeRef.current = Date.now();
+
+      inactivityTimerRef.current = setInterval(() => {
+        const timeSinceLastMsg = Date.now() - lastOpponentMsgTimeRef.current;
+        if (timeSinceLastMsg >= 60000) { // 60 seconds = 1 minute
+          clearInterval(inactivityTimerRef.current);
+          console.log('[INACTIVITY] Opponent inactive for 60s, auto-ending session');
+          setSessionEndReason('timeout');
+          endSession(true, false);
+        }
+      }, 5000); // Check every 5 seconds
+
+      return () => {
+        if (inactivityTimerRef.current) clearInterval(inactivityTimerRef.current);
+      };
+    }
+  }, [view, activeSession?.type, timerActive]);
+
+  // Auto-clear session end reason popup after 5 seconds (enough time to read)
+  useEffect(() => {
+    if (sessionEndReason) {
+      const timer = setTimeout(() => {
+        setSessionEndReason(null);
+      }, 5000); // 5 seconds for better visibility
+      return () => clearTimeout(timer);
+    }
+  }, [sessionEndReason]);
 
   // Invitation Countdown Timer
   useEffect(() => {
@@ -1123,7 +1117,7 @@ const App = () => {
 
     // Check for level-up (only if prevLevel is set & different)
     if (prevLevelRef.current && prevLevelRef.current !== currentLevel) {
-      const levels = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
+      const levels = ['Starter', 'Learner', 'Improver', 'Pro', 'Master'];
       const prevIndex = levels.indexOf(prevLevelRef.current);
       const newIndex = levels.indexOf(currentLevel);
 
@@ -1196,7 +1190,7 @@ const App = () => {
     try { await setDoc(doc(db, 'users', user.uid), { stats: newStats || stats, userAvatar: newAvatar || userAvatar }, { merge: true }); } catch (e) { }
   };
 
-  const selectAvatar = (av) => { setUserAvatar(av); saveUserData(null, av); setShowProfile(false); };
+  const selectAvatar = (av) => { setUserAvatar(av); saveUserData(null, av); }; // Don't auto-close modal
 
   // Backend Warmup Helper
   const triggerWarmup = async () => {
@@ -1339,7 +1333,7 @@ const App = () => {
 
   // Handle AI Assist button click
   const handleAiAssistClick = async (messageId, messageText) => {
-    trackAnalytics('ai_assist_used'); // Track feature usage
+    trackAnalytics('aiAssistClicks'); // Track usage
     const context = messages.filter(m => m.sender !== 'correction' && m.sender !== 'suggestion').slice(-5).map(m => `${m.sender === 'me' ? 'User' : 'Bot'}: ${m.text}`).join('\n');
     setShowAiAssistPopup({ messageId, message: messageText, loading: true });
     const assistData = await getAiAssist(messageText, context);
@@ -1352,7 +1346,7 @@ const App = () => {
 
   // Handle Translation long press
   const handleTranslationPress = async (messageId, messageText) => {
-    trackAnalytics('hindi_translate_used'); // Track feature usage
+    trackAnalytics('translationClicks'); // Track usage
     setShowTranslationPopup({ messageId, message: messageText, loading: true });
     const translation = await getTranslation(messageText);
     if (translation) {
@@ -1387,129 +1381,131 @@ const App = () => {
 
   const sendInvitation = async (targetUser) => {
     if (!user || !targetUser) return;
+    trackAnalytics('invitesSent'); // Track invite sent
     const invitationRef = doc(db, 'invitations', targetUser.id);
     console.log('[INVITE_SEND] Attempting to create invitation at path:', invitationRef.path);
     console.log('[INVITE_SEND] Target ID:', targetUser.id, 'My UID:', user.uid);
 
-    // Show waiting UI and start timer IMMEDIATELY (don't wait for setDoc)
-    setSentInviteTarget(targetUser);
-    setLoadingAction('waiting-invite');
-    setSenderCountdown(16);
-
-    // Start sender countdown timer immediately
-    if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-    senderTimerRef.current = setInterval(() => {
-      setSenderCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(senderTimerRef.current);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    // Set up listener BEFORE the write (so we're ready when receiver responds)
-    if (sentInvitationListenerRef.current) {
-      console.log('[INVITE DEBUG] Cleaning up previous listener');
-      sentInvitationListenerRef.current();
-    }
-    console.log('[INVITE DEBUG] Setting up listener for:', invitationRef.path);
-    sentInvitationListenerRef.current = onSnapshot(invitationRef, (snap) => {
-      console.log('[INVITE DEBUG] Listener triggered. Exists:', snap.exists());
-
-      if (!snap.exists()) {
-        console.log('[INVITE DEBUG] Document deleted - invitation declined or cleaned up');
-        setLoadingAction(null);
-        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-        if (sentInvitationListenerRef.current) {
-          sentInvitationListenerRef.current();
-          sentInvitationListenerRef.current = null;
-        }
-        return;
-      }
-
-      const data = snap.data();
-      console.log('[INVITE DEBUG] Document data:', JSON.stringify(data));
-
-      if (data.status === 'accepted' && data.roomId) {
-        console.log('[INVITE DEBUG] ACCEPTED! Room:', data.roomId);
-        // Invitation accepted! Join the room
-        setLoadingAction(null);
-        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-        if (sentInvitationListenerRef.current) {
-          sentInvitationListenerRef.current();
-          sentInvitationListenerRef.current = null;
-        }
-
-        // Clean up the invitation
-        deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-
-        // Join the match as the host (we sent the invite)
-        joinMatch(data.roomId, {
-          id: targetUser.id,
-          name: targetUser.name,
-          avatar: targetUser.avatar
-        }, 'human', 'Direct Match');
-      } else if (data.status === 'declined') {
-        console.log('[INVITE DEBUG] DECLINED by recipient');
-        setLoadingAction(null);
-        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-        if (sentInvitationListenerRef.current) {
-          sentInvitationListenerRef.current();
-          sentInvitationListenerRef.current = null;
-        }
-        // Clean up the invitation
-        deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-        // Beautiful toast notification instead of ugly alert
-        setToastNotification({ type: 'declined', message: 'declined your invitation', name: targetUser.name, avatar: targetUser.avatar });
-        setTimeout(() => setToastNotification(null), 4000);
-      } else if (data.status === 'timeout') {
-        console.log('[INVITE DEBUG] TIMEOUT - no response');
-        setLoadingAction(null);
-        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-        if (sentInvitationListenerRef.current) {
-          sentInvitationListenerRef.current();
-          sentInvitationListenerRef.current = null;
-        }
-        // Clean up the invitation
-        deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
-        // Beautiful toast notification instead of ugly alert
-        setToastNotification({ type: 'timeout', message: 'did not respond', name: targetUser.name, avatar: targetUser.avatar });
-        setTimeout(() => setToastNotification(null), 4000);
-      } else {
-        console.log('[INVITE DEBUG] Status is:', data.status, '- waiting for change...');
-      }
-    }, (error) => {
-      console.error('[INVITE DEBUG] Listener error:', error);
-      setLoadingAction(null);
-      if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-    });
-
-    // NOW actually write the invitation to Firestore
     try {
       await setDoc(invitationRef, {
         fromUserId: user.uid,
         fromName: user.displayName || 'Player',
         fromAvatar: userAvatar,
-        fromLevel: stats.level || 'Beginner',
+        fromLevel: getLevelFromAccuracy(stats.avgScore || 0).name,
         createdAt: serverTimestamp(),
         status: 'pending'
       });
-      console.log('[INVITE_SEND] ✅ Invitation created successfully!');
-      trackAnalytics('invite_sent');
+      console.log('[INVITE DEBUG] Invitation created successfully');
+
+      // Track who we sent to (for the waiting modal)
+      setSentInviteTarget(targetUser);
+
+      // Show waiting state with timer
+      setLoadingAction('waiting-invite');
+      setSenderCountdown(16);
+
+      // Start sender countdown timer
+      if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+      senderTimerRef.current = setInterval(() => {
+        setSenderCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(senderTimerRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      // Listen for the invitation to be accepted/declined
+      if (sentInvitationListenerRef.current) {
+        console.log('[INVITE DEBUG] Cleaning up previous listener');
+        sentInvitationListenerRef.current();
+      }
+
+      console.log('[INVITE DEBUG] Setting up listener for:', invitationRef.path);
+      sentInvitationListenerRef.current = onSnapshot(invitationRef, (snap) => {
+        console.log('[INVITE DEBUG] Listener triggered. Exists:', snap.exists());
+
+        if (!snap.exists()) {
+          console.log('[INVITE DEBUG] Document deleted - invitation declined or cleaned up');
+          // Invitation was deleted (declined)
+          setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+          return;
+        }
+
+        const data = snap.data();
+        console.log('[INVITE DEBUG] Document data:', JSON.stringify(data));
+
+        if (data.status === 'accepted' && data.roomId) {
+          console.log('[INVITE DEBUG] ACCEPTED! Room:', data.roomId);
+          // Invitation accepted! Join the room
+          setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+
+          // Clean up the invitation
+          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+
+          // Join the match as the host (we sent the invite)
+          joinMatch(data.roomId, {
+            id: targetUser.id,
+            name: targetUser.name,
+            avatar: targetUser.avatar
+          }, 'human', 'Direct Match');
+        } else if (data.status === 'declined') {
+          console.log('[INVITE DEBUG] DECLINED by recipient');
+          setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+          // Clean up the invitation
+          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+          // Beautiful toast notification instead of ugly alert
+          setToastNotification({ type: 'declined', message: 'declined your invitation', name: targetUser.name, avatar: targetUser.avatar });
+          setTimeout(() => setToastNotification(null), 4000);
+        } else if (data.status === 'timeout') {
+          console.log('[INVITE DEBUG] TIMEOUT - no response');
+          setLoadingAction(null);
+          if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+          if (sentInvitationListenerRef.current) {
+            sentInvitationListenerRef.current();
+            sentInvitationListenerRef.current = null;
+          }
+          // Clean up the invitation
+          deleteDoc(invitationRef).catch(e => console.error('Cleanup error:', e));
+          // Beautiful toast notification instead of ugly alert
+          setToastNotification({ type: 'timeout', message: 'did not respond', name: targetUser.name, avatar: targetUser.avatar });
+          setTimeout(() => setToastNotification(null), 4000);
+        } else {
+          console.log('[INVITE DEBUG] Status is:', data.status, '- waiting for change...');
+        }
+      }, (error) => {
+        console.error('[INVITE DEBUG] Listener error:', error);
+        setLoadingAction(null);
+        if (senderTimerRef.current) clearInterval(senderTimerRef.current);
+      });
+
+      console.log('[INVITE DEBUG] Invitation sent and listener active');
     } catch (e) {
-      console.error('[INVITE_SEND] ❌ Write error:', e);
+      console.error('[INVITE DEBUG] Send invitation error:', e);
       setLoadingAction(null);
       if (senderTimerRef.current) clearInterval(senderTimerRef.current);
-      if (sentInvitationListenerRef.current) {
-        sentInvitationListenerRef.current();
-        sentInvitationListenerRef.current = null;
-      }
     }
   };
 
   const acceptInvitation = async () => {
     if (!incomingInvitation) return;
+    trackAnalytics('invitesAccepted'); // Track invite accepted
     try {
       // Create a room for both players
       const token = await user.getIdToken();
@@ -1534,14 +1530,13 @@ const App = () => {
       if (data.success && data.roomId) {
         // Update invitation status
         await setDoc(doc(db, 'invitations', user.uid), { status: 'accepted', roomId: data.roomId }, { merge: true });
-        trackAnalytics('invite_accepted');
 
         // Join the match
         joinMatch(data.roomId, {
           id: incomingInvitation.fromUserId,
           name: incomingInvitation.fromName,
           avatar: incomingInvitation.fromAvatar
-        }, 'human', 'Direct Match', 'invite');
+        }, 'human', 'Direct Match');
       }
       setIncomingInvitation(null);
     } catch (e) {
@@ -1655,7 +1650,7 @@ const App = () => {
         const unsub = onSnapshot(doc(db, 'queue', data.roomId), (snap) => {
           if (snap.exists() && snap.data().status === 'matched') {
             unsub();
-            joinMatch(data.roomId, { id: snap.data().player2Id, name: snap.data().player2Name, avatar: snap.data().player2Avatar }, 'human', 'Friend Match', 'room_code');
+            joinMatch(data.roomId, { id: snap.data().player2Id, name: snap.data().player2Name, avatar: snap.data().player2Avatar }, 'human', 'Friend Match');
             setShowRoomInput(false); setRoomCode("");
           }
         });
@@ -1673,7 +1668,7 @@ const App = () => {
       });
       const data = await res.json();
       if (data.success) {
-        joinMatch(data.roomId, data.opponent, 'human', 'Friend Match', 'room_code');
+        joinMatch(data.roomId, data.opponent, 'human', 'Friend Match');
         setShowRoomInput(false);
       } else alert(data.error || 'Failed to join room');
     } catch (e) { alert(e.message); }
@@ -1765,10 +1760,17 @@ const App = () => {
     }
   };
 
-  const joinMatch = (roomId, opponent, type, topic, matchType = null) => {
-    console.log('MATCH_DEBUG: joinMatch called', { roomId, type, topic, matchType });
+  const joinMatch = (roomId, opponent, type, topic) => {
+    console.log('MATCH_DEBUG: joinMatch called', { roomId, type, topic });
     if (isJoiningRef.current) return;
     isJoiningRef.current = true;
+
+    // Track battle type
+    if (type === 'battle-bot') {
+      trackAnalytics('battleBotsJoined');
+    } else if (type === 'human') {
+      trackAnalytics('battleHumansRandom'); // Generic human battle (could be random, invite, or room)
+    }
 
     // If we're already in an active session, don't re-join
     if (activeSession && activeSession.id === roomId) {
@@ -1789,18 +1791,20 @@ const App = () => {
     setIsSearching(false);
     setLoadingAction(null);
 
-    // Initialize session (include matchType for analytics)
+    // Initialize session
     resetChatStates();
-    setActiveSession({ id: roomId, opponent, type, topic, matchType });
+    setActiveSession({ id: roomId, opponent, type, topic });
     setMessages([{ id: 'sys' + Date.now(), sender: 'system', text: `Connected with ${opponent.name}`, createdAt: Date.now() }]);
     setVisibleMessageIds(new Set(['sys' + Date.now()])); // Show initial system msg
     isSyncingInitialRef.current = true;
 
-    setTimeRemaining(420);
+    setTimeRemaining(sessionDuration * 60); // Use sessionDuration from settings (3/5/7 min)
     setTimerActive(true);
     setSessionPoints(0);
+    setSessionStartTime(Date.now()); // Track session start for duration calculation
     setMessageAccuracies([]); // V7: Reset accuracy tracking
     setBattleAccuracies([]); // V8: Reset battle accuracy tracking
+    setBattleCorrections([]); // Reset battle corrections for new session
     setView('chat');
 
     // Chat listener with error handling
@@ -1872,6 +1876,9 @@ const App = () => {
         // ONGOING: Queue NEW messages for animation
         const newMsgs = opponentMsgs.filter(m => !processedMessageIds.current.has(m.id));
         if (newMsgs.length > 0) {
+          // Update last opponent message time for inactivity tracking
+          lastOpponentMsgTimeRef.current = Date.now();
+
           console.log('[CHAT_LISTENER] New messages:', newMsgs.length, 'Match type:', type);
           // HUMAN MATCH: Fast-path (Instant Delivery)
           if (type === 'human') {
@@ -2156,7 +2163,7 @@ const App = () => {
         const res = await fetch(`${BACKEND_URL}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid })
+          body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid, difficulty: difficultyLevel })
         });
 
         // V8: Parse accuracy from response
@@ -2177,29 +2184,29 @@ const App = () => {
           errorLevel: errorLevel
         } : m));
 
-        // V8: Battle Mode - ALWAYS save corrections for AI analysis
-        const hasCorrectionData = correction && (errorLevel === 'mistake' || errorLevel === 'suggestion');
-        console.log('[DEBUG_TIPS] Msg:', text, 'HasCorrection:', hasCorrectionData, 'Level:', errorLevel, 'Toggle:', showBattleTips);
+        // V8: Battle Mode - ALWAYS save corrections for PDF analysis
+        // Tip cards shown only if isBattleTipsOn is true
+        if (correction) {
+          // ALWAYS save correction (for PDF Study Guide)
+          setBattleCorrections(prev => [...prev, correction]);
+          console.log('[BATTLE_CORRECTION] Saved:', correction.original, '->', correction.corrected);
 
-        if (hasCorrectionData) {
-          const correctionId = (errorLevel === 'mistake' ? 'correction' : 'suggestion') + '_' + Date.now();
-          console.log('[DEBUG_TIPS] Adding correction msg:', correctionId, 'Hidden:', !showBattleTips);
-
-          adjustedTimestamps.current[correctionId] = Date.now();
-          setMessages(prev => [...prev, {
-            id: correctionId,
-            sender: 'suggestion', // Always use 'suggestion' (Quick Tip style) for Battles as requested
-            correction: correction,
-            createdAt: Date.now()
-          }].sort((a, b) => {
-            const tA = adjustedTimestamps.current[a.id] || a.createdAt || 0;
-            const tB = adjustedTimestamps.current[b.id] || b.createdAt || 0;
-            return tA - tB;
-          }));
-
-          // Auto-minimize after a delay (like in Simulation)
-          const timeout = errorLevel === 'mistake' ? 8000 : 5000;
-          setTimeout(() => setMinimizedCorrections(prev => ({ ...prev, [correctionId]: true })), timeout);
+          // Show tip card ONLY if toggle is ON
+          if (isBattleTipsOn) {
+            const tipId = 'tip_' + Date.now();
+            const tipNow = Date.now();
+            adjustedTimestamps.current[tipId] = tipNow;
+            setMessages(prev => [...prev, {
+              id: tipId,
+              sender: 'suggestion', // Yellow tip style, NOT red mistake card
+              errorLevel: 'suggestion',
+              correction: correction,
+              originalText: text,
+              createdAt: tipNow
+            }]);
+            // Auto-minimize after 5s (same timing as simulations)
+            setTimeout(() => setMinimizedCorrections(prev => ({ ...prev, [tipId]: true })), 5000);
+          }
         }
 
         // For Battle-Bot: Simulate seen + typing with delays
@@ -2327,8 +2334,17 @@ const App = () => {
     if (capturedSession?.type === 'bot') {
       // Store session history to Firestore
       const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0; // Duration in seconds
+
+      // Prepare chat history (both sides) for analytics
+      const chatHistory = capturedMessages
+        .filter(m => m.sender === 'me' || m.sender === 'opponent' || m.sender === 'bot')
+        .map(m => ({
+          sender: m.sender,
+          text: m.text,
+          timestamp: m.createdAt || Date.now()
+        }));
+
       const sessionData = {
-        sessionType: 'simulation', // For separate tracking
         simId: capturedSession.id,
         simName: capturedSession.opponent?.name || 'Simulation',
         opponentAvatar: capturedSession.opponent?.avatar || '🤖',
@@ -2337,15 +2353,11 @@ const App = () => {
         messagesCount: totalSent,
         correctionsCount: correctionCount,
         corrections: sessionCorrections, // IMPORTANT: Include actual corrections for AI Analysis
-        chatHistory: capturedMessages.filter(m => m.sender === 'me' || m.sender === 'bot').map(m => ({
-          sender: m.sender,
-          text: m.text,
-          timestamp: m.createdAt || Date.now()
-        })), // Full conversation for analysis
         duration: sessionDuration, // Session duration in seconds for time tracking
         startTime: serverTimestamp(), // For PDF Study Guide query
         timestamp: serverTimestamp(),
-        lastMessage: myMessages[myMessages.length - 1]?.text || ''
+        lastMessage: myMessages[myMessages.length - 1]?.text || '',
+        chatHistory: chatHistory // Full chat for analytics
       };
 
       console.log('[DEBUG_SAVE] Session corrections:', sessionCorrections);
@@ -2356,15 +2368,6 @@ const App = () => {
         const sessionsRef = collection(db, 'users', user.uid, 'sessions');
         await addDoc(sessionsRef, sessionData);
         console.log('[DEBUG_SAVE] Session saved successfully!');
-
-        // Track analytics for engagement and learning progress
-        trackAnalytics('session_complete', {
-          duration: sessionDuration,
-          corrections: sessionCorrections,
-          accuracy: sessionAccuracy,
-          simId: capturedSession.id,
-          simName: capturedSession.opponent?.name
-        });
       } catch (e) { console.error('Failed to save session:', e); }
 
       // Update stats with cumulative accuracy and streak
@@ -2396,26 +2399,14 @@ const App = () => {
           // EMA after 5 sessions (stability)
           newAvgScore = Math.round(((prev.avgScore || 0) * 9 + sessionAccuracy) / 10);
         }
-
-        // Separate simulation-specific avgScore tracking
-        const newSimSessions = (prev.simSessions || 0) + 1;
-        let newSimAvgScore;
-        if ((prev.simSessions || 0) < 5) {
-          newSimAvgScore = Math.round(((prev.simAvgScore || 0) * (prev.simSessions || 0) + sessionAccuracy) / newSimSessions);
-        } else {
-          newSimAvgScore = Math.round(((prev.simAvgScore || 0) * 9 + sessionAccuracy) / 10);
-        }
-
-        // Level based on ACCURACY (not points) - renamed Rookie to Beginner
-        const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
+        // Level based on ACCURACY (not points) - Stage naming
+        const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
 
         const n = {
           ...prev,
           sessions: newTotalSessions,
           points: newTotalPoints,
           avgScore: newAvgScore,
-          simAvgScore: newSimAvgScore, // Simulation-specific average
-          simSessions: newSimSessions, // Simulation session count
           level: newLevel,
           streak: newStreak,
           lastPracticeDate: todayStr
@@ -2476,10 +2467,38 @@ const App = () => {
       setView('dashboard'); setActiveSession(null);
 
     } else {
+      // Calculate combined messages for proper analysis threshold
+      const oppMessages = capturedMessages.filter(m => m.sender === 'opponent');
+      const combinedMessageCount = totalSent + oppMessages.length;
+      console.log('[BATTLE] Message counts - Me:', totalSent, 'Opponent:', oppMessages.length, 'Combined:', combinedMessageCount);
+
+      // Check if combined messages < 6: Show WinnerReveal with "insufficient" message, don't update stats
+      if (combinedMessageCount < 6) {
+        console.log('[BATTLE] Insufficient messages (<6 combined), showing scorecard without analysis');
+        // Set special "insufficient" state for WinnerReveal
+        setDualAnalysis({
+          insufficientMessages: true,
+          message: 'Not enough messages to analyze the result. Play longer next time!',
+          player1: { total: 0, vocab: 0, grammar: 0, fluency: 0, sentence: 0 },
+          player2: { total: 0, vocab: 0, grammar: 0, fluency: 0, sentence: 0 },
+          winner: 'none'
+        });
+        setBattleOpponentData(capturedSession?.opponent);
+        setShowWinnerReveal(true);
+        setView('dashboard');
+        setActiveSession(null);
+        setIsEnding(false);
+        setShowExitWarning(false);
+        isEndingRef.current = false;
+        // Don't update stats - accuracy remains unchanged
+        setTimeout(() => { isEndingRef.current = false; isJoiningRef.current = false; }, 1500);
+        return; // Exit early without stats update
+      }
+
       setView('analyzing');
       try {
         const myMsgs = myMessages.map(m => m.text);
-        const oppMsgs = capturedMessages.filter(m => m.sender === 'opponent').map(m => m.text);
+        const oppMsgs = oppMessages.map(m => m.text);
         console.log('[ANALYZE DEBUG] Sending:', { roomId: capturedSession.id, analyzedBy: user.uid, myMsgs, oppMsgs });
         const token = await user.getIdToken();
         const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
@@ -2571,43 +2590,33 @@ const App = () => {
           const oppData = amIPlayer1 ? data?.player2 : data?.player1;
           const didIWin = amIPlayer1 ? (data?.winner === 'player1') : (data?.winner === 'player2');
 
+          // Prepare battle chat history for analytics
+          const battleChatHistory = capturedMessages
+            .filter(m => m.sender === 'me' || m.sender === 'opponent')
+            .map(m => ({
+              sender: m.sender,
+              text: m.text,
+              timestamp: m.createdAt || Date.now()
+            }));
+          const battleDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+
           const sessionsRef = collection(db, 'users', user.uid, 'sessions');
           await addDoc(sessionsRef, {
-            sessionType: 'battle', // For separate tracking
             type: capturedSession.type === 'battle-bot' ? 'battle-bot' : '1v1',
-            matchType: capturedSession.matchType || (capturedSession.type === 'battle-bot' ? 'bot' : 'random'),
             score: myData?.total || 0,
             opponentName: capturedSession.opponent?.name || 'Opponent',
             opponentAvatar: capturedSession.opponent?.avatar || '👤',
             won: didIWin,
-            corrections: sessionCorrections, // For PDF Study Guide
-            correctionsCount: correctionCount,
+            corrections: battleCorrectionsRef.current, // Use battleCorrections (tracked during battle)
+            correctionsCount: battleCorrectionsRef.current.length,
             accuracy: myScore,
             messagesCount: totalSent,
-            chatHistory: capturedMessages.filter(m => m.sender === 'me' || m.sender === 'opponent' || m.sender === 'bot').map(m => ({
-              sender: m.sender,
-              text: m.text,
-              timestamp: m.createdAt || Date.now()
-            })), // Full conversation for analysis
+            duration: battleDuration, // Session duration for time tracking
             startTime: serverTimestamp(),
-            timestamp: serverTimestamp()
+            timestamp: serverTimestamp(),
+            chatHistory: battleChatHistory // Full chat for analytics
           });
-          console.log('[DEBUG_SAVE] Battle session saved with corrections:', sessionCorrections);
-
-          // Track battle analytics with battle type
-          // battleType: 'bot' (vs AI), 'random' (global search), 'friend_invite' (via invite)
-          const battleType = capturedSession.type === 'battle-bot'
-            ? 'bot'
-            : capturedSession.matchType === 'invite'
-              ? 'friend_invite'
-              : 'random';
-          trackAnalytics('battle_complete', {
-            won: didIWin,
-            corrections: sessionCorrections,
-            messagesCount: totalSent,
-            score: myData?.total || myScore,
-            battleType: battleType
-          });
+          console.log('[DEBUG_SAVE] Battle session saved with corrections:', battleCorrectionsRef.current);
         } catch (e) { console.error('Session save error:', e); }
 
 
@@ -2640,28 +2649,17 @@ const App = () => {
             // EMA after 5 sessions (stability)
             newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
           }
-          // Level based on ACCURACY (not points)
-          const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Expert' : newAvgScore >= 70 ? 'Advanced' : newAvgScore >= 50 ? 'Intermediate' : 'Beginner';
-
-          // Separate battle-specific avgScore tracking
-          const newBattleSessions = (prev.battleSessions || 0) + 1;
-          let newBattleAvgScore;
-          if ((prev.battleSessions || 0) < 5) {
-            newBattleAvgScore = Math.round(((prev.battleAvgScore || 0) * (prev.battleSessions || 0) + myScore) / newBattleSessions);
-          } else {
-            newBattleAvgScore = Math.round(((prev.battleAvgScore || 0) * 9 + myScore) / 10);
-          }
-
+          // Level based on ACCURACY (not points) - Stage naming
+          const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
           const n = {
             ...prev,
             sessions: newTotalSessions,
             points: prev.points + myScore,
             avgScore: newAvgScore,
-            battleAvgScore: newBattleAvgScore, // Battle-specific average
-            battleSessions: newBattleSessions, // Battle session count
             level: newLevel,
             streak: newStreak,
-            lastPracticeDate: todayStr
+            lastPracticeDate: todayStr,
+            battleWins: (prev.battleWins || 0) + (didIWin ? 1 : 0) // Track battle wins for achievements
           };
           setTimeout(() => saveUserData(n, null), 10);
           return n;
@@ -3455,6 +3453,75 @@ const App = () => {
                 </button>
 
                 <button
+                  onClick={() => setShowPdfHistory(!showPdfHistory)}
+                  className="w-full mt-2 py-2 text-emerald-600 hover:text-emerald-700 font-medium text-sm flex items-center justify-center gap-1"
+                >
+                  <History size={16} />
+                  {showPdfHistory ? 'Hide Past Downloads' : `View Past Downloads${pdfHistory.length > 0 ? ` (${pdfHistory.length})` : ''}`}
+                </button>
+
+                {showPdfHistory && (
+                  <div className="mt-4 border-t border-gray-100 pt-4">
+                    <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2">
+                      <Clock size={16} className="text-emerald-500" />
+                      Recent Downloads
+                    </h4>
+                    {loadingHistory ? (
+                      <div className="flex justify-center p-4"><Loader2 className="animate-spin text-emerald-500" /></div>
+                    ) : pdfHistory.length === 0 ? (
+                      <p className="text-center text-gray-400 text-sm py-2">No history found.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                        {pdfHistory.map(item => (
+                          <div key={item.id} className="flex items-center justify-between p-2 bg-emerald-50/50 rounded-lg hover:bg-emerald-50 transition-colors">
+                            <div className="text-left">
+                              <p className="text-xs font-bold text-gray-700">{new Date(item.generatedAt).toLocaleDateString()}</p>
+                              <p className="text-[10px] text-gray-500">{item.filterLabel} • {item.pages} pgs</p>
+                            </div>
+                            <button
+                              disabled={downloadingPdfId === item.id}
+                              onClick={async () => {
+                                setDownloadingPdfId(item.id);
+                                try {
+                                  const token = await user.getIdToken();
+                                  const res = await fetch(`${BACKEND_URL}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                    body: JSON.stringify({ type: 'get_pdf_by_id', userId: user.uid, pdfId: item.id })
+                                  });
+                                  const data = await res.json();
+                                  if (data.pdf) {
+                                    const byteCharacters = atob(data.pdf);
+                                    const byteNumbers = new Array(byteCharacters.length);
+                                    for (let i = 0; i < byteCharacters.length; i++) {
+                                      byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                    }
+                                    const byteArray = new Uint8Array(byteNumbers);
+                                    const blob = new Blob([byteArray], { type: 'application/pdf' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `fluency-pro-history-${item.id.slice(0, 5)}.pdf`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                  }
+                                } catch (e) { console.error(e); alert('Download failed'); }
+                                setDownloadingPdfId(null);
+                              }}
+                              className="p-1.5 bg-white text-emerald-600 rounded-md shadow-sm border border-emerald-100 hover:bg-emerald-50 transition-colors"
+                            >
+                              {downloadingPdfId === item.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <button
                   onClick={() => setShowStudyGuideModal(false)}
                   disabled={isGeneratingPdf}
                   className="w-full mt-2 py-2 text-gray-500 hover:text-gray-700 font-medium text-sm"
@@ -3465,6 +3532,7 @@ const App = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
       </>
     );
   };
@@ -3712,11 +3780,14 @@ const App = () => {
             </div>
             <div className="flex-1">
               <div className="font-bold text-gray-900">{user.isAnonymous ? 'Guest Player' : user.displayName || 'Player'}</div>
-              {/* Level badge - computed from avgScore, smaller and stylish */}
+              {/* Level badge - computed from avgScore, smaller and stylish - CLICKABLE */}
               {(() => {
                 const levelData = getLevelFromAccuracy(stats.avgScore || 0);
                 return (
-                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-gradient-to-r ${levelData.gradient}`}>
+                  <span
+                    onClick={() => setShowLevelProgress(true)}
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-gradient-to-r ${levelData.gradient} cursor-pointer hover:opacity-90 hover:scale-105 transition-all`}
+                  >
                     {levelData.icon} {levelData.name}
                   </span>
                 );
@@ -4029,6 +4100,7 @@ const App = () => {
               dualAnalysis={dualAnalysis}
               myUserId={user.uid}
               opponentData={battleOpponentData}
+              soundEnabled={soundEnabled}
               feedbackState={{ rating: feedbackRating, text: feedbackText, submitted: feedbackSubmitted }}
               onFeedback={async (rating, text) => {
                 try {
@@ -4143,11 +4215,11 @@ const App = () => {
                 </div>
                 <div className="border-t border-gray-100 pt-6">
                   <button
-                    onClick={() => { setShowProfile(false); signOut(auth); }}
-                    className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-colors"
+                    onClick={() => setShowProfile(false)}
+                    className="w-full flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl font-bold hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg"
                   >
-                    <LogOut size={20} />
-                    Sign Out
+                    <Home size={20} />
+                    Done ✨
                   </button>
                 </div>
               </motion.div>
@@ -4405,12 +4477,15 @@ const App = () => {
                               const mins = Math.round(day.duration / 60);
                               const color = colors[i % colors.length];
                               return (
-                                <div key={i} className="flex-1 flex flex-col items-center group relative">
-                                  <div className="absolute -top-8 bg-gray-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                    {mins > 0 ? `${mins}m` : `${day.duration}s`} - {day.label}
-                                  </div>
+                                <div key={i} className="flex-1 flex flex-col items-center relative">
+                                  {/* Permanent label above bar */}
+                                  {day.duration > 0 && (
+                                    <div className="text-[8px] font-bold text-gray-600 mb-0.5 whitespace-nowrap">
+                                      {mins > 0 ? `${mins}m` : `${day.duration}s`}
+                                    </div>
+                                  )}
                                   <div
-                                    className="w-full rounded-t transition-all group-hover:opacity-80"
+                                    className="w-full rounded-t transition-all hover:opacity-80"
                                     style={{
                                       height: `${Math.min(60, Math.max(4, (day.duration / maxTime) * 60))}px`,
                                       backgroundColor: day.duration > 0 ? color : '#e5e7eb'
@@ -4549,18 +4624,19 @@ const App = () => {
 
                         // Animated step sequence for combined PDF - runs in PARALLEL with API call
                         const steps = [
-                          { text: '📊 Gathering your stats...', progress: 10, delay: 600 },
-                          { text: '🔍 Analyzing corrections...', progress: 20, delay: 800 },
-                          { text: '🧠 AI generating quiz questions...', progress: 35, delay: 1000 },
-                          { text: '📚 Creating vocabulary list...', progress: 50, delay: 900 },
-                          { text: '💡 Identifying strengths & weaknesses...', progress: 60, delay: 900 },
-                          { text: '📝 Building 6-page pack...', progress: 70, delay: 900 },
-                          { text: '🎨 Adding finishing touches...', progress: 80, delay: 800 },
-                          { text: '✨ Almost there...', progress: 88, delay: 700 },
-                          { text: '🚀 Finalizing your pack...', progress: 95, delay: 600 }
+                          { text: '📊 Gathering your stats...', progress: 10, delay: 800 },
+                          { text: '🔍 Analyzing corrections...', progress: 20, delay: 1000 },
+                          { text: '🧠 AI generating 25 quiz questions...', progress: 35, delay: 1500 },
+                          { text: '📚 Creating vocabulary list...', progress: 50, delay: 1200 },
+                          { text: '💡 Identifying strengths & weaknesses...', progress: 65, delay: 1200 },
+                          { text: '📝 Building 6-page pack...', progress: 80, delay: 1500 },
+                          { text: '🎨 Adding finishing touches...', progress: 90, delay: 2000 }
                         ];
 
                         try {
+                          // Track PDF generation
+                          trackAnalytics('pdfGenerations');
+
                           // Start API call IMMEDIATELY (in parallel with animation)
                           const token = await user.getIdToken();
                           const apiPromise = fetch(`${BACKEND_URL}`, {
@@ -4606,7 +4682,10 @@ const App = () => {
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
-                            a.download = `fluency-learning-pack-${new Date().toISOString().split('T')[0]}.pdf`;
+                            // Timestamped Filename (LOCAL time)
+                            const now = new Date();
+                            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+                            a.download = `fluency-learning-pack-${timestamp}.pdf`;
                             document.body.appendChild(a);
                             a.click();
                             document.body.removeChild(a);
@@ -4618,8 +4697,13 @@ const App = () => {
                             // Celebration!
                             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
 
-                            // Track PDF download analytics
-                            trackAnalytics('pdf_download');
+                            // Update history from server (single source of truth)
+                            // Small delay to ensure Firestore has propagated the write
+                            console.log('[PDF Generation] Waiting for Firestore to sync...');
+                            await new Promise(r => setTimeout(r, 1000));
+                            console.log('[PDF Generation] Refreshing history...');
+                            await refreshPdfHistory();
+                            console.log(`[PDF Generation] History now has ${pdfHistory.length} items`);
 
                             await new Promise(r => setTimeout(r, 2000)); // Show success message
                           } else if (data.error === 'no_corrections') {
@@ -4643,118 +4727,83 @@ const App = () => {
                     </button>
                   )}
                   <div className="text-center text-xs text-gray-500 mt-2">
-                    6 pages: Stats + 25 Quiz Questions + Vocab + Answers + Corrections
+                    5 pages: Stats + 25 Quiz Questions + Vocab + Answers + Corrections
                   </div>
 
-                  {/* PDF History Section */}
-                  <div className="mt-4 border-t border-gray-100 pt-4">
-                    <button
-                      onClick={async () => {
-                        if (!showPdfHistory && pdfHistory.length === 0) {
-                          setLoadingHistory(true);
-                          try {
-                            const token = await user.getIdToken();
-                            const res = await fetch(`${BACKEND_URL}`, {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${token}`
-                              },
-                              body: JSON.stringify({
-                                type: 'get_pdf_history',
-                                userId: user.uid
-                              })
-                            });
-                            const data = await res.json();
-                            setPdfHistory(data.history || []);
-                          } catch (e) {
-                            console.error('Error fetching history:', e);
-                          } finally {
-                            setLoadingHistory(false);
-                          }
-                        }
-                        setShowPdfHistory(!showPdfHistory);
-                      }}
-                      className="w-full text-sm text-gray-500 hover:text-emerald-600 flex items-center justify-center gap-2 py-2 transition-colors"
-                    >
+                  <button
+                    onClick={() => setShowPdfHistory(!showPdfHistory)}
+                    className="w-full mt-4 py-2 text-emerald-600 hover:text-emerald-700 font-medium text-sm flex items-center justify-center gap-1 border-t border-gray-100 pt-3"
+                  >
+                    <History size={16} />
+                    {showPdfHistory ? 'Hide Past Downloads' : `View Past Downloads${pdfHistory.length > 0 ? ` (${pdfHistory.length})` : ''}`}
+                  </button>
+
+                  {showPdfHistory && (
+                    <div className="mt-2 bg-gray-50 rounded-xl p-3">
+                      <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
+                        <Clock size={14} className="text-emerald-500" />
+                        Recent Downloads
+                      </h4>
                       {loadingHistory ? (
-                        <><Loader2 className="animate-spin" size={14} /> Loading...</>
+                        <div className="flex justify-center p-4"><Loader2 className="animate-spin text-emerald-500" /></div>
+                      ) : pdfHistory.length === 0 ? (
+                        <p className="text-center text-gray-400 text-sm py-2">No history found.</p>
                       ) : (
-                        <>📂 {showPdfHistory ? 'Hide' : 'View'} Past Downloads ({stats.pdfDownloads || pdfHistory.length || 0})</>
-                      )}
-                    </button>
-
-                    {showPdfHistory && pdfHistory.length > 0 && (
-                      <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
-                        {pdfHistory.map((pdf) => (
-                          <div key={pdf.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
-                            <div className="flex-1">
-                              <div className="font-medium text-gray-700">
-                                {pdf.generatedAt ? new Date(pdf.generatedAt).toLocaleDateString('en-US', {
-                                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                                }) : 'Unknown date'}
+                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                          {pdfHistory.map(item => (
+                            <div key={item.id} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-all">
+                              <div className="text-left">
+                                <p className="text-xs font-bold text-gray-700">
+                                  {new Date(item.generatedAt).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                                <p className="text-[10px] text-gray-500">{item.filterLabel} • {item.pages} pgs</p>
                               </div>
-                              <div className="text-xs text-gray-400">{pdf.filterLabel} • {pdf.quizCount} Q • {pdf.vocabCount} vocab</div>
-                            </div>
-                            <button
-                              onClick={async () => {
-                                if (downloadingPdfId) return;
-                                setDownloadingPdfId(pdf.id);
-                                try {
-                                  const token = await user.getIdToken();
-                                  const res = await fetch(`${BACKEND_URL}`, {
-                                    method: 'POST',
-                                    headers: {
-                                      'Content-Type': 'application/json',
-                                      'Authorization': `Bearer ${token}`
-                                    },
-                                    body: JSON.stringify({
-                                      type: 'get_pdf_by_id',
-                                      userId: user.uid,
-                                      pdfId: pdf.id
-                                    })
-                                  });
-                                  const data = await res.json();
-                                  if (data.pdf) {
-                                    const byteChars = atob(data.pdf);
-                                    const byteNums = new Array(byteChars.length);
-                                    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-                                    const byteArray = new Uint8Array(byteNums);
-                                    const blob = new Blob([byteArray], { type: 'application/pdf' });
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `fluency-pack-${pdf.id}.pdf`;
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                  }
-                                } catch (e) {
-                                  console.error('Error downloading PDF:', e);
-                                } finally {
+                              <button
+                                disabled={downloadingPdfId === item.id}
+                                onClick={async () => {
+                                  setDownloadingPdfId(item.id);
+                                  try {
+                                    const token = await user.getIdToken();
+                                    const res = await fetch(`${BACKEND_URL}`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                      body: JSON.stringify({ type: 'get_pdf_by_id', userId: user.uid, pdfId: item.id })
+                                    });
+                                    const data = await res.json();
+                                    if (data.pdf) {
+                                      const byteCharacters = atob(data.pdf);
+                                      const byteNumbers = new Array(byteCharacters.length);
+                                      for (let i = 0; i < byteCharacters.length; i++) {
+                                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                      }
+                                      const byteArray = new Uint8Array(byteNumbers);
+                                      const blob = new Blob([byteArray], { type: 'application/pdf' });
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      // Use original timestamp for filename (LOCAL time)
+                                      const origDate = new Date(item.generatedAt);
+                                      const ts = `${origDate.getFullYear()}-${String(origDate.getMonth() + 1).padStart(2, '0')}-${String(origDate.getDate()).padStart(2, '0')}-${String(origDate.getHours()).padStart(2, '0')}-${String(origDate.getMinutes()).padStart(2, '0')}-${String(origDate.getSeconds()).padStart(2, '0')}`;
+                                      a.download = `fluency-learning-pack-${ts}.pdf`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      URL.revokeObjectURL(url);
+                                    }
+                                  } catch (e) { console.error(e); alert('Download failed'); }
                                   setDownloadingPdfId(null);
-                                }
-                              }}
-                              className="ml-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-lg hover:bg-emerald-200 transition-colors flex items-center gap-1"
-                              disabled={downloadingPdfId === pdf.id}
-                            >
-                              {downloadingPdfId === pdf.id ? (
-                                <Loader2 className="animate-spin" size={12} />
-                              ) : (
-                                <Download size={12} />
-                              )}
-                              {downloadingPdfId === pdf.id ? '...' : 'Download'}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                                }}
+                                className="p-1.5 bg-emerald-50 text-emerald-600 rounded-md hover:bg-emerald-100 transition-colors"
+                              >
+                                {downloadingPdfId === item.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                    {showPdfHistory && pdfHistory.length === 0 && !loadingHistory && (
-                      <p className="text-xs text-gray-400 text-center py-3">
-                        No previous downloads yet. Generate your first Learning Pack!
-                      </p>
-                    )}
-                  </div>
 
                 </div>
               </motion.div>
@@ -4900,7 +4949,21 @@ const App = () => {
                     {isLoadingFeedback ? (
                       <span className="animate-pulse text-orange-500">Analyzing your session...</span>
                     ) : (
-                      aiFeedback || "Great effort! Keep practicing to improve."
+                      // Parse markdown: **text** → bold, color-code keywords
+                      (aiFeedback || "Great effort! Keep practicing to improve.").split(/(\*\*[^*]+\*\*)/).map((part, idx) => {
+                        if (part.startsWith('**') && part.endsWith('**')) {
+                          const text = part.slice(2, -2);
+                          // Color-code specific keywords
+                          if (text.toLowerCase().includes('needs work') || text.toLowerCase().includes('error') || text.toLowerCase().includes('mistake')) {
+                            return <span key={idx} className="font-bold text-red-600">{text}</span>;
+                          } else if (text.toLowerCase().includes('good') || text.toLowerCase().includes('strength') || text.toLowerCase().includes('okay')) {
+                            return <span key={idx} className="font-bold text-emerald-600">{text}</span>;
+                          } else {
+                            return <span key={idx} className="font-bold text-orange-700">{text}</span>;
+                          }
+                        }
+                        return part;
+                      })
                     )}
                   </div>
                   <div className="text-xs text-gray-400 mt-3 text-center">↓ scroll if more content</div>
@@ -5023,50 +5086,135 @@ const App = () => {
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-md p-6 relative my-auto max-h-[90vh] overflow-y-auto">
                 <button onClick={() => setShowAchievements(false)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
 
-                <h3 className="text-2xl font-black text-gray-900 mb-6 text-center">🏆 Achievements</h3>
+                <h3 className="text-2xl font-black text-gray-900 mb-2 text-center">🏆 Achievements</h3>
+                <p className="text-sm text-gray-500 text-center mb-4">
+                  {(() => {
+                    const achievements = [
+                      stats.sessions >= 1, stats.streak >= 3, stats.streak >= 7, stats.streak >= 14, stats.streak >= 30,
+                      stats.sessions >= 10, stats.sessions >= 50, stats.points >= 100, stats.points >= 1000,
+                      stats.avgScore >= 90, stats.avgScore >= 95, (stats.battleWins || 0) >= 1, (stats.battleWins || 0) >= 5
+                    ];
+                    const unlocked = achievements.filter(a => a).length;
+                    return `${unlocked} of ${achievements.length} unlocked`;
+                  })()}
+                </p>
 
-                <div className="space-y-4 mb-6">
-                  <div className={`p-4 rounded-2xl ${stats.sessions >= 1 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.sessions >= 1 ? '🌟' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">First Steps</div>
-                        <div className="text-xs text-gray-500">Complete your first session</div>
-                      </div>
-                    </div>
+                {/* Streak Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    🔥 Streaks
                   </div>
-                  <div className={`p-4 rounded-2xl ${stats.sessions >= 10 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.sessions >= 10 ? '🔥' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">On Fire</div>
-                        <div className="text-xs text-gray-500">Complete 10 sessions</div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Streak Starter', desc: '3-day practice streak', icon: '🔥', unlocked: stats.streak >= 3 },
+                      { name: 'Week Warrior', desc: '7-day practice streak', icon: '⚡', unlocked: stats.streak >= 7 },
+                      { name: 'Habit Builder', desc: '14-day practice streak', icon: '💪', unlocked: stats.streak >= 14 },
+                      { name: 'Legend', desc: '30-day practice streak', icon: '👑', unlocked: stats.streak >= 30 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
                       </div>
-                    </div>
-                  </div>
-                  <div className={`p-4 rounded-2xl ${stats.points >= 100 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.points >= 100 ? '💯' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">Century Club</div>
-                        <div className="text-xs text-gray-500">Earn 100 points</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`p-4 rounded-2xl ${stats.avgScore >= 90 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.avgScore >= 90 ? '🎯' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">Perfect Speaker</div>
-                        <div className="text-xs text-gray-500">Maintain 90%+ accuracy</div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="text-center text-gray-400 text-sm">
-                  More achievements coming soon! 🚀
+                {/* Session Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    📚 Sessions
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'First Steps', desc: 'Complete your first session', icon: '🌟', unlocked: stats.sessions >= 1 },
+                      { name: 'On Fire', desc: 'Complete 10 sessions', icon: '🎯', unlocked: stats.sessions >= 10 },
+                      { name: 'Dedicated', desc: 'Complete 50 sessions', icon: '📚', unlocked: stats.sessions >= 50 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
+                {/* Points Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    💰 Points
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Century Club', desc: 'Earn 100 points', icon: '💯', unlocked: stats.points >= 100 },
+                      { name: 'High Scorer', desc: 'Earn 1,000 points', icon: '🏆', unlocked: stats.points >= 1000 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Accuracy Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    ⭐ Accuracy
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Grammar Guru', desc: 'Maintain 90%+ accuracy', icon: '📝', unlocked: stats.avgScore >= 90 },
+                      { name: 'Master Level', desc: 'Reach 95%+ accuracy', icon: '⭐', unlocked: stats.avgScore >= 95 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Battle Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    ⚔️ Battles
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Battle Ready', desc: 'Win your first battle', icon: '⚔️', unlocked: (stats.battleWins || 0) >= 1 },
+                      { name: 'Battle Champion', desc: 'Win 5 battles', icon: '🥇', unlocked: (stats.battleWins || 0) >= 5 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button onClick={() => setShowAchievements(false)} className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:opacity-90 transition-opacity">
+                  Keep Practicing! 💪
+                </button>
               </motion.div>
             </motion.div>
           )}
@@ -5079,33 +5227,64 @@ const App = () => {
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-md p-6 relative my-auto max-h-[90vh] overflow-y-auto">
                 <button onClick={() => { setShowHelp(false); setHelpFeedbackSubmitted(false); setHelpFeedbackText(''); setHelpFeedbackRating(0); }} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
 
+                {/* App Header */}
                 <div className="text-center mb-6">
                   <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-200">
                     <MessageCircle className="text-white" size={32} />
                   </div>
                   <h3 className="text-2xl font-black text-gray-900">Fluency Pro</h3>
-                  <p className="text-gray-500 text-sm">Version 1.1.0</p>
+                  <p className="text-gray-500 text-sm">Version 1.2.0</p>
                 </div>
 
-                {/* About */}
+                {/* About Developer */}
                 <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 mb-4 text-left">
-                  <h4 className="font-bold text-emerald-800 mb-2">🇮🇳 Made in India</h4>
-                  <p className="text-emerald-700 text-sm leading-relaxed">
-                    Built by a passionate solo developer to help millions of Indians improve their spoken English through AI-powered practice sessions.
+                  <h4 className="font-bold text-emerald-800 mb-2">🇮🇳 Made in India with ❤️</h4>
+                  <p className="text-emerald-700 text-sm leading-relaxed mb-3">
+                    Hi! I'm <span className="font-bold">Deepak</span>, a 26-year-old solo developer from a small village in India.
+                    I built Fluency Pro to help millions of Indians improve their spoken English through AI-powered practice.
+                  </p>
+                  <p className="text-emerald-600 text-xs italic">
+                    "From a village dreamer to building apps that help people worldwide. Keep learning, keep growing! 🚀"
                   </p>
                 </div>
 
                 {/* Features */}
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-4">
+                  <h4 className="font-bold text-gray-900 text-xs uppercase tracking-widest text-gray-400">✨ Features</h4>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
                     <Sparkles size={16} className="text-amber-500" /> Real-time grammar feedback
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
-                    <Users size={16} className="text-indigo-500" /> Battle mode matching global players
+                    <Users size={16} className="text-indigo-500" /> Battle mode with global players
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
                     <Target size={16} className="text-emerald-500" /> Scenario-based simulations
                   </div>
+                  <div className="flex items-center gap-3 text-sm text-gray-600">
+                    <Award size={16} className="text-pink-500" /> Achievements & progress tracking
+                  </div>
+                </div>
+
+                {/* Terms & Conditions */}
+                <div className="bg-gray-50 rounded-2xl p-4 mb-4 text-left">
+                  <h4 className="font-bold text-gray-800 mb-2 text-xs uppercase tracking-widest">📜 Terms & Conditions</h4>
+                  <ul className="text-xs text-gray-600 space-y-1">
+                    <li>• This app is for educational purposes only</li>
+                    <li>• AI responses are generated and may not be perfect</li>
+                    <li>• Your chat data helps improve the AI experience</li>
+                    <li>• Be respectful when chatting with other users</li>
+                    <li>• We don't share your personal data with third parties</li>
+                    <li>• You must be 13+ years old to use this app</li>
+                  </ul>
+                </div>
+
+                {/* Privacy */}
+                <div className="bg-gray-50 rounded-2xl p-4 mb-4 text-left">
+                  <h4 className="font-bold text-gray-800 mb-2 text-xs uppercase tracking-widest">🔒 Privacy</h4>
+                  <p className="text-xs text-gray-600">
+                    Your data is stored securely on Google Firebase. We collect only what's needed to improve your experience.
+                    You can request data deletion by contacting support.
+                  </p>
                 </div>
 
                 {/* Feedback Form */}
@@ -5114,7 +5293,7 @@ const App = () => {
                   {helpFeedbackSubmitted ? (
                     <div className="bg-emerald-50 text-emerald-700 rounded-2xl p-4 text-center font-bold">
                       <div className="text-2xl mb-2">🎉</div>
-                      We've received your feedback!
+                      Thank you! Deepak has received your feedback!
                     </div>
                   ) : (
                     <>
@@ -5134,7 +5313,7 @@ const App = () => {
                       <textarea
                         value={helpFeedbackText}
                         onChange={(e) => setHelpFeedbackText(e.target.value)}
-                        placeholder="What can we improve? (Found a bug? Match issues?)"
+                        placeholder="What can we improve? Found a bug? Share your thoughts!"
                         className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none text-sm resize-none h-28 mb-4 border-gray-100"
                       />
                       <button
@@ -5162,6 +5341,12 @@ const App = () => {
                       </button>
                     </>
                   )}
+                </div>
+
+                {/* Footer */}
+                <div className="mt-6 pt-4 border-t text-center">
+                  <p className="text-xs text-gray-400">© 2024 Fluency Pro by Deepak</p>
+                  <p className="text-xs text-gray-400">Made with ❤️ in India 🇮🇳</p>
                 </div>
               </motion.div>
             </motion.div>
@@ -5200,6 +5385,7 @@ const App = () => {
                     className="w-full p-3 bg-white rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none"
                   >
                     <option value="Hindi">हिंदी (Hindi)</option>
+                    <option value="Punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
                     <option value="Tamil">தமிழ் (Tamil)</option>
                     <option value="Telugu">తెలుగు (Telugu)</option>
                     <option value="Bengali">বাংলা (Bengali)</option>
@@ -5207,25 +5393,78 @@ const App = () => {
                     <option value="Gujarati">ગુજરાતી (Gujarati)</option>
                     <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
                     <option value="Malayalam">മലയാളം (Malayalam)</option>
+                    <option value="Odia">ଓଡ଼ିଆ (Odia)</option>
+                    <option value="Assamese">অসমীয়া (Assamese)</option>
                   </select>
                 </div>
 
-                {/* Session Reminders */}
+                {/* Session Timer */}
+                <div className="p-4 bg-gray-50 rounded-xl mb-3">
+                  <div className="font-semibold text-gray-900 mb-2">Session Timer</div>
+                  <div className="flex gap-2">
+                    {[3, 5, 7].map(mins => (
+                      <button
+                        key={mins}
+                        onClick={() => setSessionDuration(mins)}
+                        className={`flex-1 py-2 rounded-xl font-bold transition-all ${sessionDuration === mins ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
+                      >
+                        {mins} min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Difficulty Level */}
+                <div className="p-4 bg-gray-50 rounded-xl mb-3">
+                  <div className="font-semibold text-gray-900 mb-2">AI Difficulty</div>
+                  <div className="flex gap-2">
+                    {['Easy', 'Medium', 'Hard'].map(level => (
+                      <button
+                        key={level}
+                        onClick={() => setDifficultyLevel(level)}
+                        className={`flex-1 py-2 rounded-xl font-bold transition-all ${difficultyLevel === level ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-2">
+                    {difficultyLevel === 'Easy' && '🌱 Simple vocabulary, slower responses'}
+                    {difficultyLevel === 'Medium' && '🎯 Balanced conversation, natural pace'}
+                    {difficultyLevel === 'Hard' && '🔥 Advanced vocabulary, challenging topics'}
+                  </div>
+                </div>
+
+                {/* Sound Effects */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-3">
+                  <div>
+                    <div className="font-semibold text-gray-900">Sound Effects</div>
+                    <div className="text-xs text-gray-500">Audio feedback during practice</div>
+                  </div>
+                  <button
+                    onClick={() => setSoundEnabled(!soundEnabled)}
+                    className={`w-14 h-8 rounded-full transition-colors relative ${soundEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-transform ${soundEnabled ? 'translate-x-7' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* Daily Reminders - Coming Soon */}
                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-6">
                   <div>
                     <div className="font-semibold text-gray-900">Daily Reminders</div>
                     <div className="text-xs text-gray-500">Get notified to practice</div>
                   </div>
                   <button
-                    className="w-14 h-8 rounded-full bg-emerald-500 relative cursor-not-allowed opacity-50"
+                    className="w-14 h-8 rounded-full bg-gray-300 relative cursor-not-allowed opacity-50"
                     title="Coming soon"
                   >
-                    <div className="w-6 h-6 bg-white rounded-full absolute top-1 translate-x-7" />
+                    <div className="w-6 h-6 bg-white rounded-full absolute top-1 translate-x-1" />
                   </button>
                 </div>
 
                 <p className="text-xs text-gray-400 text-center">
-                  More settings coming soon! 🚀
+                  Made with ❤️ in India 🇮🇳
                 </p>
               </motion.div>
             </motion.div>
@@ -5316,7 +5555,6 @@ const App = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-
               {timerActive && (
                 <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
                   <Clock size={12} /> {formatTime(timeRemaining)}
@@ -5399,6 +5637,34 @@ const App = () => {
           )}
         </AnimatePresence>
 
+        {/* Session End Reason Notification Overlay */}
+        <AnimatePresence>
+          {sessionEndReason && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            >
+              <motion.div
+                initial={{ y: 50 }}
+                animate={{ y: 0 }}
+                className={`${sessionEndReason === 'timeout' ? 'bg-gradient-to-br from-red-500 to-orange-600' : 'bg-gradient-to-br from-blue-500 to-purple-600'} text-white px-8 py-6 rounded-3xl shadow-2xl text-center`}
+              >
+                <div className="text-5xl mb-3">
+                  {sessionEndReason === 'timeout' ? '😴' : sessionEndReason === 'opponent_left' ? '👋' : '⏰'}
+                </div>
+                <div className="text-2xl font-black mb-1">
+                  {sessionEndReason === 'timeout' ? 'Opponent Inactive' : sessionEndReason === 'opponent_left' ? 'Opponent Left' : "Time's Up!"}
+                </div>
+                <div className="text-sm opacity-90">
+                  {sessionEndReason === 'timeout' ? 'No response for 1 minute' : sessionEndReason === 'opponent_left' ? 'Your partner ended the session' : 'Great practice session!'}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Streak Milestone Celebration Popup */}
         <AnimatePresence>
           {showStreakMilestone && (
@@ -5448,15 +5714,15 @@ const App = () => {
                 <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🏆 Level Journey</h3>
                 <div className="space-y-3">
                   {[
-                    { name: 'Master', icon: '👑', range: '95%+', gradient: 'from-yellow-400 to-amber-500' },
-                    { name: 'Expert', icon: '⭐', range: '85-94%', gradient: 'from-purple-400 to-indigo-500' },
-                    { name: 'Advanced', icon: '🎯', range: '70-84%', gradient: 'from-blue-400 to-cyan-500' },
-                    { name: 'Intermediate', icon: '📈', range: '50-69%', gradient: 'from-emerald-400 to-teal-500' },
-                    { name: 'Beginner', icon: '🌱', range: '0-49%', gradient: 'from-gray-300 to-gray-400' },
+                    { name: 'Master', icon: '★★★★★', range: '95%+', gradient: 'from-yellow-400 to-amber-500' },
+                    { name: 'Pro', icon: '★★★★', range: '85-94%', gradient: 'from-purple-400 to-indigo-500' },
+                    { name: 'Improver', icon: '★★★', range: '70-84%', gradient: 'from-blue-400 to-cyan-500' },
+                    { name: 'Learner', icon: '★★', range: '50-69%', gradient: 'from-emerald-400 to-teal-500' },
+                    { name: 'Starter', icon: '★', range: '0-49%', gradient: 'from-gray-300 to-gray-400' },
                   ].map((level, i) => {
                     const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
                     const isCurrentLevel = level.name === currentLevel;
-                    const currentIndex = ['Master', 'Expert', 'Advanced', 'Intermediate', 'Beginner'].indexOf(currentLevel);
+                    const currentIndex = ['Master', 'Pro', 'Improver', 'Learner', 'Starter'].indexOf(currentLevel);
                     const isUnlocked = i >= currentIndex;
 
                     return (
@@ -5657,28 +5923,6 @@ const App = () => {
                   </button>
                 </div>
 
-                {/* Quick Tips Toggle - Only for Battle Mode */}
-                {activeSession?.type !== 'bot' && (
-                  <div className="flex items-center justify-between py-3 border-b border-gray-100">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle size={16} className="text-amber-500" />
-                      <span className="text-sm text-gray-700">Quick Tips</span>
-                      <div className="group relative">
-                        <Info size={12} className="text-gray-400 cursor-help" />
-                        <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                          Show grammar tips instantly when you make mistakes in battles.
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => { setShowBattleTips(!showBattleTips); trackAnalytics('tips_toggled', { enabled: !showBattleTips }); }}
-                      className={`w-10 h-5 rounded-full transition-all ${showBattleTips ? 'bg-amber-500' : 'bg-gray-300'}`}
-                    >
-                      <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${showBattleTips ? 'ml-5' : 'ml-0.5'}`} />
-                    </button>
-                  </div>
-                )}
-
                 {/* Translation Toggle */}
                 <div className="flex items-center justify-between py-3 border-b border-gray-100">
                   <div className="flex items-center gap-2">
@@ -5699,6 +5943,35 @@ const App = () => {
                   </button>
                 </div>
 
+                {/* Battle Tips Toggle */}
+                <div className="flex items-center justify-between py-3 border-t border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Lightbulb size={16} className="text-yellow-500" />
+                    <span className="text-sm text-gray-700">Battle Tips</span>
+                    <div className="group relative">
+                      <Info size={12} className="text-gray-400 cursor-help" />
+                      <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                        Show grammar tips during battles. Tips are always saved for your progress report.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const newValue = !isBattleTipsOn;
+                      setIsBattleTipsOn(newValue);
+                      // Sync to Firestore for tracking
+                      if (user) {
+                        setDoc(doc(db, 'users', user.uid), {
+                          settings: { isBattleTipsOn: newValue }
+                        }, { merge: true });
+                      }
+                    }}
+                    className={`w-10 h-5 rounded-full transition-all ${isBattleTipsOn ? 'bg-yellow-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isBattleTipsOn ? 'ml-5' : 'ml-0.5'}`} />
+                  </button>
+                </div>
+
                 {/* Language Selector */}
                 <div className="py-3">
                   <div className="text-xs text-gray-500 mb-2">Native Language</div>
@@ -5708,6 +5981,7 @@ const App = () => {
                     className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-500"
                   >
                     <option value="Hindi">हिंदी (Hindi)</option>
+                    <option value="Punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
                     <option value="Tamil">தமிழ் (Tamil)</option>
                     <option value="Telugu">తెలుగు (Telugu)</option>
                     <option value="Bengali">বাংলা (Bengali)</option>
@@ -5715,6 +5989,8 @@ const App = () => {
                     <option value="Gujarati">ગુજરાતી (Gujarati)</option>
                     <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
                     <option value="Malayalam">മലയാളം (Malayalam)</option>
+                    <option value="Odia">ଓଡ଼ିଆ (Odia)</option>
+                    <option value="Assamese">অসমীয়া (Assamese)</option>
                   </select>
                 </div>
               </motion.div>
@@ -5887,15 +6163,6 @@ const App = () => {
             // - Show if sender is 'opponent' AND has finished typing (exists in visibleMessageIds)
             const isVisible = m.sender !== 'opponent' || visibleMessageIds.has(m.id);
             if (!isVisible) return null;
-
-            // Correction/Suggestion visibility: 
-            // - Always show in simulation (type='bot')
-            // - Only show in battle if showBattleTips is ON
-            // - Corrections are still saved to messages array for AI analysis regardless
-            const isCorrectionMsg = m.sender === 'correction' || m.sender === 'suggestion';
-            const shouldShowCorrection = !isCorrectionMsg || activeSession?.type === 'bot' || showBattleTips;
-            if (!shouldShowCorrection) return null;
-
             return (
               <div key={i} className={`flex ${m.sender === 'me' ? 'justify-end' : m.sender === 'system' ? 'justify-center' : m.sender === 'correction' || m.sender === 'suggestion' ? 'justify-center' : 'justify-start'}`}>
                 {m.sender === 'system' ? (
@@ -6150,20 +6417,6 @@ const App = () => {
                 </motion.button>
               ) : null;
             })()}
-
-            {/* Battle Tips Toggle - Small Settings Icon */}
-            {activeSession?.type !== 'bot' && (
-              <button
-                onClick={() => { setShowBattleTips(!showBattleTips); trackAnalytics('tips_toggled', { enabled: !showBattleTips }); }}
-                className={`p-2 rounded-full transition-all duration-300 ${showBattleTips
-                  ? 'bg-amber-100 text-amber-600 border border-amber-200 shadow-sm'
-                  : 'bg-gray-50 border border-gray-200 text-gray-400 hover:text-gray-600'
-                  }`}
-                title={showBattleTips ? "Tips are ON" : "Turn on Tips"}
-              >
-                <Settings size={18} className={showBattleTips ? 'animate-pulse-slow' : ''} />
-              </button>
-            )}
 
             {/* Voice Input Button with Enhanced Styling */}
             <div className="relative">

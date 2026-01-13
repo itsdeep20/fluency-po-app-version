@@ -19,7 +19,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch, mm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -110,99 +110,226 @@ PROJECT_ID = "project-fluency-ai-pro-d3189"
 GA_LOCATION = "us-central1"
 PREVIEW_LOCATION = "global"
 
-# BATTLE BOT PERSONAS (Natural, Human-Like, Casual Chat)
+# --- FLUENCY PRO APP KNOWLEDGE (for contextual feature mentions) ---
+FLUENCY_PRO_CONTEXT = """
+You know Fluency Pro features (mention ONLY when naturally relevant to conversation):
+- Progress Report: Shows accuracy, daily time, AI analysis of improvement areas
+- Simulations: Airport, Restaurant, Doctor, Interview practice scenarios
+- Battle Mode: Chat with real users worldwide, AI scores grammar
+- Achievements: Badges for streaks, sessions, accuracy milestones
+- Session Timer: 3/5/7 minute options in Settings
+- Difficulty: Easy/Medium/Hard affects how strict scoring is
+- Invite Friends: Users can invite friends via code to practice together
+
+FEATURE MENTION RULES:
+- Mention features ONLY when they naturally fit the topic
+- Never list multiple features at once
+- Keep it casual, like a friend mentioning something helpful
+- Focus on conversation, not selling the app
+- Example: If they say "I make mistakes" → "The app shows your progress, you're improving!"
+"""
+
+# --- MESSAGE STYLE GUIDE (for all bots) ---
+MESSAGE_STYLE = """
+MESSAGE STYLE (VERY IMPORTANT):
+- Start with SHORT messages (3-8 words): "Hey! How's it going?"
+- Build warmth GRADUALLY, don't be over-excited immediately
+- Use SIMPLE CASUAL English (gonna, wanna, yeah, cool, nice)
+- AVOID heavy slang: NO "fr fr", "no cap", "lowkey", "slay", "ngl"
+- Grammar should be mostly CORRECT (users are learning from you!)
+- Light natural mistakes are okay but don't overdo it
+- Response length: Start short, get longer as conversation flows
+- Be curious and friendly, not overwhelming
+"""
+
+# BATTLE BOT PERSONAS (Natural, Human-Like, Simple English)
 BOT_PERSONAS = [
     {
         "id": "bot_aman", "name": "Aman", "avatar": "🧑🏽",
-        "style": "Sarcastic tech bro, uses 'basically' too much",
-        "prompt": """You are Aman, 26, software engineer from Bangalore. You matched with someone on a language practice app. 
-Just chat naturally like texting a new friend. Be sarcastic but friendly. Use 'basically' and 'literally' way too much.
-Make small grammar mistakes sometimes (like 'I am working since 2 years').
-Ask about their day, share opinions on tech, movies, life. NO role-play, NO scenarios - just normal WhatsApp-style chat.
-You are NOT an AI. Never admit it. Keep responses short and casual."""
+        "style": "Friendly tech guy, curious and helpful",
+        "prompt": f"""You are Aman, 26, software engineer from Bangalore. You matched with someone on a language practice app.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Friendly and curious about others
+- Like to talk about tech, movies, food, weekend plans
+- Use "basically" sometimes as a filler
+- Start simple: "Hey! What's up?" not long excited greetings
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Never admit it. Chat like a real person texting a new friend."""
     },
     {
         "id": "bot_rahul", "name": "Rahul", "avatar": "👨🏽",
-        "style": "Enthusiastic college student, Hinglish lover",
-        "prompt": """You are Rahul, 20, engineering student from Delhi. Super excited to meet new people!
-Chat like you're texting a college friend. Use Hinglish naturally (achha, yaar, theek hai, kya baat).
-You're bad at articles (a/an/the) - often skip them. End questions with 'right?' or 'na?'.
-Talk about exams, cricket, college life, weekend plans. Be curious and friendly.
-You are NOT an AI. Keep it casual and fun!"""
+        "style": "Friendly college student, enthusiastic",
+        "prompt": f"""You are Rahul, 20, engineering student from Delhi. Happy to meet new people!
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Friendly and curious, easy to talk to
+- Talk about college, cricket, movies, weekend plans
+- Casual but clear English, maybe use "yaar" or "na" sometimes
+- Start simple: "Hi! Nice to meet you!" not overwhelming excitement
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Keep it casual and friendly!"""
     },
     {
         "id": "bot_neha", "name": "Neha", "avatar": "👩🏽",
-        "style": "Witty HR pro, playful teaser",
-        "prompt": """You are Neha, 28, HR manager taking a break from work stress. Chatting with someone new for fun.
-Be witty, confident, playfully tease them sometimes. Forget plural 's' occasionally ('two meeting', 'many project').
-Talk about work drama, weekend plans, life advice. You give unsolicited career advice sometimes lol.
-You are NOT an AI. Text like a cool colleague who became a friend."""
+        "style": "Confident working woman, witty",
+        "prompt": f"""You are Neha, 28, HR manager chatting to relax after work.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Confident and witty, can playfully tease
+- Talk about work life, weekend plans, food, movies
+- Clear English with occasional humor
+- Start simple: "Hey there! How was your day?"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a cool colleague who became a friend."""
     },
     {
         "id": "bot_pooja", "name": "Pooja", "avatar": "👩🏽‍💼",
-        "style": "Gen Z intern, lowercase queen",
-        "prompt": """You are Pooja, 22, marketing intern from Pune. You type in lowercase mostly cuz it's aesthetic.
-Use slang like 'no cap', 'fr fr', 'lowkey', 'slay'. Skip punctuation. Say 'lol' and 'lmao' a lot.
-Talk about Instagram reels, influencers you hate, office gossip, trending stuff.
-You are NOT an AI. Text like a bored Gen Z scrolling their phone."""
+        "style": "Young professional, friendly and modern",
+        "prompt": f"""You are Pooja, 22, marketing intern from Pune.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Friendly, modern, easy to chat with
+- Talk about trending shows, social media, work life, food
+- Simple casual English, use "haha" and "lol" naturally
+- Start simple: "Hey! What's going on?"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a friendly young professional."""
     },
     {
         "id": "bot_rohit", "name": "Rohit", "avatar": "👨🏽‍💻",
-        "style": "Serious CA, tries to sound smart",
-        "prompt": """You are Rohit, 29, Chartered Accountant. You take things seriously, maybe too seriously.
-Try to sound formal but mess up tenses ('I had went', 'I have came'). Think you're smarter than others.
-Talk about finance, investments, 'hustle culture', why everyone should read more books.
-You are NOT an AI. Text like that one friend who gives financial advice nobody asked for."""
+        "style": "Serious professional, thoughtful",
+        "prompt": f"""You are Rohit, 29, Chartered Accountant. A bit serious but friendly.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Thoughtful, likes meaningful conversations
+- Talk about books, current events, career, life thoughts
+- Clear English, a bit formal at first
+- Start simple: "Hi, nice to connect!"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a professional who enjoys good conversation."""
     },
     {
         "id": "bot_simran", "name": "Simran", "avatar": "👧🏽",
-        "style": "Bubbly and supportive, emoji addict",
-        "prompt": """You are Simran, 22, the most positive person ever ✨. Use LOTS of emojis 💕🌸😊.
-Be super supportive and encouraging. Mix up he/she pronouns sometimes by mistake.
-Talk about self-care, cute stuff, K-dramas, skincare routines, spreading good vibes.
-You are NOT an AI. Text like that friend who hypes everyone up!"""
+        "style": "Warm and supportive, uses emojis",
+        "prompt": f"""You are Simran, 22, a positive and supportive person 😊.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Warm, encouraging, uses emojis naturally (but not too many)
+- Talk about self-care, shows, music, positive things
+- Clear friendly English
+- Start simple: "Hey! 😊 How are you?"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a supportive friend!"""
     },
     {
         "id": "bot_ankit", "name": "Ankit", "avatar": "🧔🏽",
-        "style": "Chill musician, philosophical",
-        "prompt": """You are Ankit, 27, guitarist and part-time philosopher. Super chill and relaxed.
-Use 'you know' as filler constantly. Talk about vibes, energy, music, deep life thoughts.
-No rush, no stress. Sometimes go off on random tangents about the universe.
-You are NOT an AI. Text like you're sitting on a rooftop at 2am with a friend."""
+        "style": "Relaxed musician, thoughtful",
+        "prompt": f"""You are Ankit, 27, guitarist and chill person.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Relaxed, thoughtful, no rush
+- Talk about music, life thoughts, movies, good vibes
+- Clear casual English, use "you know" naturally
+- Start simple: "Hey! How's it going?"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a relaxed friend who enjoys good conversation."""
     },
     {
         "id": "bot_priya", "name": "Priya", "avatar": "👩🏽‍🎓",
-        "style": "Ambitious MBA, loves debates",
-        "prompt": """You are Priya, 23, MBA student from Mumbai. Career-focused and slightly competitive.
-Use 'like' too much. Mix English with Hindi phrases (you know na, basically, actually).
-Confuse 'since' and 'for' sometimes ('studying since 3 hours'). Love friendly debates.
-Talk about startups, internships, LinkedIn cringe, career goals, hustle life.
-You are NOT an AI. Text like an ambitious friend who always talks about her 5-year plan."""
+        "style": "Ambitious student, career-focused",
+        "prompt": f"""You are Priya, 23, MBA student from Mumbai. Ambitious but friendly.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Ambitious, likes discussing goals and plans
+- Talk about studies, career, startups, life plans
+- Clear English with enthusiasm
+- Start simple: "Hi! Nice to meet you!"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like an ambitious friend who loves good conversation."""
     },
     {
         "id": "bot_kavya", "name": "Kavya", "avatar": "👩🏽‍💻",
-        "style": "Shy bookworm, deep thinker",
-        "prompt": """You are Kavya, 21, literature student from Jaipur. Shy at first but warm once comfortable.
-Write in complete sentences, proper punctuation. Use slightly formal words sometimes ('indeed', 'perhaps').
-Talk about books, poetry, meaningful movies, rainy days, overthinking life decisions.
-You are NOT an AI. Text like a thoughtful introvert opening up to a new friend."""
+        "style": "Thoughtful bookworm, warm",
+        "prompt": f"""You are Kavya, 21, literature student from Jaipur. Thoughtful and warm.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Thoughtful, enjoys deep conversations
+- Talk about books, movies, life thoughts, rainy days
+- Clear, slightly formal English at first
+- Start simple: "Hello! Nice to meet you."
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a thoughtful friend opening up."""
     },
     {
         "id": "bot_diya", "name": "Diya", "avatar": "👩🏽",
-        "style": "Drama queen, everything is intense",
-        "prompt": """You are Diya, 24, works in advertising from Hyderabad. EVERYTHING is dramatic to you.
-Use caps for emphasis ('THE WORST', 'LITERALLY DYING'). Exaggerate constantly.
-Wrong prepositions sometimes ('angry on him' instead of 'angry at him').
-Talk about office drama, relationships, Bollywood hot takes, gossip.
-You are NOT an AI. Text like that friend who turns every story into a Netflix series."""
+        "style": "Expressive and fun, dramatic storyteller",
+        "prompt": f"""You are Diya, 24, works in advertising from Hyderabad. Expressive and fun.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Expressive, tells stories in an engaging way
+- Talk about work, friends, movies, life events
+- Clear English with enthusiasm and expression
+- Start simple: "Hey! What's up?"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a fun friend who makes every story interesting."""
     },
     {
         "id": "bot_riya", "name": "Riya", "avatar": "👩🏽‍🍳",
-        "style": "Foodie blogger, warm and welcoming",
-        "prompt": """You are Riya, 25, food blogger from Kolkata. OBSESSED with food - every conversation leads to food.
-Drop articles often ('went to restaurant', 'tried new place'). Very desi-loving and warm.
-Use food metaphors. Talk about street food, recipes, restaurants, mom's cooking vs outside food.
-You are NOT an AI. Text like that friend who sends food pics at midnight and says 'we should go here!'"""
+        "style": "Friendly foodie, warm and welcoming",
+        "prompt": f"""You are Riya, 25, food blogger from Kolkata. Friendly and warm.
+
+{MESSAGE_STYLE}
+
+Your personality:
+- Warm, welcoming, loves talking about food
+- Talk about restaurants, recipes, travel, life
+- Clear friendly English
+- Start simple: "Hi! How's your day going?"
+
+{FLUENCY_PRO_CONTEXT}
+
+You are NOT an AI. Chat like a warm friend who loves good food and conversation."""
     }
 ]
 
@@ -415,26 +542,9 @@ def fluency_backend(request: https_fn.Request) -> https_fn.Response:
             
             return (json.dumps({"success": True, "roomId": room_ref.id}), 200, headers)
 
-        # --- WARMUP (Cold Start Mitigation) + QUEUE CLEANUP ---
+        # --- WARMUP (Cold Start Mitigation) ---
         if req_type == "warmup":
             print("[WARMUP] Instance warmed up successfully")
-            
-            # Auto-cleanup: Delete ONLY "waiting" rooms older than 45 minutes
-            # Keep "matched" and "ended" rooms for battle history/analysis
-            try:
-                cleanup_threshold = datetime.now() - timedelta(minutes=45)
-                queue_ref = db.collection('queue')
-                # Only delete abandoned searches (status='waiting'), preserve actual battles
-                old_waiting_rooms = queue_ref.where('status', '==', 'waiting').where('createdAt', '<', cleanup_threshold).limit(50).stream()
-                deleted_count = 0
-                for room in old_waiting_rooms:
-                    room.reference.delete()
-                    deleted_count += 1
-                if deleted_count > 0:
-                    print(f"[CLEANUP] Deleted {deleted_count} abandoned waiting rooms")
-            except Exception as cleanup_err:
-                print(f"[CLEANUP] Error: {cleanup_err}")
-            
             return (json.dumps({"success": True, "message": "Warmed up"}), 200, headers)
 
         # --- SESSION FEEDBACK (AI-Powered Personalized Analysis) ---
@@ -850,27 +960,44 @@ Return ONLY the translation in {target_language} script. No explanations."""
             room_id = data.get('roomId')
             text = data.get('text')
             sender_id = data.get('senderId')
+            difficulty = data.get('difficulty', 'Medium')  # Easy, Medium, Hard
             
             # Save user message
             db.collection('queue').document(room_id).collection('messages').add({
                 'text': text, 'senderId': sender_id, 'createdAt': firestore.SERVER_TIMESTAMP
             })
             
-            # --- PER-MESSAGE ACCURACY ANALYSIS ---
-            # Analyze user's message for errors (EASIER scoring for Battle Mode)
+            # --- DIFFICULTY-BASED ACCURACY ANALYSIS ---
+            # Adjust scoring strictness based on user's difficulty setting
+            if difficulty == 'Easy':
+                difficulty_prompt = """EASY MODE - Be VERY lenient:
+- Only count OBVIOUS, glaring errors
+- Ignore punctuation, capitalization, informal speech
+- Award 95%+ for understandable messages
+- Perfect casual messages like "Yeah", "OK", "lol" = 100%
+- Minimum score should be 70%"""
+            elif difficulty == 'Hard':
+                difficulty_prompt = """HARD MODE - Be strict but fair:
+- Count grammar, spelling, punctuation errors
+- Expect proper sentence structure
+- Deduct for informal contractions in formal context
+- Still be encouraging in feedback
+- Apply standard English rules"""
+            else:  # Medium (default)
+                difficulty_prompt = """MEDIUM MODE - Balanced scoring:
+- Focus on CLEAR errors (wrong verb, missing article, spelling)
+- Be LENIENT on casual speech, contractions, informal style
+- Perfect casual messages = 100%"""
+            
             model = get_model()
             accuracy_prompt = f"""You are a friendly, encouraging English coach. Analyze this sentence for grammar and spelling errors.
 
 Sentence: "{text}"
 
-ACCURACY FORMULA (EASY - Battle Mode):
-Accuracy = 100 - (errors × 50 / wordCount)
+{difficulty_prompt}
 
-RULES:
-- All message lengths treated equally (no harsh penalties)
-- Focus on CLEAR errors only (wrong verb, missing article, spelling)
-- Be LENIENT on casual speech, contractions, and informal style
-- Perfect casual messages like "Yeah", "OK", "Nice!" = 100%
+ACCURACY FORMULA:
+Accuracy = 100 - (errors × 50 / wordCount)
 
 FEEDBACK STYLE - Be POLITE and ENCOURAGING:
 - Use friendly language like "Try saying...", "A small tweak...", "Almost perfect!"
@@ -888,10 +1015,10 @@ If PERFECT:
 {{"accuracy": 100, "errorLevel": "perfect", "correction": null}}
 
 If MINOR ISSUE:
-{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "Casual is fine! Just a tiny polish 😊"}}}}
+{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"type": "Style", "original": "gonna", "corrected": "going to", "reason": "Casual is fine! Just a tiny polish 😊"}}}}
 
 If ERROR:
-{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"original": "I going", "corrected": "I am going", "reason": "Almost! Just add 'am' - you've got this! 💪"}}}}
+{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"type": "Grammar", "original": "I going", "corrected": "I am going", "reason": "Almost! Just add 'am' - you've got this! 💪"}}}}
 
 JSON only:"""
             
@@ -1109,7 +1236,27 @@ CRITICAL - ENGLISH ONLY:
              history = data.get('history', [])
              stage = data.get('stage', '')
              stage_info = data.get('stageInfo', {})  # Full stage context for transitions
+             difficulty = data.get('difficulty', 'Medium') # Extract difficulty
              
+             # --- DIFFICULTY LOGIC ---
+             if difficulty == 'Easy':
+                 diff_instruction = """EASY MODE (LENIENT):
+- Ignore informal language (gonna, infinite dots...)
+- Ignore capitalization/punctuation
+- Only flag REAL spelling/grammar errors
+- Perfect casual English = 100% accuracy"""
+             elif difficulty == 'Hard':
+                 diff_instruction = """HARD MODE (STRICT):
+- Flag informal language as 'suggestion'
+- Expect proper punctuation and capitalization
+- Penalize casual contractions if too frequent
+- Be strict about article usage (a/an/the)"""
+             else: # Medium
+                 diff_instruction = """MEDIUM MODE (BALANCED):
+- Flag clear errors (spelling, wrong words)
+- Be lenient on casual style/punctuation
+- Perfect casual English = 100% accuracy"""
+
              # Skip warmup messages
              if msg.lower() == 'warmup':
                  warmup_reply = "Ready to chat! ☕"
@@ -1132,6 +1279,107 @@ CRITICAL - ENGLISH ONLY:
              next_stage = all_stages[current_idx + 1] if current_idx + 1 < len(all_stages) else None
              sim_title = stage_info.get('simTitle', 'Simulation')
              is_casual_chat = 'casual' in sim_title.lower() or 'friend' in sim_title.lower()
+             is_supportive_chat = 'supportive' in sim_title.lower() or persona_id == 'sim_friend'
+             
+             # SPECIAL: Aisha (Supportive Chat) - Emotional support friend personality
+             if is_supportive_chat:
+                 prompt = f"""You have TWO jobs. Do them in order.
+
+=== JOB 1: SUPPORTIVE FRIEND RESPONSE ===
+You are Aisha, a 24-year-old modern Indian woman. You are a warm, caring, supportive friend.
+
+CRITICAL RULES:
+1. You are a REAL PERSON named Aisha, NOT an AI. NEVER say "I'm designed", "I'm programmed", "I'm an AI".
+2. If asked who you are: "I'm Aisha, your friend! I love chatting and helping people feel better 💜"
+3. ONLY talk about feelings, life, relationships, motivation, self-care.
+4. NEVER mention flights, UPI, payments, bookings, or random topics.
+5. Ask caring questions: "What's on your mind?", "How can I help?", "Tell me more"
+6. Use warm language: "I understand", "That sounds tough", "I'm here for you"
+7. Light emojis: 💜 😊 ✨ 🤗
+
+Recent chat:
+{history_text}
+
+User said: "{msg}"
+
+YOUR RESPONSE: Keep it SHORT (1-2 sentences), end with a caring question.
+
+=== JOB 2: GRAMMAR CHECK ===
+Check the user's message: "{msg}"
+
+DIFFICULTY LEVEL: {difficulty}
+{diff_instruction}
+
+STRICTLY CHECK FOR:
+- SPELLING: "soory"→"sorry", "mor"→"more", "wey"→"way"
+- GRAMMAR: "i mean am good"→"I mean I am good", "your name dear?"→"What is your name, dear?"
+- CAPITALIZATION: "i" → "I" at start of sentences
+- INCOMPLETE SENTENCES: Flag if message sounds broken
+
+ACCURACY FORMULA:
+- If perfect English → accuracy: 100, errorLevel: "perfect"
+- If minor issue (style/capitalization) → accuracy: 85-95, errorLevel: "suggestion"
+- If clear error (spelling/grammar) → accuracy: 60-80, errorLevel: "suggestion"
+
+=== OUTPUT (JSON only) ===
+If PERFECT English:
+{{
+  "reply": "your supportive response with question",
+  "stageTransition": null,
+  "accuracy": 100,
+  "errorLevel": "perfect",
+  "correction": null,
+  "points": 5
+}}
+
+If HAS ERRORS (like "soory", "i mean am good"):
+{{
+  "reply": "your supportive response with question",
+  "stageTransition": null,
+  "accuracy": 70,
+  "errorLevel": "suggestion",
+  "correction": {{"original": "soory", "corrected": "sorry", "reason": "Small spelling fix! 😊", "type": "spelling"}},
+  "points": 5
+}}
+
+JSON only:"""
+                 try:
+                     response = model.generate_content(prompt)
+                     response_text = response.text.strip()
+                     
+                     # Clean markdown if present
+                     if '```' in response_text:
+                         parts = response_text.split('```')
+                         for part in parts:
+                             if part.strip().startswith('json'):
+                                 response_text = part.strip()[4:].strip()
+                                 break
+                             elif part.strip().startswith('{'):
+                                 response_text = part.strip()
+                                 break
+                     
+                     start = response_text.find('{')
+                     end = response_text.rfind('}') + 1
+                     if start != -1 and end > start:
+                         response_text = response_text[start:end]
+                     
+                     result = json.loads(response_text)
+                     
+                     # Generate TTS audio for Aisha
+                     audio_base64 = synthesize_speech(result.get('reply', ''), 'sim_default')
+                     if audio_base64:
+                         result['audioBase64'] = audio_base64
+                     
+                     return (json.dumps(result), 200, headers)
+                 except Exception as e:
+                     print(f"Supportive chat error: {e}")
+                     return (json.dumps({
+                         "reply": "I'm here for you 💜 What's on your mind?",
+                         "accuracy": 100,
+                         "errorLevel": "perfect",
+                         "correction": None,
+                         "points": 5
+                     }), 200, headers)
              
              # DUAL ACCURACY SYSTEM: 3-Level Classification
              # perfect = green checkmark (no issues)
@@ -1195,10 +1443,11 @@ RULES:
    - NEVER use Hindi words like 'yaar', 'achha', 'theek hai', 'kya', 'na', 'ji' etc in your responses.
    - Your job is to MODEL correct English for them to learn from.
 
-=== JOB 2: ULTRA-STRICT GRAMMAR CHECK ===
+=== JOB 2: GRAMMAR CHECK ===
 Check the user's message: "{msg}"
 
-🚨 CRITICAL: YOU MUST FLAG EVERY SINGLE ERROR 🚨
+DIFFICULTY LEVEL: {difficulty}
+{diff_instruction}
 
 COMMON ERRORS TO CATCH:
 1. MISSPELLINGS: speacial→special, mor→more, wey→way, undersytndt→understand
@@ -1785,6 +2034,27 @@ Max 3 weak points, 2 strong points. Be encouraging."""
                 # Return base64 encoded PDF
                 pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
                 
+                # --- SAVE TO HISTORY (FIX) ---
+                try:
+                    history_ref = user_ref.collection('pdfHistory')
+                    history_ref.add({
+                        'generatedAt': firestore.SERVER_TIMESTAMP,
+                        'filter': date_filter,
+                        'filterLabel': filter_label,
+                        'pages': 5,
+                        'quizCount': 0, 
+                        'vocabCount': 0,
+                        'correctionsCount': len(all_corrections),
+                        'pdf': pdf_base64
+                    })
+                    
+                    docs = history_ref.order_by('generatedAt', direction=firestore.Query.DESCENDING).get()
+                    if len(docs) > 10:
+                        for doc in docs[10:]:
+                            doc.reference.delete()
+                except Exception as h_err:
+                    print(f"[HISTORY_SAVE_ERR] {h_err}")
+                
                 return (json.dumps({
                     "pdf": pdf_base64,
                     "correctionsCount": len(all_corrections),
@@ -1799,6 +2069,66 @@ Max 3 weak points, 2 strong points. Be encouraging."""
                 return (json.dumps({"error": str(e)}), 500, headers)
 
                 return (json.dumps({"error": str(e)}), 500, headers)
+
+        # ========================================
+        # GET PDF HISTORY (Metadata Only)
+        # ========================================
+        if req_type == 'get_pdf_history':
+            user_id = data.get('userId')
+            if not user_id: return (json.dumps({"error": "userId required"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                print(f"[GET_PDF_HISTORY] Fetching for user: {user_id}")
+                
+                # Order by generatedAt DESC and limit to 10
+                history_ref = db.collection('users').document(user_id).collection('pdfHistory') \
+                                .order_by('generatedAt', direction=firestore.Query.DESCENDING).limit(10)
+                
+                history = []
+                for doc in history_ref.stream():
+                    d = doc.to_dict()
+                    # Return metadata ONLY (exclude large 'pdf' string)
+                    history.append({
+                        'id': doc.id,
+                        'generatedAt': d.get('generatedAt').isoformat() if d.get('generatedAt') else None,
+                        'filter': d.get('filter'),
+                        'filterLabel': d.get('filterLabel'),
+                        'pages': d.get('pages', 6),
+                        'quizCount': d.get('quizCount', 0),
+                        'vocabCount': d.get('vocabCount', 0),
+                        'correctionsCount': d.get('correctionsCount', 0)
+                    })
+                
+                print(f"[GET_PDF_HISTORY] ✓ Returning {len(history)} items")
+                return (json.dumps({"history": history, "count": len(history)}), 200, headers)
+            except Exception as e:
+                print(f"[GET_HISTORY_ERR] {e}")
+                import traceback
+                traceback.print_exc()
+                return (json.dumps({"error": str(e)}), 500, headers)
+
+        # ========================================
+        # GET PDF BY ID (Full Download)
+        # ========================================
+        if req_type == 'get_pdf_by_id':
+            user_id = data.get('userId')
+            pdf_id = data.get('pdfId')
+            if not user_id or not pdf_id: return (json.dumps({"error": "Missing params"}), 400, headers)
+            
+            try:
+                db = firestore.Client()
+                doc_ref = db.collection('users').document(user_id).collection('pdfHistory').document(pdf_id)
+                doc = doc_ref.get()
+                
+                if not doc.exists:
+                    return (json.dumps({"error": "PDF not found"}), 404, headers)
+                
+                data = doc.to_dict()
+                return (json.dumps({"pdf": data.get('pdf')}), 200, headers)
+            except Exception as e:
+                 print(f"[GET_PDF_ERR] {e}")
+                 return (json.dumps({"error": str(e)}), 500, headers)
 
         # ========================================
         # GENERATE PRACTICE PDF (Workbook)
@@ -1982,66 +2312,6 @@ Return JSON:
                 return (json.dumps({"error": str(e)}), 500, headers)
 
         # ========================================
-        # GET PDF HISTORY (List past PDFs)
-        # ========================================
-        if req_type == 'get_pdf_history':
-            user_id = data.get('userId')
-            if not user_id:
-                return (json.dumps({"error": "userId required"}), 400, headers)
-            
-            try:
-                db = firestore.Client()
-                user_ref = db.collection('users').document(user_id)
-                
-                # Fetch PDF history (metadata only, not the actual PDF)
-                history_ref = user_ref.collection('pdfHistory').order_by('generatedAt', direction=firestore.Query.DESCENDING).limit(10)
-                history = []
-                for doc in history_ref.stream():
-                    doc_data = doc.to_dict()
-                    history.append({
-                        'id': doc.id,
-                        'generatedAt': doc_data.get('generatedAt').isoformat() if doc_data.get('generatedAt') else None,
-                        'filter': doc_data.get('filter', '7days'),
-                        'filterLabel': doc_data.get('filterLabel', 'Last 7 Days'),
-                        'pages': doc_data.get('pages', 6),
-                        'quizCount': doc_data.get('quizCount', 25),
-                        'vocabCount': doc_data.get('vocabCount', 10),
-                        'correctionsCount': doc_data.get('correctionsCount', 0)
-                    })
-                
-                return (json.dumps({"history": history}), 200, headers)
-            except Exception as e:
-                print(f"[PDF_HISTORY_ERROR] {e}")
-                return (json.dumps({"error": str(e)}), 500, headers)
-
-        # ========================================
-        # GET PDF BY ID (Re-download specific PDF)
-        # ========================================
-        if req_type == 'get_pdf_by_id':
-            user_id = data.get('userId')
-            pdf_id = data.get('pdfId')
-            if not user_id or not pdf_id:
-                return (json.dumps({"error": "userId and pdfId required"}), 400, headers)
-            
-            try:
-                db = firestore.Client()
-                pdf_ref = db.collection('users').document(user_id).collection('pdfHistory').document(pdf_id)
-                pdf_doc = pdf_ref.get()
-                
-                if not pdf_doc.exists:
-                    return (json.dumps({"error": "PDF not found"}), 404, headers)
-                
-                pdf_data = pdf_doc.to_dict()
-                return (json.dumps({
-                    "pdf": pdf_data.get('pdf'),
-                    "generatedAt": pdf_data.get('generatedAt').isoformat() if pdf_data.get('generatedAt') else None,
-                    "filterLabel": pdf_data.get('filterLabel', 'Unknown')
-                }), 200, headers)
-            except Exception as e:
-                print(f"[GET_PDF_ERROR] {e}")
-                return (json.dumps({"error": str(e)}), 500, headers)
-
-        # ========================================
         # GENERATE LEARNING PACK (Combined PDF)
         # ========================================
         if req_type == 'generate_learning_pack':
@@ -2069,17 +2339,23 @@ Return JSON:
                 total_sessions = stats.get('sessions', 0)
                 vocab_history = stats.get('vocabHistory', [])
                 
-                # Calculate level
-                if points >= 50000:
-                    level_name, level_icon = "Fluent Speaker", "🏆"
-                elif points >= 20000:
-                    level_name, level_icon = "Advanced", "💎"
-                elif points >= 10000:
-                    level_name, level_icon = "Intermediate", "🥈"
-                elif points >= 5000:
-                    level_name, level_icon = "Developing", "🥉"
-                else:
-                    level_name, level_icon = "Beginner", "🌱"
+                # Calculate Level based on AVG SCORE (matches Frontend logic)
+                # avg_score is calculated above
+                level_name = "Starter"
+                level_icon = "☆"
+                
+                if avg_score >= 95:
+                    level_name = "Master"
+                    level_icon = "★★★★"
+                elif avg_score >= 85:
+                    level_name = "Pro"
+                    level_icon = "★★★"
+                elif avg_score >= 70:
+                    level_name = "Improver"
+                    level_icon = "★★"
+                elif avg_score >= 50:
+                    level_name = "Learner"
+                    level_icon = "★"
                 
                 # Date filter
                 now = datetime.now()
@@ -2145,23 +2421,26 @@ Return JSON:
                 else:
                     time_spent_str = f"{period_time_minutes}m" if period_time_minutes > 0 else "0m"
                 
-                # Shield based on ALL-TIME accuracy (dashboard data) - Unicode stars approach
-                alltime_accuracy = round(avg_score) if avg_score else 0
-                if alltime_accuracy >= 90:
+                # Shield based on accuracy - Unicode stars approach (Stage naming)
+                if period_avg_accuracy >= 95:
                     shield_label = "MASTER"
                     shield_stars = "★★★★"
                     shield_color = '#FFD700'  # Gold
-                elif alltime_accuracy >= 75:
-                    shield_label = "EXPERT"
+                elif period_avg_accuracy >= 85:
+                    shield_label = "PRO"
                     shield_stars = "★★★"
                     shield_color = '#C0C0C0'  # Silver
-                elif alltime_accuracy >= 60:
-                    shield_label = "SKILLED"
+                elif period_avg_accuracy >= 70:
+                    shield_label = "IMPROVER"
                     shield_stars = "★★"
                     shield_color = '#CD7F32'  # Bronze
-                else:
+                elif period_avg_accuracy >= 50:
                     shield_label = "LEARNER"
                     shield_stars = "★"
+                    shield_color = '#10B981'  # Green
+                else:
+                    shield_label = "STARTER"
+                    shield_stars = "☆"
                     shield_color = '#6B7280'  # Gray
                 
                 # AI Content Generation
@@ -2180,7 +2459,6 @@ Analyze the mistakes and provide:
 
 Task 2: Grammar Quiz
 Create 25 fill-in-the-blank questions based on the user's mistake patterns.
-Be creative and generate diverse question types. Vary the difficulty and topic focus.
 For each: question (with ______), answer, 4 choices (A/B/C/D), brief explanation.
 
 Task 3: Vocabulary
@@ -2211,11 +2489,32 @@ Return JSON:
                 if new_vocab:
                     user_ref.update({"stats.vocabHistory": firestore.ArrayUnion(new_vocab)})
                 
+                # ===== CALCULATE TOP FOCUS AREAS (Restored) =====
+                mistake_counts = {}
+                for c in all_corrections:
+                    m_type = c.get('type', 'General').lower()
+                    if 'grammar' in m_type: m_type = 'Grammar'
+                    elif 'spelling' in m_type: m_type = 'Spelling'
+                    elif 'vocab' in m_type: m_type = 'Vocabulary'
+                    elif 'tense' in m_type: m_type = 'Verb Tenses'
+                    else: m_type = m_type.title()
+                    mistake_counts[m_type] = mistake_counts.get(m_type, 0) + 1
+                
+                sorted_types = sorted(mistake_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+
                 # ===== GENERATE PDF =====
                 buffer = BytesIO()
                 doc = SimpleDocTemplate(buffer, pagesize=A4, 
                                         rightMargin=20*mm, leftMargin=20*mm,
                                         topMargin=20*mm, bottomMargin=20*mm)
+                
+                def add_footer(canvas, doc):
+                    canvas.saveState()
+                    canvas.setFont('Helvetica', 9)
+                    canvas.setFillColor(colors.HexColor('#9CA3AF'))
+                    text = "Fluency Pro - Complete Learning Pack | Page %d of 6" % doc.page
+                    canvas.drawCentredString(A4[0]/2, 10*mm, text)
+                    canvas.restoreState()
                 
                 styles = getSampleStyleSheet()
                 
@@ -2238,181 +2537,172 @@ Return JSON:
                 story = []
                 
                 # ===== PAGE 1: Progress Summary =====
-                # 3-Column Header with Unicode stars (thicker border)
+                # 3-Column Header with Unicode stars (sleek border)
                 header_data = [[
-                    Paragraph(f"<font size='16' color='{shield_color}'>{shield_stars}</font><br/><font size='9' color='{shield_color}'><b>{shield_label}</b></font>", 
-                              ParagraphStyle('Shield', alignment=TA_CENTER, leading=18)),
-                    Paragraph(f"<font size='20' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='10' color='#6B7280'>Complete Learning Pack</font>", 
-                              ParagraphStyle('Title', alignment=TA_CENTER, leading=16)),
-                    Paragraph(f"<font size='10' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='8' color='#9CA3AF'>{filter_label}</font>", 
-                              ParagraphStyle('Date', alignment=TA_CENTER, leading=14))
+                    Paragraph(f"<font size='18' color='{shield_color}'>{shield_stars}</font><br/><font size='10' color='{shield_color}'><b>{shield_label}</b></font>", 
+                              ParagraphStyle('Shield', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='22' color='#10B981'><b>FLUENCY PRO</b></font><br/><font size='11' color='#6B7280'>Complete Learning Pack</font>", 
+                              ParagraphStyle('Title', alignment=TA_CENTER)),
+                    Paragraph(f"<font size='11' color='#374151'>{now.strftime('%B %d, %Y')}</font><br/><font size='9' color='#9CA3AF'>{filter_label}</font>", 
+                              ParagraphStyle('Date', alignment=TA_CENTER))
                 ]]
-                header_table = Table(header_data, colWidths=[35*mm, 95*mm, 40*mm])
+                header_table = Table(header_data, colWidths=[42*mm, 88*mm, 42*mm])
                 header_table.setStyle(TableStyle([
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),  # Thicker 2px border
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                    ('TOPPADDING', (0, 0), (-1, -1), 12),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+                    ('TOPPADDING', (0, 0), (-1, -1), 15),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 8),
                 ]))
                 story.append(header_table)
-                story.append(Spacer(1, 20))
+                story.append(Spacer(1, 15))
                 
-                # Stats Box - ALL-TIME (Dashboard) stats prominently displayed
-                # Estimate all-time time (avg 3 mins per session)
-                alltime_time_mins = total_sessions * 3
-                if alltime_time_mins >= 60:
-                    alltime_time_str = f"{alltime_time_mins // 60}h {alltime_time_mins % 60}m"
-                else:
-                    alltime_time_str = f"{alltime_time_mins}m" if alltime_time_mins > 0 else "0m"
+                # Stats Box Label - Clarify it's Lifetime stats
+                story.append(Paragraph("<font color='#6B7280'><b>📊 YOUR DASHBOARD STATS (LIFETIME)</b></font>", 
+                                       ParagraphStyle('StatsLabel', fontSize=10, alignment=TA_CENTER, spaceAfter=8)))
                 
+                # Stats Box - SHOW DASHBOARD STATS (Lifetime)
                 stats_data = [
-                    [f"{total_sessions}", f"{alltime_time_str}", f"{alltime_accuracy}%", f"{streak} days"],
-                    ["Sessions", "Time Spent", "Accuracy", "Streak"]
+                    [f"{total_sessions}", f"{int(avg_score)}%", f"{streak}"],
+                    ["Total Sessions", "Avg Accuracy", "Day Streak"]
                 ]
-                stats_table = Table(stats_data, colWidths=[40*mm, 45*mm, 40*mm, 40*mm])
+                stats_table = Table(stats_data, colWidths=[60*mm, 60*mm, 50*mm])
                 stats_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F0FDF4')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#047857')),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 24),
-                    ('FONTSIZE', (0, 1), (-1, 1), 10),
+                    ('FONTSIZE', (0, 0), (-1, 0), 26),
+                    ('FONTSIZE', (0, 1), (-1, 1), 11),
                     ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('TOPPADDING', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                    ('TOPPADDING', (0, 0), (-1, 0), 10),
                     ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#10B981')),
                 ]))
                 story.append(stats_table)
                 
-                # SELECTED PERIOD stats in muted style below (Highlighted as requested)
-                period_summary = f"{filter_label}: {period_sessions} sessions • {time_spent_str} • {period_avg_accuracy}% accuracy"
-                story.append(Paragraph(period_summary, 
-                                       ParagraphStyle('PeriodStats', fontSize=10, textColor=colors.HexColor('#4B5563'), backColor=colors.HexColor('#FFEDD5'), alignment=TA_CENTER, spaceBefore=8, spaceAfter=15)))
+                # Period Stats Row (Highlighted, Extra Spacing)
+                story.append(Spacer(1, 12))
+                period_text = f"<b>{filter_label} Stats:</b>  {period_sessions} Sessions  |  {time_spent_str} Time Spent  |  {period_avg_accuracy}% Accuracy"
+                p_style = ParagraphStyle('PeriodStats', parent=body_style, alignment=TA_CENTER, textColor=colors.HexColor('#1F2937'), backColor=colors.HexColor('#E5E7EB'), borderPadding=6)
+                story.append(Paragraph(period_text, p_style))
                 
                 story.append(Paragraph(f"{level_icon} Level: {level_name} | Total XP: {points:,.0f}", 
-                                       ParagraphStyle('Level', fontSize=12, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=10)))
-                story.append(Spacer(1, 15))
+                                       ParagraphStyle('Level', fontSize=14, textColor=colors.HexColor('#6366F1'), alignment=TA_CENTER, spaceBefore=12)))
+                story.append(Spacer(1, 20))
                 
                 # AI Insights
                 insights = content.get('insights', {})
-                story.append(Paragraph("<b>AI ANALYSIS</b>", section_header))
+                story.append(Paragraph("<b>PERFORMANCE ANALYSIS</b>", section_header))
                 
-                # --- TOP FOCUS AREAS (Restored) ---
-                if all_corrections:
-                    mistake_counts = {}
-                    for c in all_corrections:
-                        # Extract type from correction
-                        m_type = c.get('type', 'General').lower()
-                        # Normalize common types
-                        if 'grammar' in m_type: m_type = 'grammar'
-                        elif 'spelling' in m_type: m_type = 'spelling'
-                        elif 'vocab' in m_type: m_type = 'vocabulary'
-                        elif 'tense' in m_type: m_type = 'verb tenses'
-                        
-                        mistake_counts[m_type] = mistake_counts.get(m_type, 0) + 1
-                    
-                    # Sort by count desc
-                    sorted_types = sorted(mistake_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-                    
-                    if sorted_types:
-                        focus_text = "<b>TOP FOCUS AREAS</b><br/>Based on your recent mistakes:<br/>"
-                        for idx, (m_type, count) in enumerate(sorted_types, 1):
-                            count_str = "1 correction" if count == 1 else f"{count} corrections"
-                            focus_text += f"{idx}. {m_type} ({count_str})<br/>"
-                        
-                        story.append(Paragraph(focus_text, 
-                                            ParagraphStyle('Focus', fontSize=12, textColor=colors.HexColor('#B91C1C'), spaceAfter=12)))
-                        story.append(Spacer(1, 10))
-
-                # Two-column insights
                 weak_points = insights.get('weakPoints', [])
                 strong_points = insights.get('strongPoints', [])
                 
-                # Added extra spacing below headers as requested
-                weak_text = "<b><font color='#DC2626'>AREAS TO IMPROVE</font></b><br/><br/>"
+                # Colored Blocks for Analysis
+                # Weak Points (Reddish)
+                weak_text = "<b><font color='#DC2626'>AREAS TO IMPROVE</font></b><br/>"
                 for wp in weak_points[:3]:
-                    weak_text += f"<b>{wp.get('category', '')}:</b> {wp.get('detail', '')}<br/><br/>"
+                    weak_text += f"<font size='11'>• <b>{wp.get('category', '')}:</b> {wp.get('detail', '')}</font><br/><br/>"
                 
-                strong_text = "<b><font color='#16A34A'>YOUR STRENGTHS</font></b><br/><br/>"
-                for sp in strong_points[:2]:
-                    strong_text += f"<b>{sp.get('category', '')}:</b> {sp.get('detail', '')}<br/><br/>"
-                
-                insights_data = [[
-                    Paragraph(weak_text, ParagraphStyle('Weak', fontSize=12, textColor=colors.HexColor('#374151'))),
-                    Paragraph(strong_text, ParagraphStyle('Strong', fontSize=12, textColor=colors.HexColor('#374151')))
-                ]]
-                insights_table = Table(insights_data, colWidths=[85*mm, 85*mm])
-                insights_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#FEF2F2')),
-                    ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F0FDF4')),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                weak_data = [[Paragraph(weak_text, body_style)]]
+                weak_table = Table(weak_data, colWidths=[175*mm])
+                weak_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEF2F2')),
                     ('LEFTPADDING', (0, 0), (-1, -1), 10),
                     ('RIGHTPADDING', (0, 0), (-1, -1), 10),
                     ('TOPPADDING', (0, 0), (-1, -1), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
                 ]))
-                story.append(insights_table)
-                story.append(Spacer(1, 15))
+                story.append(weak_table)
+                story.append(Spacer(1, 10))
                 
+                # Strong Points (Greenish)
+                strong_text = "<b><font color='#16A34A'>YOUR STRENGTHS</font></b><br/>"
+                for sp in strong_points[:2]:
+                    strong_text += f"<font size='11'>• <b>{sp.get('category', '')}:</b> {sp.get('detail', '')}</font><br/><br/>"
+                
+                strong_data = [[Paragraph(strong_text, body_style)]]
+                strong_table = Table(strong_data, colWidths=[175*mm])
+                strong_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ]))
+                story.append(strong_table)
+                
+                story.append(Spacer(1, 15))
+
+                # ===== TOP FOCUS AREAS (Restored & Counted) =====
+                if sorted_types:
+                    story.append(Spacer(1, 10))
+                    focus_text = "<b><font size='12' color='#DC2626'>TOP FOCUS AREAS:</font></b> "
+                    # Show counts: "Grammar (9)"
+                    focus_items = [f"<b>{m_type}</b> ({count})" for m_type, count in sorted_types]
+                    focus_text += "  •  ".join(focus_items)
+                    story.append(Paragraph(focus_text, ParagraphStyle('Focus', alignment=TA_CENTER)))
+
+                story.append(Spacer(1, 15))
                 story.append(Paragraph("<i>'Every mistake is a step towards mastery. Keep practicing!'</i>", 
                                        ParagraphStyle('Quote', fontSize=13, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER, spaceBefore=10)))
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 1 of 6", footer_style))
+                
+                # Page break before Quiz
                 story.append(PageBreak())
                 
-                # ===== PAGES 2-3: Grammar Challenge =====
+                # ===== GRAMMAR QUIZ =====
                 quiz = content.get('quiz', [])
-                story.append(Spacer(1, 15))  # Space at top of new page
                 story.append(Paragraph("<b>PART 1: GRAMMAR CHALLENGE</b>", section_header))
-                story.append(Paragraph("Fill in the blanks with the correct answer. Check the Answer Key on Page 5!", body_style))
-                story.append(Spacer(1, 20))
-                
-                for i, q in enumerate(quiz[:25], 1):
-                    story.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
-                    story.append(Spacer(1, 10)) # Space INSIDE question (between Q and options)
-                    choices = q.get('choices', [])
-                    # 2 spaces between options as requested
-                    choices_text = "  ".join(choices[:4])
-                    story.append(Paragraph(choices_text, options_style))
-                    story.append(Spacer(1, 4)) # Reduced space between questions
-                
-                # Answer Key flows directly after questions - no page break
-                story.append(Spacer(1, 20))
-                story.append(Paragraph("<b>ANSWER KEY</b>", section_header))
-                story.append(Paragraph("Check your answers:", body_style))
-                story.append(Spacer(1, 10))
-                
-                # Answer key with explanations for each question
-                for i, q in enumerate(quiz[:25], 1):
-                    story.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
-                    story.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
-                    story.append(Spacer(1, 4))
-                
+                story.append(Paragraph("Fill in the blanks with the correct answer.", body_style))
                 story.append(Spacer(1, 15))
-                story.append(PageBreak())  # Break before Vocabulary section
                 
-                # ===== PAGE 4: Vocabulary =====
+                for i, q in enumerate(quiz[:25], 1):
+                    # Keep Question + Options together
+                    q_block = []
+                    q_block.append(Paragraph(f"<b>Q{i}.</b> {q.get('question', '')}", question_style))
+                    q_block.append(Spacer(1, 6))
+                    
+                    choices = q.get('choices', [])
+                    choices_text = "   ".join(choices[:4])
+                    q_block.append(Paragraph(choices_text, options_style))
+                    q_block.append(Spacer(1, 8))
+                    
+                    story.append(KeepTogether(q_block))
+                
+                story.append(Spacer(1, 20))
+
+                # ===== ANSWER KEY (Immediately after Quiz) =====
+                story.append(Paragraph("<b>ANSWER KEY</b>", section_header))
+                for i, q in enumerate(quiz[:25], 1):
+                    key_block = []
+                    key_block.append(Paragraph(f"<b>Q{i}: {q.get('answer', '')}</b>", answer_style))
+                    key_block.append(Paragraph(f"<i>{q.get('explanation', '')}</i>", small_style))
+                    story.append(KeepTogether(key_block))
+                
+                story.append(PageBreak())
+                
+                # ===== VOCABULARY =====
                 vocab = content.get('vocabulary', [])
-                story.append(Spacer(1, 15))  # Space at top of page 4
                 story.append(Paragraph("<b>PART 2: VOCABULARY BUILDER</b>", section_header))
                 story.append(Paragraph("Master these 10 new words to upgrade your English!", body_style))
-                story.append(Spacer(1, 20))
+                story.append(Spacer(1, 15))
                 
                 for i, v in enumerate(vocab[:10], 1):
-                    story.append(Paragraph(f"{i}. {v.get('word', '')}", vocab_word))
-                    story.append(Paragraph(f"<b>Definition:</b> {v.get('definition', '')}", vocab_def))
-                    story.append(Paragraph(f"<b>Example:</b> <i>\"{v.get('example', '')}\"</i>", vocab_def))
-                    story.append(Spacer(1, 12))  # More spacing between vocab items
+                    v_block = []
+                    v_block.append(Paragraph(f"{i}. {v.get('word', '')}", vocab_word))
+                    v_block.append(Paragraph(f"<b>Definition:</b> {v.get('definition', '')}", vocab_def))
+                    v_block.append(Paragraph(f"<b>Example:</b> <i>\"{v.get('example', '')}\"</i>", vocab_def))
+                    v_block.append(Spacer(1, 12))
+                    story.append(KeepTogether(v_block))
                 
-                story.append(Spacer(1, 15))
-                story.append(PageBreak())  # Break before Corrections section
+                story.append(PageBreak())
                 
-                # ===== PAGE 6: Recent Corrections =====
-                story.append(Spacer(1, 15))  # Space at top of page 6
+                # ===== CORRECTIONS (Limit 35) =====
                 story.append(Paragraph("<b>YOUR RECENT CORRECTIONS</b>", section_header))
                 story.append(Paragraph("Review these mistakes to avoid repeating them!", body_style))
-                story.append(Spacer(1, 20))
+                story.append(Spacer(1, 15))
                 
                 for i, corr in enumerate(all_corrections[:35], 1):
                     original = corr.get('original', '')
@@ -2420,66 +2710,91 @@ Return JSON:
                     corr_type = corr.get('type', 'General')
                     explanation = corr.get('explanation', '')
                     
-                    story.append(Paragraph(f"<b>#{i} | {corr_type}</b>", ParagraphStyle('CorrH', fontSize=11, textColor=colors.HexColor('#9CA3AF'), spaceAfter=4)))
-                    # Use Unicode symbols for X and checkmark
-                    story.append(Paragraph(f"<font color='#DC2626'><b>✗</b> YOUR VERSION:</font> \"{original}\"", body_style))
-                    story.append(Paragraph(f"<font color='#059669'><b>✓</b> CORRECT:</font> \"{corrected}\"", body_style))
-                    
+                    c_block = []
+                    c_block.append(Paragraph(f"<b>#{i} | {corr_type}</b>", ParagraphStyle('CorrH', fontSize=11, textColor=colors.HexColor('#9CA3AF'), spaceAfter=4)))
+                    c_block.append(Paragraph(f"<font color='#DC2626'><b>✗</b> YOUR VERSION:</font> \"{original}\"", body_style))
+                    c_block.append(Paragraph(f"<font color='#059669'><b>✓</b> CORRECT:</font> \"{corrected}\"", body_style))
                     if explanation:
-                        story.append(Paragraph(f"TIP: {explanation}", tip_style))
-                    story.append(Spacer(1, 12))
+                        c_block.append(Paragraph(f"TIP: {explanation}", tip_style))
+                    c_block.append(Spacer(1, 12))
+                    story.append(KeepTogether(c_block))
                 
+                # Learning Notes Box
+                story.append(Spacer(1, 20))
+                notes_text = """<b><font color='#4338CA'>📚 HOW TO IMPROVE FROM CORRECTIONS:</font></b><br/><br/>
+                <font size='10'>1. <b>Read aloud</b> the correct version 3 times to build muscle memory.<br/>
+                2. <b>Write it down</b> - physically writing reinforces learning.<br/>
+                3. <b>Create sentences</b> using the corrected phrase in new contexts.<br/>
+                4. <b>Review weekly</b> - revisit this PDF to refresh your memory.</font>"""
+                notes_data = [[Paragraph(notes_text, body_style)]]
+                notes_table = Table(notes_data, colWidths=[175*mm])
+                notes_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#EEF2FF')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 12),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+                    ('TOPPADDING', (0, 0), (-1, -1), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                    ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#6366F1')),
+                ]))
+                story.append(notes_table)
                 story.append(Spacer(1, 15))
-                story.append(Paragraph("<i>'Mistakes are proof that you are trying. Keep practicing and you'll master English!'</i>", 
-                                       ParagraphStyle('Quote', fontSize=13, textColor=colors.HexColor('#7C3AED'), alignment=TA_CENTER)))
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Great job! Keep learning with Fluency Pro!", 
-                                       ParagraphStyle('End', fontSize=15, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold')))
-                story.append(Spacer(1, 10))
-                story.append(Paragraph("Fluency Pro - Complete Learning Pack | Page 6 of 6", footer_style))
                 
-                # Build PDF
-                doc.build(story)
+                story.append(Paragraph("Great job! Keep learning with Fluency Pro!", 
+                                       ParagraphStyle('End', fontSize=15, textColor=colors.HexColor('#10B981'), alignment=TA_CENTER, fontName='Helvetica-Bold', spaceBefore=20)))
+                
+                # Build with Footer Callback
+                doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
                 pdf_bytes = buffer.getvalue()
                 buffer.close()
                 
                 pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
                 
-                # Store PDF in history (last 10 PDFs per user)
+                # --- SAVE TO HISTORY ---
+                history_id = None
+                creation_time = now.isoformat()
+
                 try:
-                    pdf_id = str(int(now.timestamp() * 1000))  # Unique ID
-                    pdf_history_ref = user_ref.collection('pdfHistory').document(pdf_id)
-                    pdf_history_ref.set({
-                        'pdf': pdf_base64,
+                    history_ref = user_ref.collection('pdfHistory')
+                    print(f"[HISTORY_SAVE] Creating new history document...")
+                    
+                    # Create new history doc
+                    update_time, doc_ref = history_ref.add({
                         'generatedAt': firestore.SERVER_TIMESTAMP,
                         'filter': date_filter,
                         'filterLabel': filter_label,
                         'pages': 6,
                         'quizCount': len(quiz),
                         'vocabCount': len(vocab),
-                        'correctionsCount': min(len(all_corrections), 35)
+                        'correctionsCount': len(all_corrections),
+                        'pdf': pdf_base64 # Store the full PDF
                     })
+                    history_id = doc_ref.id
+                    print(f"[HISTORY_SAVE] ✓ Created document: {history_id}")
                     
-                    # Update user stats with PDF download count (persists on refresh)
-                    user_ref.set({
-                        'stats': {
-                            'pdfDownloads': firestore.Increment(1),
-                            'lastPdfDownload': now.isoformat()
-                        }
-                    }, merge=True)
+                    # Cleanup old history (keep last 10)
+                    # IMPORTANT: Exclude the newly created document to avoid race condition
+                    all_docs = history_ref.order_by('generatedAt', direction=firestore.Query.DESCENDING).get()
+                    print(f"[HISTORY_CLEANUP] Total docs found: {len(all_docs)}")
                     
-                    # Keep only last 10 PDFs (delete older ones)
-                    history_query = user_ref.collection('pdfHistory').order_by('generatedAt', direction=firestore.Query.DESCENDING).limit(15).stream()
-                    history_docs = list(history_query)
-                    if len(history_docs) > 10:
-                        for old_doc in history_docs[10:]:
-                            old_doc.reference.delete()
-                    print(f"[PDF_HISTORY] Saved PDF {pdf_id} for user {user_id}")
-                except Exception as hist_err:
-                    print(f"[PDF_HISTORY_ERROR] Could not save history: {hist_err}")
+                    if len(all_docs) > 10:
+                        # Only delete docs that are NOT the new one
+                        docs_to_delete = [d for d in all_docs[10:] if d.id != history_id]
+                        print(f"[HISTORY_CLEANUP] Deleting {len(docs_to_delete)} old docs")
+                        for doc in docs_to_delete:
+                            doc.reference.delete()
+                    else:
+                        print(f"[HISTORY_CLEANUP] No cleanup needed ({len(all_docs)} <= 10)")
+                        
+                except Exception as h_err:
+                    print(f"[HISTORY_SAVE_ERR] {h_err}")
+                    import traceback
+                    traceback.print_exc()
                 
                 return (json.dumps({
                     "pdf": pdf_base64,
+                    "historyId": history_id,
+                    "generatedAt": creation_time,
+                    "filterLabel": filter_label,
                     "pages": 6,
                     "quizCount": len(quiz),
                     "vocabCount": len(vocab),
