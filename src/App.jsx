@@ -2581,14 +2581,16 @@ const App = () => {
 
         setDualAnalysis(adjustedData);
 
+        // Determine win BEFORE try block so it's accessible in setStats
+        const analyzedBy = adjustedData?.analyzedBy;
+        const amIPlayer1 = !analyzedBy || analyzedBy === user.uid;
+        const didIWin = amIPlayer1 ? (adjustedData?.winner === 'player1') : (adjustedData?.winner === 'player2');
+
         // Store competitive session
         try {
-          // Determine win correctly based on perspective (same logic as WinnerReveal)
-          const analyzedBy = data?.analyzedBy;
-          const amIPlayer1 = !analyzedBy || analyzedBy === user.uid;
-          const myData = amIPlayer1 ? data?.player1 : data?.player2;
-          const oppData = amIPlayer1 ? data?.player2 : data?.player1;
-          const didIWin = amIPlayer1 ? (data?.winner === 'player1') : (data?.winner === 'player2');
+          // Use the already-calculated values
+          const myData = amIPlayer1 ? adjustedData?.player1 : adjustedData?.player2;
+          const oppData = amIPlayer1 ? adjustedData?.player2 : adjustedData?.player1;
 
           // Prepare battle chat history for analytics
           const battleChatHistory = capturedMessages
