@@ -871,10 +871,10 @@ If PERFECT:
 {{"accuracy": 100, "errorLevel": "perfect", "correction": null}}
 
 If MINOR ISSUE:
-{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"original": "gonna", "corrected": "going to", "reason": "Casual is fine! Just a tiny polish 😊"}}}}
+{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"type": "Style", "original": "gonna", "corrected": "going to", "reason": "Casual is fine! Just a tiny polish 😊"}}}}
 
 If ERROR:
-{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"original": "I going", "corrected": "I am going", "reason": "Almost! Just add 'am' - you've got this! 💪"}}}}
+{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"type": "Grammar", "original": "I going", "corrected": "I am going", "reason": "Almost! Just add 'am' - you've got this! 💪"}}}}
 
 JSON only:"""
             

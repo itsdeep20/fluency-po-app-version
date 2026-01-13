@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
-  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc
+  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc, increment
 } from 'firebase/firestore';
 
 import {
@@ -345,6 +345,8 @@ const App = () => {
   const searchTimeoutRef = useRef(null);
   const matchListener = useRef(null);
   const chatListener = useRef(null);
+  const lastOpponentMsgTimeRef = useRef(Date.now()); // Track last opponent message for inactivity
+  const inactivityTimerRef = useRef(null); // Timer to check opponent inactivity
   // Stale Closure Fix Refs (Bug 6)
   const messagesRef = useRef([]);
   const battleAccuraciesRef = useRef([]);
@@ -431,6 +433,7 @@ const App = () => {
   const isSyncingInitialRef = useRef(true);
   const [isEnding, setIsEnding] = useState(false);
   const [showExitWarning, setShowExitWarning] = useState(false);
+  const [sessionEndReason, setSessionEndReason] = useState(null); // 'timeout' | 'opponent_left' | 'time_up' | null
   const messagesEndRef = useRef(null);
 
   // AI Assist & Translation Feature States
@@ -622,6 +625,20 @@ const App = () => {
     }
   };
 
+  // Analytics tracking helper - increment counters in Firestore
+  const trackAnalytics = async (field) => {
+    if (!user) return;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        analytics: { [field]: increment(1) }
+      }, { merge: true });
+      console.log('[ANALYTICS] Tracked:', field);
+    } catch (e) {
+      console.error('[ANALYTICS] Error tracking:', field, e);
+    }
+  };
+
 
 
   // Effects
@@ -658,9 +675,68 @@ const App = () => {
         const data = snap.data();
         setStats(prev => ({ ...prev, ...data.stats }));
         if (data.userAvatar) setUserAvatar(data.userAvatar);
+
+        // MIGRATION: Add email for existing users who don't have it (runs once per user)
+        // Use auth.currentUser to get fresh user data (avoid stale closure issues)
+        const currentAuthUser = auth.currentUser;
+        const needsEmailMigration = (!data.email || data.email === '' || data.email === null) && currentAuthUser?.email;
+        console.log('[MIGRATION_DEBUG] Check:', {
+          dataEmail: data.email,
+          authEmail: currentAuthUser?.email,
+          needsMigration: needsEmailMigration
+        });
+        if (needsEmailMigration) {
+          console.log('[MIGRATION] Adding email for existing user:', currentAuthUser.email);
+          await setDoc(docRef, {
+            email: currentAuthUser.email,
+            displayName: currentAuthUser.displayName || data.displayName || 'Player',
+            uid: currentAuthUser.uid
+          }, { merge: true });
+          console.log('[MIGRATION] Successfully added email!');
+        }
+
+        // Update last active timestamp (throttled to once per session)
+        if (!window._lastActiveUpdated) {
+          window._lastActiveUpdated = true;
+          await setDoc(docRef, { lastActiveAt: serverTimestamp() }, { merge: true });
+        }
       } else {
-        // Initial setup if doc doesn't exist
-        await setDoc(docRef, { uid: user.uid, stats: { streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null }, userAvatar, lastBots: [] });
+        // Initial setup if doc doesn't exist - include user details and analytics
+        const deviceType = /Mobile|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+        await setDoc(docRef, {
+          uid: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || 'Player',
+          createdAt: serverTimestamp(),
+          lastActiveAt: serverTimestamp(),
+          deviceType: deviceType,
+          stats: { streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null },
+          userAvatar,
+          lastBots: [],
+          // Analytics structure
+          analytics: {
+            aiAssistClicks: 0,
+            translationClicks: 0,
+            pdfGenerations: 0,
+            explainClicks: 0,
+            battleBotsJoined: 0,
+            battleHumansRandom: 0,
+            battleHumansInvite: 0,
+            battleHumansRoom: 0,
+            invitesSent: 0,
+            invitesAccepted: 0,
+            invitesDeclined: 0,
+            totalTimeSpentSeconds: 0
+          },
+          // Settings state
+          settings: {
+            isAiAssistOn: true,
+            isTranslationOn: true,
+            isBattleTipsOn: false,
+            isSpeakerOn: false,
+            motherTongue: 'Hindi'
+          }
+        });
       }
     }, (err) => console.error("Stats listener error:", err));
 
@@ -876,6 +952,38 @@ const App = () => {
       return () => clearInterval(timerRef.current);
     }
   }, [timerActive]);
+
+  // Opponent Inactivity Timer - Auto-end if opponent inactive for 60 seconds (human battles only)
+  useEffect(() => {
+    if (view === 'chat' && activeSession?.type === 'human' && timerActive) {
+      // Reset last message time when entering battle
+      lastOpponentMsgTimeRef.current = Date.now();
+
+      inactivityTimerRef.current = setInterval(() => {
+        const timeSinceLastMsg = Date.now() - lastOpponentMsgTimeRef.current;
+        if (timeSinceLastMsg >= 60000) { // 60 seconds = 1 minute
+          clearInterval(inactivityTimerRef.current);
+          console.log('[INACTIVITY] Opponent inactive for 60s, auto-ending session');
+          setSessionEndReason('timeout');
+          endSession(true, false);
+        }
+      }, 5000); // Check every 5 seconds
+
+      return () => {
+        if (inactivityTimerRef.current) clearInterval(inactivityTimerRef.current);
+      };
+    }
+  }, [view, activeSession?.type, timerActive]);
+
+  // Auto-clear session end reason popup after 5 seconds (enough time to read)
+  useEffect(() => {
+    if (sessionEndReason) {
+      const timer = setTimeout(() => {
+        setSessionEndReason(null);
+      }, 5000); // 5 seconds for better visibility
+      return () => clearTimeout(timer);
+    }
+  }, [sessionEndReason]);
 
   // Invitation Countdown Timer
   useEffect(() => {
@@ -1181,6 +1289,7 @@ const App = () => {
 
   // Handle AI Assist button click
   const handleAiAssistClick = async (messageId, messageText) => {
+    trackAnalytics('aiAssistClicks'); // Track usage
     const context = messages.filter(m => m.sender !== 'correction' && m.sender !== 'suggestion').slice(-5).map(m => `${m.sender === 'me' ? 'User' : 'Bot'}: ${m.text}`).join('\n');
     setShowAiAssistPopup({ messageId, message: messageText, loading: true });
     const assistData = await getAiAssist(messageText, context);
@@ -1193,6 +1302,7 @@ const App = () => {
 
   // Handle Translation long press
   const handleTranslationPress = async (messageId, messageText) => {
+    trackAnalytics('translationClicks'); // Track usage
     setShowTranslationPopup({ messageId, message: messageText, loading: true });
     const translation = await getTranslation(messageText);
     if (translation) {
@@ -1227,6 +1337,7 @@ const App = () => {
 
   const sendInvitation = async (targetUser) => {
     if (!user || !targetUser) return;
+    trackAnalytics('invitesSent'); // Track invite sent
     const invitationRef = doc(db, 'invitations', targetUser.id);
     console.log('[INVITE_SEND] Attempting to create invitation at path:', invitationRef.path);
     console.log('[INVITE_SEND] Target ID:', targetUser.id, 'My UID:', user.uid);
@@ -1350,6 +1461,7 @@ const App = () => {
 
   const acceptInvitation = async () => {
     if (!incomingInvitation) return;
+    trackAnalytics('invitesAccepted'); // Track invite accepted
     try {
       // Create a room for both players
       const token = await user.getIdToken();
@@ -1609,6 +1721,13 @@ const App = () => {
     if (isJoiningRef.current) return;
     isJoiningRef.current = true;
 
+    // Track battle type
+    if (type === 'battle-bot') {
+      trackAnalytics('battleBotsJoined');
+    } else if (type === 'human') {
+      trackAnalytics('battleHumansRandom'); // Generic human battle (could be random, invite, or room)
+    }
+
     // If we're already in an active session, don't re-join
     if (activeSession && activeSession.id === roomId) {
       isJoiningRef.current = false;
@@ -1638,6 +1757,7 @@ const App = () => {
     setTimeRemaining(420);
     setTimerActive(true);
     setSessionPoints(0);
+    setSessionStartTime(Date.now()); // Track session start for duration calculation
     setMessageAccuracies([]); // V7: Reset accuracy tracking
     setBattleAccuracies([]); // V8: Reset battle accuracy tracking
     setBattleCorrections([]); // Reset battle corrections for new session
@@ -1712,6 +1832,9 @@ const App = () => {
         // ONGOING: Queue NEW messages for animation
         const newMsgs = opponentMsgs.filter(m => !processedMessageIds.current.has(m.id));
         if (newMsgs.length > 0) {
+          // Update last opponent message time for inactivity tracking
+          lastOpponentMsgTimeRef.current = Date.now();
+
           console.log('[CHAT_LISTENER] New messages:', newMsgs.length, 'Match type:', type);
           // HUMAN MATCH: Fast-path (Instant Delivery)
           if (type === 'human') {
@@ -2167,6 +2290,16 @@ const App = () => {
     if (capturedSession?.type === 'bot') {
       // Store session history to Firestore
       const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0; // Duration in seconds
+
+      // Prepare chat history (both sides) for analytics
+      const chatHistory = capturedMessages
+        .filter(m => m.sender === 'me' || m.sender === 'opponent' || m.sender === 'bot')
+        .map(m => ({
+          sender: m.sender,
+          text: m.text,
+          timestamp: m.createdAt || Date.now()
+        }));
+
       const sessionData = {
         simId: capturedSession.id,
         simName: capturedSession.opponent?.name || 'Simulation',
@@ -2179,7 +2312,8 @@ const App = () => {
         duration: sessionDuration, // Session duration in seconds for time tracking
         startTime: serverTimestamp(), // For PDF Study Guide query
         timestamp: serverTimestamp(),
-        lastMessage: myMessages[myMessages.length - 1]?.text || ''
+        lastMessage: myMessages[myMessages.length - 1]?.text || '',
+        chatHistory: chatHistory // Full chat for analytics
       };
 
       console.log('[DEBUG_SAVE] Session corrections:', sessionCorrections);
@@ -2384,6 +2518,16 @@ const App = () => {
           const oppData = amIPlayer1 ? data?.player2 : data?.player1;
           const didIWin = amIPlayer1 ? (data?.winner === 'player1') : (data?.winner === 'player2');
 
+          // Prepare battle chat history for analytics
+          const battleChatHistory = capturedMessages
+            .filter(m => m.sender === 'me' || m.sender === 'opponent')
+            .map(m => ({
+              sender: m.sender,
+              text: m.text,
+              timestamp: m.createdAt || Date.now()
+            }));
+          const battleDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+
           const sessionsRef = collection(db, 'users', user.uid, 'sessions');
           await addDoc(sessionsRef, {
             type: capturedSession.type === 'battle-bot' ? 'battle-bot' : '1v1',
@@ -2395,8 +2539,10 @@ const App = () => {
             correctionsCount: battleCorrectionsRef.current.length,
             accuracy: myScore,
             messagesCount: totalSent,
+            duration: battleDuration, // Session duration for time tracking
             startTime: serverTimestamp(),
-            timestamp: serverTimestamp()
+            timestamp: serverTimestamp(),
+            chatHistory: battleChatHistory // Full chat for analytics
           });
           console.log('[DEBUG_SAVE] Battle session saved with corrections:', battleCorrectionsRef.current);
         } catch (e) { console.error('Session save error:', e); }
@@ -2440,7 +2586,8 @@ const App = () => {
             avgScore: newAvgScore,
             level: newLevel,
             streak: newStreak,
-            lastPracticeDate: todayStr
+            lastPracticeDate: todayStr,
+            battleWins: (prev.battleWins || 0) + (didIWin ? 1 : 0) // Track battle wins for achievements
           };
           setTimeout(() => saveUserData(n, null), 10);
           return n;
@@ -3561,11 +3708,14 @@ const App = () => {
             </div>
             <div className="flex-1">
               <div className="font-bold text-gray-900">{user.isAnonymous ? 'Guest Player' : user.displayName || 'Player'}</div>
-              {/* Level badge - computed from avgScore, smaller and stylish */}
+              {/* Level badge - computed from avgScore, smaller and stylish - CLICKABLE */}
               {(() => {
                 const levelData = getLevelFromAccuracy(stats.avgScore || 0);
                 return (
-                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-gradient-to-r ${levelData.gradient}`}>
+                  <span
+                    onClick={() => setShowLevelProgress(true)}
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-gradient-to-r ${levelData.gradient} cursor-pointer hover:opacity-90 hover:scale-105 transition-all`}
+                  >
                     {levelData.icon} {levelData.name}
                   </span>
                 );
@@ -4408,6 +4558,9 @@ const App = () => {
                         ];
 
                         try {
+                          // Track PDF generation
+                          trackAnalytics('pdfGenerations');
+
                           // Start API call IMMEDIATELY (in parallel with animation)
                           const token = await user.getIdToken();
                           const apiPromise = fetch(`${BACKEND_URL}`, {
@@ -4720,7 +4873,21 @@ const App = () => {
                     {isLoadingFeedback ? (
                       <span className="animate-pulse text-orange-500">Analyzing your session...</span>
                     ) : (
-                      aiFeedback || "Great effort! Keep practicing to improve."
+                      // Parse markdown: **text** → bold, color-code keywords
+                      (aiFeedback || "Great effort! Keep practicing to improve.").split(/(\*\*[^*]+\*\*)/).map((part, idx) => {
+                        if (part.startsWith('**') && part.endsWith('**')) {
+                          const text = part.slice(2, -2);
+                          // Color-code specific keywords
+                          if (text.toLowerCase().includes('needs work') || text.toLowerCase().includes('error') || text.toLowerCase().includes('mistake')) {
+                            return <span key={idx} className="font-bold text-red-600">{text}</span>;
+                          } else if (text.toLowerCase().includes('good') || text.toLowerCase().includes('strength') || text.toLowerCase().includes('okay')) {
+                            return <span key={idx} className="font-bold text-emerald-600">{text}</span>;
+                          } else {
+                            return <span key={idx} className="font-bold text-orange-700">{text}</span>;
+                          }
+                        }
+                        return part;
+                      })
                     )}
                   </div>
                   <div className="text-xs text-gray-400 mt-3 text-center">↓ scroll if more content</div>
@@ -4843,50 +5010,135 @@ const App = () => {
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-md p-6 relative my-auto max-h-[90vh] overflow-y-auto">
                 <button onClick={() => setShowAchievements(false)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
 
-                <h3 className="text-2xl font-black text-gray-900 mb-6 text-center">🏆 Achievements</h3>
+                <h3 className="text-2xl font-black text-gray-900 mb-2 text-center">🏆 Achievements</h3>
+                <p className="text-sm text-gray-500 text-center mb-4">
+                  {(() => {
+                    const achievements = [
+                      stats.sessions >= 1, stats.streak >= 3, stats.streak >= 7, stats.streak >= 14, stats.streak >= 30,
+                      stats.sessions >= 10, stats.sessions >= 50, stats.points >= 100, stats.points >= 1000,
+                      stats.avgScore >= 90, stats.avgScore >= 95, (stats.battleWins || 0) >= 1, (stats.battleWins || 0) >= 5
+                    ];
+                    const unlocked = achievements.filter(a => a).length;
+                    return `${unlocked} of ${achievements.length} unlocked`;
+                  })()}
+                </p>
 
-                <div className="space-y-4 mb-6">
-                  <div className={`p-4 rounded-2xl ${stats.sessions >= 1 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.sessions >= 1 ? '🌟' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">First Steps</div>
-                        <div className="text-xs text-gray-500">Complete your first session</div>
-                      </div>
-                    </div>
+                {/* Streak Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    🔥 Streaks
                   </div>
-                  <div className={`p-4 rounded-2xl ${stats.sessions >= 10 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.sessions >= 10 ? '🔥' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">On Fire</div>
-                        <div className="text-xs text-gray-500">Complete 10 sessions</div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Streak Starter', desc: '3-day practice streak', icon: '🔥', unlocked: stats.streak >= 3 },
+                      { name: 'Week Warrior', desc: '7-day practice streak', icon: '⚡', unlocked: stats.streak >= 7 },
+                      { name: 'Habit Builder', desc: '14-day practice streak', icon: '💪', unlocked: stats.streak >= 14 },
+                      { name: 'Legend', desc: '30-day practice streak', icon: '👑', unlocked: stats.streak >= 30 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
                       </div>
-                    </div>
-                  </div>
-                  <div className={`p-4 rounded-2xl ${stats.points >= 100 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.points >= 100 ? '💯' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">Century Club</div>
-                        <div className="text-xs text-gray-500">Earn 100 points</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`p-4 rounded-2xl ${stats.avgScore >= 90 ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-gray-50 border-2 border-gray-100'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{stats.avgScore >= 90 ? '🎯' : '🔒'}</span>
-                      <div>
-                        <div className="font-bold text-gray-900">Perfect Speaker</div>
-                        <div className="text-xs text-gray-500">Maintain 90%+ accuracy</div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="text-center text-gray-400 text-sm">
-                  More achievements coming soon! 🚀
+                {/* Session Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    📚 Sessions
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'First Steps', desc: 'Complete your first session', icon: '🌟', unlocked: stats.sessions >= 1 },
+                      { name: 'On Fire', desc: 'Complete 10 sessions', icon: '🎯', unlocked: stats.sessions >= 10 },
+                      { name: 'Dedicated', desc: 'Complete 50 sessions', icon: '📚', unlocked: stats.sessions >= 50 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
+                {/* Points Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    💰 Points
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Century Club', desc: 'Earn 100 points', icon: '💯', unlocked: stats.points >= 100 },
+                      { name: 'High Scorer', desc: 'Earn 1,000 points', icon: '🏆', unlocked: stats.points >= 1000 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Accuracy Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    ⭐ Accuracy
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Grammar Guru', desc: 'Maintain 90%+ accuracy', icon: '📝', unlocked: stats.avgScore >= 90 },
+                      { name: 'Master Level', desc: 'Reach 95%+ accuracy', icon: '⭐', unlocked: stats.avgScore >= 95 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Battle Achievements */}
+                <div className="mb-4">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    ⚔️ Battles
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Battle Ready', desc: 'Win your first battle', icon: '⚔️', unlocked: (stats.battleWins || 0) >= 1 },
+                      { name: 'Battle Champion', desc: 'Win 5 battles', icon: '🥇', unlocked: (stats.battleWins || 0) >= 5 },
+                    ].map(a => (
+                      <div key={a.name} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${a.unlocked ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200' : 'bg-gray-50 border border-gray-100 opacity-60'}`}>
+                        <span className="text-xl">{a.unlocked ? a.icon : '🔒'}</span>
+                        <div className="flex-1">
+                          <div className={`font-bold text-sm ${a.unlocked ? 'text-emerald-700' : 'text-gray-500'}`}>{a.name}</div>
+                          <div className="text-xs text-gray-400">{a.desc}</div>
+                        </div>
+                        {a.unlocked && <span className="text-emerald-500">✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button onClick={() => setShowAchievements(false)} className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:opacity-90 transition-opacity">
+                  Keep Practicing! 💪
+                </button>
               </motion.div>
             </motion.div>
           )}
@@ -5218,6 +5470,34 @@ const App = () => {
           )}
         </AnimatePresence>
 
+        {/* Session End Reason Notification Overlay */}
+        <AnimatePresence>
+          {sessionEndReason && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            >
+              <motion.div
+                initial={{ y: 50 }}
+                animate={{ y: 0 }}
+                className={`${sessionEndReason === 'timeout' ? 'bg-gradient-to-br from-red-500 to-orange-600' : 'bg-gradient-to-br from-blue-500 to-purple-600'} text-white px-8 py-6 rounded-3xl shadow-2xl text-center`}
+              >
+                <div className="text-5xl mb-3">
+                  {sessionEndReason === 'timeout' ? '😴' : sessionEndReason === 'opponent_left' ? '👋' : '⏰'}
+                </div>
+                <div className="text-2xl font-black mb-1">
+                  {sessionEndReason === 'timeout' ? 'Opponent Inactive' : sessionEndReason === 'opponent_left' ? 'Opponent Left' : "Time's Up!"}
+                </div>
+                <div className="text-sm opacity-90">
+                  {sessionEndReason === 'timeout' ? 'No response for 1 minute' : sessionEndReason === 'opponent_left' ? 'Your partner ended the session' : 'Great practice session!'}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Streak Milestone Celebration Popup */}
         <AnimatePresence>
           {showStreakMilestone && (
@@ -5267,11 +5547,11 @@ const App = () => {
                 <h3 className="text-xl font-black text-gray-900 mb-4 text-center">🏆 Level Journey</h3>
                 <div className="space-y-3">
                   {[
-                    { name: 'Master', icon: '👑', range: '95%+', gradient: 'from-yellow-400 to-amber-500' },
-                    { name: 'Pro', icon: '⭐', range: '85-94%', gradient: 'from-purple-400 to-indigo-500' },
-                    { name: 'Improver', icon: '🎯', range: '70-84%', gradient: 'from-blue-400 to-cyan-500' },
-                    { name: 'Learner', icon: '📈', range: '50-69%', gradient: 'from-emerald-400 to-teal-500' },
-                    { name: 'Starter', icon: '🌱', range: '0-49%', gradient: 'from-gray-300 to-gray-400' },
+                    { name: 'Master', icon: '★★★★★', range: '95%+', gradient: 'from-yellow-400 to-amber-500' },
+                    { name: 'Pro', icon: '★★★★', range: '85-94%', gradient: 'from-purple-400 to-indigo-500' },
+                    { name: 'Improver', icon: '★★★', range: '70-84%', gradient: 'from-blue-400 to-cyan-500' },
+                    { name: 'Learner', icon: '★★', range: '50-69%', gradient: 'from-emerald-400 to-teal-500' },
+                    { name: 'Starter', icon: '★', range: '0-49%', gradient: 'from-gray-300 to-gray-400' },
                   ].map((level, i) => {
                     const currentLevel = getLevelFromAccuracy(stats.avgScore || 0).name;
                     const isCurrentLevel = level.name === currentLevel;
@@ -5509,7 +5789,16 @@ const App = () => {
                     </div>
                   </div>
                   <button
-                    onClick={() => setIsBattleTipsOn(!isBattleTipsOn)}
+                    onClick={() => {
+                      const newValue = !isBattleTipsOn;
+                      setIsBattleTipsOn(newValue);
+                      // Sync to Firestore for tracking
+                      if (user) {
+                        setDoc(doc(db, 'users', user.uid), {
+                          settings: { isBattleTipsOn: newValue }
+                        }, { merge: true });
+                      }
+                    }}
                     className={`w-10 h-5 rounded-full transition-all ${isBattleTipsOn ? 'bg-yellow-500' : 'bg-gray-300'}`}
                   >
                     <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isBattleTipsOn ? 'ml-5' : 'ml-0.5'}`} />
