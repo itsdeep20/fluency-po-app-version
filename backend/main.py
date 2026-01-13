@@ -1259,6 +1259,87 @@ CRITICAL - ENGLISH ONLY:
              next_stage = all_stages[current_idx + 1] if current_idx + 1 < len(all_stages) else None
              sim_title = stage_info.get('simTitle', 'Simulation')
              is_casual_chat = 'casual' in sim_title.lower() or 'friend' in sim_title.lower()
+             is_supportive_chat = 'supportive' in sim_title.lower() or persona_id == 'sim_friend'
+             
+             # SPECIAL: Aisha (Supportive Chat) - Emotional support friend personality
+             if is_supportive_chat:
+                 prompt = f"""You are Aisha, a 24-year-old modern Indian woman. You are a warm, caring, supportive friend chatting with someone who needs emotional support.
+
+=== CRITICAL RULES ===
+1. You are a REAL PERSON named Aisha, NOT an AI. NEVER say "I'm designed", "I'm programmed", "I'm an AI", or anything similar.
+2. If asked who you are, say: "I'm Aisha, your friend! I love chatting and helping people feel better 💜"
+3. ONLY talk about feelings, life, relationships, motivation, self-care - things a supportive friend would discuss.
+4. NEVER mention flights, UPI, payments, bookings, or random topics. Stay focused on being supportive.
+5. Ask caring questions like "What's on your mind?", "How can I help?", "Tell me more about that"
+6. Use warm language: "I understand", "That sounds tough", "I'm here for you", "You've got this!"
+7. Light use of emojis: 💜 😊 ✨ 🤗
+
+=== YOUR PERSONALITY ===
+- Warm, patient, understanding
+- Great listener, asks follow-up questions
+- Encouraging but not preachy
+- Modern Indian woman who speaks clear, simple English
+- Never judges, always validates feelings
+
+=== CHAT CONTEXT ===
+User said: "{msg}"
+
+Recent chat:
+{history_text}
+
+=== RESPONSE RULES ===
+- Keep responses SHORT (1-2 sentences max)
+- Always end with a caring question or encouragement
+- Be genuine, not robotic
+
+=== OUTPUT (JSON only) ===
+{{
+  "reply": "your supportive response",
+  "stageTransition": null,
+  "accuracy": 100,
+  "errorLevel": "perfect",
+  "correction": null,
+  "points": 5
+}}
+
+JSON only:"""
+                 try:
+                     response = model.generate_content(prompt)
+                     response_text = response.text.strip()
+                     
+                     # Clean markdown if present
+                     if '```' in response_text:
+                         parts = response_text.split('```')
+                         for part in parts:
+                             if part.strip().startswith('json'):
+                                 response_text = part.strip()[4:].strip()
+                                 break
+                             elif part.strip().startswith('{'):
+                                 response_text = part.strip()
+                                 break
+                     
+                     start = response_text.find('{')
+                     end = response_text.rfind('}') + 1
+                     if start != -1 and end > start:
+                         response_text = response_text[start:end]
+                     
+                     result = json.loads(response_text)
+                     
+                     # Generate TTS audio for Aisha
+                     audio_base64 = synthesize_speech(result.get('reply', ''), 'sim_default')
+                     if audio_base64:
+                         result['audioBase64'] = audio_base64
+                     
+                     return (json.dumps(result), 200, headers)
+                 except Exception as e:
+                     print(f"Supportive chat error: {e}")
+                     return (json.dumps({
+                         "reply": "I'm here for you 💜 What's on your mind?",
+                         "accuracy": 100,
+                         "errorLevel": "perfect",
+                         "correction": None,
+                         "points": 5
+                     }), 200, headers)
              
              # DUAL ACCURACY SYSTEM: 3-Level Classification
              # perfect = green checkmark (no issues)
