@@ -4479,12 +4479,15 @@ const App = () => {
                               const mins = Math.round(day.duration / 60);
                               const color = colors[i % colors.length];
                               return (
-                                <div key={i} className="flex-1 flex flex-col items-center group relative">
-                                  <div className="absolute -top-8 bg-gray-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                    {mins > 0 ? `${mins}m` : `${day.duration}s`} - {day.label}
-                                  </div>
+                                <div key={i} className="flex-1 flex flex-col items-center relative">
+                                  {/* Permanent label above bar */}
+                                  {day.duration > 0 && (
+                                    <div className="text-[8px] font-bold text-gray-600 mb-0.5 whitespace-nowrap">
+                                      {mins > 0 ? `${mins}m` : `${day.duration}s`}
+                                    </div>
+                                  )}
                                   <div
-                                    className="w-full rounded-t transition-all group-hover:opacity-80"
+                                    className="w-full rounded-t transition-all hover:opacity-80"
                                     style={{
                                       height: `${Math.min(60, Math.max(4, (day.duration / maxTime) * 60))}px`,
                                       backgroundColor: day.duration > 0 ? color : '#e5e7eb'
