@@ -6,6 +6,9 @@ import confetti from 'canvas-confetti';
 const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose }) => {
     const [step, setStep] = useState(0); // 0: Intro, 1: Counting, 2: Final Result
 
+    // Check for insufficient messages (early exit case)
+    const isInsufficientMessages = dualAnalysis?.insufficientMessages === true;
+
     // Determine if we need to flip the perspective
     // analyzedBy is the UID of the person who called the analyze endpoint (they are player1)
     const analyzedBy = dualAnalysis?.analyzedBy;
@@ -19,7 +22,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
     const winnerFromBackend = dualAnalysis?.winner; // 'player1' or 'player2'
     const didMyPlayerWin = amIPlayer1 ? (winnerFromBackend === 'player1') : (winnerFromBackend === 'player2');
     const isWinner = didMyPlayerWin;
-    const isDraw = !winnerFromBackend || winnerFromBackend === 'draw';
+    const isDraw = !winnerFromBackend || winnerFromBackend === 'draw' || winnerFromBackend === 'none';
 
     const myTotal = myData.total || 0;
     const oppTotal = oppData.total || 0;
@@ -127,6 +130,65 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
 
         return <span>{count}</span>;
     };
+
+    // SPECIAL DISPLAY for insufficient messages (early exit)
+    if (isInsufficientMessages) {
+        return (
+            <motion.div
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                variants={containerVariants}
+                className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto"
+            >
+                <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden relative my-auto">
+                    {/* HEADER */}
+                    <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 text-center relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-full opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+                        <motion.div
+                            initial={{ scale: 0, rotate: -180 }}
+                            animate={{ scale: 1, rotate: 0 }}
+                            transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                            className="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg border border-white/30"
+                        >
+                            <MessageCircle className="text-white drop-shadow-md" size={40} />
+                        </motion.div>
+                        <h2 className="text-2xl font-black text-white uppercase tracking-wider mb-1">
+                            Session Ended
+                        </h2>
+                        <p className="text-amber-100 text-sm font-medium">
+                            Not enough messages for analysis
+                        </p>
+                    </div>
+
+                    {/* MESSAGE */}
+                    <div className="p-6 text-center">
+                        <div className="text-6xl mb-4">💬</div>
+                        <h3 className="text-xl font-black text-gray-900 mb-2">Need More Practice!</h3>
+                        <p className="text-gray-600 mb-4">
+                            {dualAnalysis?.message || 'Both players need to send at least 6 messages combined for a proper analysis.'}
+                        </p>
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-left">
+                            <div className="text-xs font-bold text-amber-700 uppercase mb-1">💡 Tip</div>
+                            <p className="text-sm text-amber-800">
+                                Play a bit longer next time to get your scores analyzed! Your accuracy wasn't affected by this session.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* ACTION BUTTON */}
+                    <div className="p-5 bg-gray-50 border-t border-gray-100">
+                        <button
+                            onClick={onDashboard}
+                            className="w-full py-3.5 bg-gray-900 text-white font-bold rounded-xl shadow-lg hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+                        >
+                            <Home size={18} /> Back to Home
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+        );
+    }
 
     return (
         <motion.div

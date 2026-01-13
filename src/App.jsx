@@ -382,6 +382,10 @@ const App = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isDarkTheme, setIsDarkTheme] = useState(false);
   const [motherTongue, setMotherTongue] = useState('Hindi');
+  // Enhanced Settings
+  const [sessionDuration, setSessionDuration] = useState(5); // 3, 5, or 7 minutes
+  const [soundEnabled, setSoundEnabled] = useState(true); // Sound effects toggle
+  const [difficultyLevel, setDifficultyLevel] = useState('Medium'); // Easy, Medium, Hard
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
@@ -2435,22 +2439,38 @@ const App = () => {
       setView('dashboard'); setActiveSession(null);
 
     } else {
-      // Check message count for battles - need at least 3 for proper analysis
-      if (totalSent < 3) {
-        console.log('[BATTLE] Early exit with <3 messages, skipping analysis');
-        // Skip analysis for early exits, go straight to dashboard
+      // Calculate combined messages for proper analysis threshold
+      const oppMessages = capturedMessages.filter(m => m.sender === 'opponent');
+      const combinedMessageCount = totalSent + oppMessages.length;
+      console.log('[BATTLE] Message counts - Me:', totalSent, 'Opponent:', oppMessages.length, 'Combined:', combinedMessageCount);
+
+      // Check if combined messages < 6: Show WinnerReveal with "insufficient" message, don't update stats
+      if (combinedMessageCount < 6) {
+        console.log('[BATTLE] Insufficient messages (<6 combined), showing scorecard without analysis');
+        // Set special "insufficient" state for WinnerReveal
+        setDualAnalysis({
+          insufficientMessages: true,
+          message: 'Not enough messages to analyze the result. Play longer next time!',
+          player1: { total: 0, vocab: 0, grammar: 0, fluency: 0, sentence: 0 },
+          player2: { total: 0, vocab: 0, grammar: 0, fluency: 0, sentence: 0 },
+          winner: 'none'
+        });
+        setBattleOpponentData(capturedSession?.opponent);
+        setShowWinnerReveal(true);
         setView('dashboard');
         setActiveSession(null);
         setIsEnding(false);
         setShowExitWarning(false);
         isEndingRef.current = false;
-        return; // Exit early without analysis
+        // Don't update stats - accuracy remains unchanged
+        setTimeout(() => { isEndingRef.current = false; isJoiningRef.current = false; }, 1500);
+        return; // Exit early without stats update
       }
 
       setView('analyzing');
       try {
         const myMsgs = myMessages.map(m => m.text);
-        const oppMsgs = capturedMessages.filter(m => m.sender === 'opponent').map(m => m.text);
+        const oppMsgs = oppMessages.map(m => m.text);
         console.log('[ANALYZE DEBUG] Sending:', { roomId: capturedSession.id, analyzedBy: user.uid, myMsgs, oppMsgs });
         const token = await user.getIdToken();
         const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
@@ -5309,22 +5329,73 @@ const App = () => {
                   </select>
                 </div>
 
-                {/* Session Reminders */}
+                {/* Session Timer */}
+                <div className="p-4 bg-gray-50 rounded-xl mb-3">
+                  <div className="font-semibold text-gray-900 mb-2">Session Timer</div>
+                  <div className="flex gap-2">
+                    {[3, 5, 7].map(mins => (
+                      <button
+                        key={mins}
+                        onClick={() => setSessionDuration(mins)}
+                        className={`flex-1 py-2 rounded-xl font-bold transition-all ${sessionDuration === mins ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
+                      >
+                        {mins} min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Difficulty Level */}
+                <div className="p-4 bg-gray-50 rounded-xl mb-3">
+                  <div className="font-semibold text-gray-900 mb-2">AI Difficulty</div>
+                  <div className="flex gap-2">
+                    {['Easy', 'Medium', 'Hard'].map(level => (
+                      <button
+                        key={level}
+                        onClick={() => setDifficultyLevel(level)}
+                        className={`flex-1 py-2 rounded-xl font-bold transition-all ${difficultyLevel === level ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-2">
+                    {difficultyLevel === 'Easy' && '🌱 Simple vocabulary, slower responses'}
+                    {difficultyLevel === 'Medium' && '🎯 Balanced conversation, natural pace'}
+                    {difficultyLevel === 'Hard' && '🔥 Advanced vocabulary, challenging topics'}
+                  </div>
+                </div>
+
+                {/* Sound Effects */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-3">
+                  <div>
+                    <div className="font-semibold text-gray-900">Sound Effects</div>
+                    <div className="text-xs text-gray-500">Audio feedback during practice</div>
+                  </div>
+                  <button
+                    onClick={() => setSoundEnabled(!soundEnabled)}
+                    className={`w-14 h-8 rounded-full transition-colors relative ${soundEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-transform ${soundEnabled ? 'translate-x-7' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* Daily Reminders - Coming Soon */}
                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-6">
                   <div>
                     <div className="font-semibold text-gray-900">Daily Reminders</div>
                     <div className="text-xs text-gray-500">Get notified to practice</div>
                   </div>
                   <button
-                    className="w-14 h-8 rounded-full bg-emerald-500 relative cursor-not-allowed opacity-50"
+                    className="w-14 h-8 rounded-full bg-gray-300 relative cursor-not-allowed opacity-50"
                     title="Coming soon"
                   >
-                    <div className="w-6 h-6 bg-white rounded-full absolute top-1 translate-x-7" />
+                    <div className="w-6 h-6 bg-white rounded-full absolute top-1 translate-x-1" />
                   </button>
                 </div>
 
                 <p className="text-xs text-gray-400 text-center">
-                  More settings coming soon! 🚀
+                  Made with ❤️ in India 🇮🇳
                 </p>
               </motion.div>
             </motion.div>
