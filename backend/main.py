@@ -709,6 +709,7 @@ Return ONLY the translation in {target_language} script. No explanations."""
             user_id = data.get('userId')
             user_name = data.get('userName')
             user_avatar = data.get('userAvatar')
+            user_session_duration = data.get('sessionDuration', 7)  # Default 7 min
             
             # 1. Filter out rooms older than 3 minutes to avoid stale matches
             three_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=3)
@@ -738,9 +739,19 @@ Return ONLY the translation in {target_language} script. No explanations."""
                     if not snapshot.exists or snapshot.get('status') != 'waiting':
                         return None # Room taken or gone
                     
+                    # Calculate higher timer (0 = infinity is highest)
+                    host_duration = snapshot.get('sessionDuration') or 7
+                    joiner_duration = user_session_duration
+                    # 0 means 'never ends' which is the highest
+                    if host_duration == 0 or joiner_duration == 0:
+                        final_duration = 0  # Infinity wins
+                    else:
+                        final_duration = max(host_duration, joiner_duration)
+                    
                     transaction.update(ref, {
                         'status': 'matched',
                         'player2Id': user_id, 'player2Name': user_name, 'player2Avatar': user_avatar,
+                        'sessionDuration': final_duration,  # Higher timer wins
                         'startedAt': firestore.SERVER_TIMESTAMP,
                         'roleData': {
                             'pairId': role_pair['id'], 'topic': role_pair['topic'],
@@ -753,10 +764,17 @@ Return ONLY the translation in {target_language} script. No explanations."""
                 room_data = update_room(db.transaction(), room_ref)
                 
                 if room_data:
+                    # Return the final session duration so both players use same timer
+                    host_duration = room_data.get('sessionDuration') or 7
+                    if host_duration == 0 or user_session_duration == 0:
+                        final_duration = 0
+                    else:
+                        final_duration = max(host_duration, user_session_duration)
                     return (json.dumps({
                         "success": True, "matched": True, "roomId": found_room.id,
                         "opponent": {"id": room_data.get('hostId'), "name": room_data.get('userName'), "avatar": room_data.get('userAvatar')},
-                        "myRole": role_pair['roles'][1-role_idx], "myIcon": role_pair['icons'][1-role_idx], "myDesc": role_pair['descriptions'][1-role_idx], "topic": role_pair['topic']
+                        "myRole": role_pair['roles'][1-role_idx], "myIcon": role_pair['icons'][1-role_idx], "myDesc": role_pair['descriptions'][1-role_idx], "topic": role_pair['topic'],
+                        "sessionDuration": final_duration  # Higher timer for both
                     }), 200, headers)
                 # If room_data is None, transaction failed, fall through to host a new room
             
@@ -770,6 +788,7 @@ Return ONLY the translation in {target_language} script. No explanations."""
             ref = db.collection('queue').add({
                 'roomCode': "RND"+str(random.randint(1000,9999)),
                 'hostId': user_id, 'userName': user_name, 'userAvatar': user_avatar,
+                'sessionDuration': user_session_duration,  # Store for matching
                 'status': 'waiting', 'mode': 'random', 'createdAt': firestore.SERVER_TIMESTAMP
             })
             return (json.dumps({"success": True, "matched": False, "roomId": ref[1].id}), 200, headers)

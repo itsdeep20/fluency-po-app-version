@@ -1692,13 +1692,17 @@ const App = () => {
       const token = await user.getIdToken();
       const res = await fetch(`${BACKEND_URL}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar })
+        body: JSON.stringify({ type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar, sessionDuration })
       });
       const data = await res.json();
       console.log('MATCH_DEBUG: find_random_match response:', data);
       if (data.success) {
         if (data.matched) {
           if (isJoiningRef.current) return;
+          // Use the higher timer from server (if provided)
+          if (data.sessionDuration !== undefined) {
+            setSessionDuration(data.sessionDuration);
+          }
           joinMatch(data.roomId, data.opponent, 'human', data.topic);
         } else {
           setSearchStatusText("Waiting for opponent...");
@@ -1713,6 +1717,10 @@ const App = () => {
             if (snap.exists() && snap.data().status === 'matched' && !snap.data().isBotMatch) {
               if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
               const r = snap.data(); const amI = r.hostId === user.uid;
+              // Use the higher timer from matched room
+              if (r.sessionDuration !== undefined) {
+                setSessionDuration(r.sessionDuration);
+              }
               joinMatch(data.roomId, { id: amI ? r.player2Id : r.hostId, name: amI ? r.player2Name : r.userName, avatar: amI ? r.player2Avatar : r.userAvatar }, 'human', r.roleData?.topic);
             }
           }, (error) => {
@@ -6026,6 +6034,28 @@ const App = () => {
                   >
                     <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isBattleTipsOn ? 'ml-5' : 'ml-0.5'}`} />
                   </button>
+                </div>
+
+                {/* Session Timer Selector */}
+                <div className="py-3 border-b border-gray-100">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock size={16} className="text-blue-500" />
+                    <span className="text-sm text-gray-700">Session Timer</span>
+                  </div>
+                  <div className="flex gap-1">
+                    {[3, 5, 7, 0].map(mins => (
+                      <button
+                        key={mins}
+                        onClick={() => setSessionDuration(mins)}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${sessionDuration === mins ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      >
+                        {mins === 0 ? '∞' : `${mins}m`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-gray-400 mt-1 text-center">
+                    {sessionDuration === 0 ? 'No auto-end' : `Auto-ends in ${sessionDuration} min`}
+                  </div>
                 </div>
 
                 {/* Language Selector */}
