@@ -714,7 +714,7 @@ const App = () => {
         if (data.settings) {
           if (data.settings.isDarkTheme !== undefined) setIsDarkTheme(data.settings.isDarkTheme);
           if (data.settings.motherTongue) setMotherTongue(data.settings.motherTongue);
-          if (data.settings.sessionDuration) setSessionDuration(data.settings.sessionDuration);
+          if (data.settings.sessionDuration !== undefined) setSessionDuration(data.settings.sessionDuration); // !== undefined to handle 0
           if (data.settings.soundEnabled !== undefined) setSoundEnabled(data.settings.soundEnabled);
           if (data.settings.difficultyLevel) setDifficultyLevel(data.settings.difficultyLevel);
           console.log('[SETTINGS] Loaded from Firestore:', data.settings);
