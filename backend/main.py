@@ -1226,6 +1226,63 @@ YOUR SPEAKING STYLE:
                     db.collection('queue').document(room_id).update({'results': draw_result, 'status': 'ended'})
                 return (json.dumps(draw_result), 200, headers)
 
+        # --- SIMULATION ANALYSIS (Same PRO model as Battle) ---
+        if req_type == "analyze_simulation":
+            print("[ANALYZE_SIM] Starting simulation analysis...")
+            model = get_pro_model()  # Use same PRO model as battle
+            player_history = data.get('playerHistory', [])
+            sim_name = data.get('simName', 'Simulation')
+            
+            if not player_history or len(player_history) == 0:
+                return (json.dumps({"accuracy": 0, "feedback": "No messages to analyze."}), 200, headers)
+            
+            # Use same strict accuracy formula as Battle mode
+            prompt = f"""You are a STRICT ENGLISH EXAMINER. Analyze the user's messages from a simulation session.
+
+SIMULATION: {sim_name}
+USER MESSAGES: {player_history}
+
+ACCURACY FORMULA (SAME AS BATTLE MODE):
+For EACH message: Accuracy = 100 - (errors × 75 / wordCount)
+LENGTH PENALTIES:
+- Short messages (<4 words): multiply by 0.5
+- Medium messages (4-6 words): multiply by 0.75
+- Long messages (7+ words): no penalty
+
+Calculate the AVERAGE accuracy across all messages.
+
+Also calculate 4-factor breakdown (0-100 each):
+- VOCABULARY: Richness, variety, usage of advanced words
+- GRAMMAR: Accuracy, tense usage, prepositions (-5 pts per error)
+- FLUENCY: Natural flow, coherence
+- SENTENCE: Complexity, structural variety
+
+Return JSON ONLY:
+{{
+  "accuracy": 72,
+  "vocab": 75,
+  "grammar": 68,
+  "fluency": 74,
+  "sentence": 71,
+  "feedback": "Brief encouragement about their performance"
+}}
+"""
+            
+            try:
+                res = generate_with_pro_model(model, prompt)
+                # Clean JSON
+                start = res.find('{')
+                end = res.rfind('}') + 1
+                json_str = res[start:end]
+                result = json.loads(json_str)
+                print(f"[ANALYZE_SIM] PRO result: accuracy={result.get('accuracy')}")
+                return (json.dumps(result), 200, headers)
+            except Exception as e:
+                print(f"[ANALYZE_SIM_ERROR] {e}")
+                # Fallback - use simple estimation
+                fallback = {"accuracy": 75, "feedback": "Analysis unavailable, estimated score."}
+                return (json.dumps(fallback), 200, headers)
+
         # --- OTHER HANDLERS (Sims, etc) ---
         # Basic chat support for sims handled by 'send_message' + client-side for sims? 
         # Wait, Sim chat was server-side before. I should restore that logic if needed.

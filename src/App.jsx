@@ -2330,8 +2330,40 @@ const App = () => {
     }
     console.log('[V7 ACCURACY] Session:', { totalSent, messageAccuracies, sessionAccuracy });
 
-    // SIMULATION MODE ONLY - show feedback card and save session
+    // SIMULATION MODE ONLY - Call PRO model for accurate analysis (same as battle)
     if (capturedSession?.type === 'bot') {
+      // Show analyzing animation while PRO model analyzes
+      setView('analyzing');
+
+      // Prepare messages for PRO analysis (same format as battle)
+      const myMsgs = myMessages.map(m => m.text);
+
+      // Call /analyze endpoint for PRO model accuracy (same as battle)
+      let proAccuracy = sessionAccuracy; // Fallback to Flash average
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`${BACKEND_URL}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            type: 'analyze_simulation',
+            simId: capturedSession.id,
+            simName: capturedSession.opponent?.name || 'Simulation',
+            playerHistory: myMsgs
+          })
+        });
+        const data = await res.json();
+        if (data.accuracy !== undefined) {
+          proAccuracy = Math.round(data.accuracy);
+          console.log('[SIM PRO ANALYSIS] PRO accuracy:', proAccuracy, 'vs Flash average:', sessionAccuracy);
+        }
+      } catch (e) {
+        console.error('[SIM PRO ANALYSIS] Failed, using Flash average:', e);
+      }
+
+      // Use PRO accuracy instead of Flash average
+      sessionAccuracy = proAccuracy;
+
       // Store session history to Firestore
       const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0; // Duration in seconds
 
