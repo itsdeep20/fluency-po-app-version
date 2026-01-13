@@ -794,7 +794,7 @@ const App = () => {
         const sim = SIMULATIONS.find(s => s.id === data.simId);
         return {
           id: docSnap.id,
-          type: data.type === '1v1' ? 'battle' : 'simulation',
+          type: (data.type === '1v1' || data.type === 'battle-bot') ? 'battle' : 'simulation',
           title: data.simName || data.opponentName || 'Session',
           simId: data.simId,
           lastMessage: data.lastMessage || `Score: ${data.score || data.accuracy || 0}%`,
