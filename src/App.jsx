@@ -475,6 +475,16 @@ const App = () => {
   const invitationListenerRef = useRef(null);
   const heartbeatRef = useRef(null);
 
+  // Auto-dismiss toast notifications after 4 seconds
+  useEffect(() => {
+    if (toastNotification) {
+      const timer = setTimeout(() => {
+        setToastNotification(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastNotification]);
+
   // PDF History - Centralized State Management
   const [pdfHistory, setPdfHistory] = useState([]);
   const [showPdfHistory, setShowPdfHistory] = useState(false);
@@ -1657,8 +1667,8 @@ const App = () => {
             setShowRoomInput(false); setRoomCode("");
           }
         });
-      } else { alert(data.error || 'Failed to create room'); }
-    } catch (e) { alert(e.message); } finally { setIsCreatingRoom(false); }
+      } else { setToastNotification({ type: 'error', message: data.error || 'Failed to create room', icon: '❌' }); }
+    } catch (e) { setToastNotification({ type: 'error', message: e.message || 'Connection error', icon: '❌' }); } finally { setIsCreatingRoom(false); }
   };
 
   const joinRoom = async (code) => {
@@ -1673,8 +1683,10 @@ const App = () => {
       if (data.success) {
         joinMatch(data.roomId, data.opponent, 'human', 'Friend Match');
         setShowRoomInput(false);
-      } else alert(data.error || 'Failed to join room');
-    } catch (e) { alert(e.message); }
+      } else {
+        setToastNotification({ type: 'error', message: data.error || 'Room not found', icon: '🚫' });
+      }
+    } catch (e) { setToastNotification({ type: 'error', message: e.message || 'Connection error', icon: '❌' }); }
   };
 
   const startRandomMatch = async () => {
