@@ -5226,33 +5226,64 @@ const App = () => {
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-md p-6 relative my-auto max-h-[90vh] overflow-y-auto">
                 <button onClick={() => { setShowHelp(false); setHelpFeedbackSubmitted(false); setHelpFeedbackText(''); setHelpFeedbackRating(0); }} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
 
+                {/* App Header */}
                 <div className="text-center mb-6">
                   <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-200">
                     <MessageCircle className="text-white" size={32} />
                   </div>
                   <h3 className="text-2xl font-black text-gray-900">Fluency Pro</h3>
-                  <p className="text-gray-500 text-sm">Version 1.1.0</p>
+                  <p className="text-gray-500 text-sm">Version 1.2.0</p>
                 </div>
 
-                {/* About */}
+                {/* About Developer */}
                 <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 mb-4 text-left">
-                  <h4 className="font-bold text-emerald-800 mb-2">🇮🇳 Made in India</h4>
-                  <p className="text-emerald-700 text-sm leading-relaxed">
-                    Built by a passionate solo developer to help millions of Indians improve their spoken English through AI-powered practice sessions.
+                  <h4 className="font-bold text-emerald-800 mb-2">🇮🇳 Made in India with ❤️</h4>
+                  <p className="text-emerald-700 text-sm leading-relaxed mb-3">
+                    Hi! I'm <span className="font-bold">Deepak</span>, a 26-year-old solo developer from a small village in India.
+                    I built Fluency Pro to help millions of Indians improve their spoken English through AI-powered practice.
+                  </p>
+                  <p className="text-emerald-600 text-xs italic">
+                    "From a village dreamer to building apps that help people worldwide. Keep learning, keep growing! 🚀"
                   </p>
                 </div>
 
                 {/* Features */}
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-4">
+                  <h4 className="font-bold text-gray-900 text-xs uppercase tracking-widest text-gray-400">✨ Features</h4>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
                     <Sparkles size={16} className="text-amber-500" /> Real-time grammar feedback
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
-                    <Users size={16} className="text-indigo-500" /> Battle mode matching global players
+                    <Users size={16} className="text-indigo-500" /> Battle mode with global players
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-600">
                     <Target size={16} className="text-emerald-500" /> Scenario-based simulations
                   </div>
+                  <div className="flex items-center gap-3 text-sm text-gray-600">
+                    <Award size={16} className="text-pink-500" /> Achievements & progress tracking
+                  </div>
+                </div>
+
+                {/* Terms & Conditions */}
+                <div className="bg-gray-50 rounded-2xl p-4 mb-4 text-left">
+                  <h4 className="font-bold text-gray-800 mb-2 text-xs uppercase tracking-widest">📜 Terms & Conditions</h4>
+                  <ul className="text-xs text-gray-600 space-y-1">
+                    <li>• This app is for educational purposes only</li>
+                    <li>• AI responses are generated and may not be perfect</li>
+                    <li>• Your chat data helps improve the AI experience</li>
+                    <li>• Be respectful when chatting with other users</li>
+                    <li>• We don't share your personal data with third parties</li>
+                    <li>• You must be 13+ years old to use this app</li>
+                  </ul>
+                </div>
+
+                {/* Privacy */}
+                <div className="bg-gray-50 rounded-2xl p-4 mb-4 text-left">
+                  <h4 className="font-bold text-gray-800 mb-2 text-xs uppercase tracking-widest">🔒 Privacy</h4>
+                  <p className="text-xs text-gray-600">
+                    Your data is stored securely on Google Firebase. We collect only what's needed to improve your experience.
+                    You can request data deletion by contacting support.
+                  </p>
                 </div>
 
                 {/* Feedback Form */}
@@ -5261,7 +5292,7 @@ const App = () => {
                   {helpFeedbackSubmitted ? (
                     <div className="bg-emerald-50 text-emerald-700 rounded-2xl p-4 text-center font-bold">
                       <div className="text-2xl mb-2">🎉</div>
-                      We've received your feedback!
+                      Thank you! Deepak has received your feedback!
                     </div>
                   ) : (
                     <>
@@ -5281,7 +5312,7 @@ const App = () => {
                       <textarea
                         value={helpFeedbackText}
                         onChange={(e) => setHelpFeedbackText(e.target.value)}
-                        placeholder="What can we improve? (Found a bug? Match issues?)"
+                        placeholder="What can we improve? Found a bug? Share your thoughts!"
                         className="w-full p-4 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none text-sm resize-none h-28 mb-4 border-gray-100"
                       />
                       <button
@@ -5309,6 +5340,12 @@ const App = () => {
                       </button>
                     </>
                   )}
+                </div>
+
+                {/* Footer */}
+                <div className="mt-6 pt-4 border-t text-center">
+                  <p className="text-xs text-gray-400">© 2024 Fluency Pro by Deepak</p>
+                  <p className="text-xs text-gray-400">Made with ❤️ in India 🇮🇳</p>
                 </div>
               </motion.div>
             </motion.div>
