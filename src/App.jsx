@@ -1192,7 +1192,7 @@ const App = () => {
     try { await setDoc(doc(db, 'users', user.uid), { stats: newStats || stats, userAvatar: newAvatar || userAvatar }, { merge: true }); } catch (e) { }
   };
 
-  const selectAvatar = (av) => { setUserAvatar(av); saveUserData(null, av); setShowProfile(false); };
+  const selectAvatar = (av) => { setUserAvatar(av); saveUserData(null, av); }; // Don't auto-close modal
 
   // Backend Warmup Helper
   const triggerWarmup = async () => {
