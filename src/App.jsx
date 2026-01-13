@@ -4217,11 +4217,11 @@ const App = () => {
                 </div>
                 <div className="border-t border-gray-100 pt-6">
                   <button
-                    onClick={() => { setShowProfile(false); signOut(auth); }}
-                    className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-colors"
+                    onClick={() => { setShowProfile(false); setView('dashboard'); }}
+                    className="w-full flex items-center justify-center gap-2 py-4 bg-gray-100 text-gray-700 rounded-2xl font-bold hover:bg-gray-200 transition-colors"
                   >
-                    <LogOut size={20} />
-                    Sign Out
+                    <Home size={20} />
+                    Go to Dashboard
                   </button>
                 </div>
               </motion.div>
