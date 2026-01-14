@@ -2495,6 +2495,10 @@ Return JSON:
                                 all_corrections.append(c)
                                 recent_mistakes.append(f"{c.get('type', 'General')}: {c.get('original')} -> {c.get('corrected')}")
                 
+                # FIX: Ensure period_sessions never exceeds total_sessions (lifetime)
+                # This can happen if early-end sessions are saved but don't increment stats.sessions
+                period_sessions = min(period_sessions, total_sessions) if total_sessions > 0 else period_sessions
+                
                 period_avg_accuracy = round(period_accuracy_sum / period_sessions) if period_sessions > 0 else 0
                 period_time_minutes = round(period_time_seconds / 60) if period_time_seconds > 0 else 0
                 
