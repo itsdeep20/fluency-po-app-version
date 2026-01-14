@@ -5362,16 +5362,25 @@ const App = () => {
                   <p className="text-gray-500 text-sm">Version 1.2.0</p>
                 </div>
 
-                {/* About Developer */}
+                {/* About the App */}
                 <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 mb-4 text-left">
                   <h4 className="font-bold text-emerald-800 mb-2">🇮🇳 Made in India with ❤️</h4>
                   <p className="text-emerald-700 text-sm leading-relaxed mb-3">
-                    Hi! I'm <span className="font-bold">Deepak</span>, a 26-year-old solo developer from a small village in India.
-                    I built Fluency Pro to help millions of Indians improve their spoken English through AI-powered practice.
+                    Fluency Pro is an AI-powered English learning app designed to help millions practice spoken English through immersive simulations and real-time feedback.
                   </p>
-                  <p className="text-emerald-600 text-xs italic">
-                    "From a village dreamer to building apps that help people worldwide. Keep learning, keep growing! 🚀"
+                  <div className="flex items-center gap-2 text-xs text-emerald-600">
+                    <span className="bg-emerald-200 px-2 py-0.5 rounded-full">🚀 Built by Deepak</span>
+                    <span className="bg-emerald-200 px-2 py-0.5 rounded-full">⚡ Powered by Gemini AI</span>
+                  </div>
+                </div>
+
+                {/* Contact & Support */}
+                <div className="bg-indigo-50 rounded-2xl p-4 mb-4 text-left">
+                  <h4 className="font-bold text-indigo-800 mb-2 text-xs uppercase tracking-widest">💬 Need Help?</h4>
+                  <p className="text-sm text-indigo-700">
+                    Use the <strong>Feedback form</strong> below to share your thoughts, report bugs, or ask questions. We read every message!
                   </p>
+                  <p className="text-indigo-500 text-xs mt-2 italic">Your feedback helps us improve Fluency Pro ✨</p>
                 </div>
 
                 {/* Features */}
