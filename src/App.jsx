@@ -429,6 +429,7 @@ const App = () => {
   // Voice-to-Text & Text-to-Speech
   const [isListening, setIsListening] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false); // TTS disabled by default for reading focus
+  const isSpeakerOnRef = useRef(false); // Ref to track current value for closures
   const recognitionRef = useRef(null);
   const typingQueue = useRef([]);
   const isSyncingQueue = useRef(false);
@@ -484,6 +485,12 @@ const App = () => {
       return () => clearTimeout(timer);
     }
   }, [toastNotification]);
+
+  // Sync isSpeakerOnRef with state for closure access
+  useEffect(() => {
+    isSpeakerOnRef.current = isSpeakerOn;
+    console.log('[SPEAKER] State changed:', isSpeakerOn);
+  }, [isSpeakerOn]);
 
   // PDF History - Centralized State Management
   const [pdfHistory, setPdfHistory] = useState([]);
@@ -697,12 +704,13 @@ const App = () => {
       motherTongue,
       sessionDuration,
       soundEnabled,
-      difficultyLevel
+      difficultyLevel,
+      isSpeakerOn
     };
     console.log('[SETTINGS] Saving to Firestore:', settings);
     setDoc(doc(db, 'users', user.uid), { settings }, { merge: true })
       .catch(e => console.error('[SETTINGS] Save error:', e));
-  }, [user, isDarkTheme, motherTongue, sessionDuration, soundEnabled, difficultyLevel]);
+  }, [user, isDarkTheme, motherTongue, sessionDuration, soundEnabled, difficultyLevel, isSpeakerOn]);
 
   useEffect(() => {
     if (!user) {
@@ -727,6 +735,7 @@ const App = () => {
           if (data.settings.sessionDuration !== undefined) setSessionDuration(data.settings.sessionDuration); // !== undefined to handle 0
           if (data.settings.soundEnabled !== undefined) setSoundEnabled(data.settings.soundEnabled);
           if (data.settings.difficultyLevel) setDifficultyLevel(data.settings.difficultyLevel);
+          if (data.settings.isSpeakerOn !== undefined) setIsSpeakerOn(data.settings.isSpeakerOn);
           console.log('[SETTINGS] Loaded from Firestore:', data.settings);
         }
 
@@ -1264,7 +1273,11 @@ const App = () => {
 
   // Text-to-Speech for Bot Responses (WaveNet Audio from Backend)
   const speakText = (text, audioBase64) => {
-    if (!isSpeakerOn) return;
+    console.log('[TTS] speakText called, isSpeakerOnRef.current:', isSpeakerOnRef.current, 'audioBase64:', !!audioBase64);
+    if (!isSpeakerOnRef.current) {
+      console.log('[TTS] Speaker is OFF, skipping');
+      return;
+    }
 
     // If we have audio from backend (WaveNet), use it
     if (audioBase64) {
@@ -1279,7 +1292,7 @@ const App = () => {
     }
 
     // Fallback to browser TTS if no audio provided
-    console.log('[TTS] Fallback to Browser Speech');
+    console.log('[TTS] No audioBase64, using Browser Speech fallback');
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -5370,7 +5383,6 @@ const App = () => {
                   </p>
                   <div className="flex items-center gap-2 text-xs text-emerald-600">
                     <span className="bg-emerald-200 px-2 py-0.5 rounded-full">🚀 Built by Deepak</span>
-                    <span className="bg-emerald-200 px-2 py-0.5 rounded-full">⚡ Powered by Gemini AI</span>
                   </div>
                 </div>
 
@@ -6295,18 +6307,54 @@ const App = () => {
                       <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-3">
                         <p className="text-orange-800 text-sm leading-relaxed">{showTranslationPopup.translation}</p>
                       </div>
-                      {/* Speaker button to hear translation */}
+                      {/* Speaker button to hear translation - Uses Advanced WaveNet TTS */}
                       <button
-                        onClick={() => {
-                          if ('speechSynthesis' in window) {
-                            window.speechSynthesis.cancel();
-                            const utterance = new SpeechSynthesisUtterance(showTranslationPopup.translation);
-                            utterance.lang = motherTongue === 'Hindi' ? 'hi-IN' : motherTongue === 'Tamil' ? 'ta-IN' : motherTongue === 'Telugu' ? 'te-IN' : motherTongue === 'Bengali' ? 'bn-IN' : 'hi-IN';
-                            utterance.rate = 0.9;
-                            window.speechSynthesis.speak(utterance);
+                        onClick={async (e) => {
+                          // Show loading state by disabling button temporarily
+                          const btn = e.currentTarget;
+                          const originalText = btn.querySelector('span').innerText;
+                          btn.disabled = true;
+                          btn.querySelector('span').innerText = 'Loading...';
+
+                          try {
+                            const lang = motherTongue === 'Hindi' ? 'hi-IN' : motherTongue === 'Tamil' ? 'ta-IN' : motherTongue === 'Telugu' ? 'te-IN' : motherTongue === 'Bengali' ? 'bn-IN' : 'hi-IN';
+                            console.log('[TRANSLATION_TTS] Requesting WaveNet TTS for lang:', lang);
+                            const token = await user.getIdToken();
+                            const res = await fetch(`${BACKEND_URL}`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                              body: JSON.stringify({ type: 'tts', text: showTranslationPopup.translation, lang })
+                            });
+                            const data = await res.json();
+                            console.log('[TRANSLATION_TTS] Response:', data.audioBase64 ? 'Got WaveNet audio!' : 'No audio, error:', data.error);
+
+                            if (data.audioBase64) {
+                              console.log('[TRANSLATION_TTS] Playing WaveNet audio');
+                              const audio = new Audio(`data:audio/mp3;base64,${data.audioBase64}`);
+                              audio.play().catch(() => { });
+                            } else {
+                              // Fallback to browser TTS if API fails
+                              if ('speechSynthesis' in window) {
+                                const utterance = new SpeechSynthesisUtterance(showTranslationPopup.translation);
+                                utterance.lang = lang;
+                                utterance.rate = 0.9;
+                                window.speechSynthesis.speak(utterance);
+                              }
+                            }
+                          } catch (e) {
+                            console.error('[TTS] Error:', e);
+                            // Fallback to browser TTS on error
+                            if ('speechSynthesis' in window) {
+                              const utterance = new SpeechSynthesisUtterance(showTranslationPopup.translation);
+                              utterance.lang = motherTongue === 'Hindi' ? 'hi-IN' : motherTongue === 'Tamil' ? 'ta-IN' : 'hi-IN';
+                              window.speechSynthesis.speak(utterance);
+                            }
+                          } finally {
+                            btn.disabled = false;
+                            btn.querySelector('span').innerText = originalText;
                           }
                         }}
-                        className="w-full py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+                        className="w-full py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                       >
                         <Volume2 size={14} />
                         <span>Listen in {motherTongue}</span>

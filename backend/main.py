@@ -547,6 +547,64 @@ def fluency_backend(request: https_fn.Request) -> https_fn.Response:
             print("[WARMUP] Instance warmed up successfully")
             return (json.dumps({"success": True, "message": "Warmed up"}), 200, headers)
 
+        # --- TTS (Text-to-Speech for Translations) ---
+        if req_type == "tts":
+            text = data.get('text', '')
+            lang = data.get('lang', 'hi-IN')  # Default Hindi
+            
+            # Clean text: Remove emojis and special symbols but keep Hindi/Tamil/Telugu/Bengali scripts
+            # Emoji ranges: U+1F300-1F9FF, U+2600-26FF, U+2700-27BF
+            import re
+            # Remove emoji and dingbat symbols
+            text = re.sub(r'[\U0001F300-\U0001F9FF\U00002600-\U000026FF\U00002700-\U000027BF]+', '', text)
+            # Remove avatar emojis like 💳 🏪 etc
+            text = re.sub(r'[\U0001F000-\U0001FFFF]+', '', text)
+            # Remove markdown symbols
+            text = text.replace('*', '').replace('#', '').replace('`', '').replace('_', ' ')
+            # Clean extra whitespace
+            text = ' '.join(text.split())
+            
+            print(f"[TTS] Cleaned text for speech: {text[:50]}...")
+            
+            if not text or len(text) < 2:
+                return (json.dumps({"error": "Text too short"}), 400, headers)
+            
+            try:
+                client = texttospeech.TextToSpeechClient()
+                
+                # Map language to best available voice
+                voice_map = {
+                    'hi-IN': 'hi-IN-Wavenet-A',  # Hindi Female
+                    'ta-IN': 'ta-IN-Wavenet-A',  # Tamil Female
+                    'te-IN': 'te-IN-Standard-A',  # Telugu (no Wavenet, use Standard)
+                    'bn-IN': 'bn-IN-Wavenet-A',  # Bengali Female
+                    'en-IN': 'en-IN-Wavenet-D',  # English Indian Female
+                }
+                voice_name = voice_map.get(lang, 'hi-IN-Wavenet-A')
+                
+                synthesis_input = texttospeech.SynthesisInput(text=text)
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code=lang,
+                    name=voice_name
+                )
+                audio_config = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.MP3,
+                    speaking_rate=0.9,  # Slightly slower for learning
+                    pitch=0.0
+                )
+                
+                response = client.synthesize_speech(
+                    input=synthesis_input, voice=voice, audio_config=audio_config
+                )
+                
+                audio_base64 = base64.b64encode(response.audio_content).decode('utf-8')
+                print(f"[TTS] Generated {lang} audio: {len(audio_base64)} bytes")
+                
+                return (json.dumps({"success": True, "audioBase64": audio_base64}), 200, headers)
+            except Exception as e:
+                print(f"[TTS_ERROR] {e}")
+                return (json.dumps({"error": str(e)}), 500, headers)
+
         # --- SESSION FEEDBACK (AI-Powered Personalized Analysis) ---
         if req_type == "session_feedback":
             messages = data.get('messages', [])
@@ -1011,18 +1069,20 @@ Return ONLY the translation in {target_language} script. No explanations."""
 
 Sentence: "{text}"
 
-ACCURACY FORMULA (STRICTER):
+ACCURACY FORMULA:
 Accuracy = 100 - (errors × 75 / wordCount)
-LENGTH PENALTIES:
-- Short messages (<4 words): multiply accuracy by 0.5
-- Medium messages (4-6 words): multiply accuracy by 0.75
-- Long messages (7+ words): no penalty
+LENGTH BONUS/PENALTY:
+- < 3 words: multiply accuracy by 0.7 (30% penalty for very short)
+- 3-5 words: multiply accuracy by 0.85 (15% penalty)
+- 6-9 words: no change (standard)
+- 10+ words: multiply accuracy by 1.05 (5% bonus for elaborate answers)
 
-EXAMPLES (STRICTER):
-"OK" (1 word, perfect) → 100% × 0.5 = 50% (short penalty)
-"I going" (2 words, 1 error) → 62.5% × 0.5 = 31%
-"I going to market" (4 words, 1 error) → 81% × 0.75 = 60%
+EXAMPLES:
+"OK" (1 word, perfect) → 100% × 0.7 = 70% (short penalty)
+"I going" (2 words, 1 error) → 62.5% × 0.7 = 44%
+"I going to market" (4 words, 1 error) → 81% × 0.85 = 69%
 "I am going to the market today" (7 words, perfect) → 100%
+"I am really excited to go shopping at the market today" (11 words, perfect) → 100% × 1.05 = 105% (capped at 100)
 
 Return JSON ONLY:
 If PERFECT:
@@ -1185,17 +1245,25 @@ YOUR SPEAKING STYLE:
                     "ACT AS A STRICT ENGLISH EXAMINER. Analyze the conversation history below.\n"
                     f"Player 1 (Human): {p1_hist}\n"
                     f"Player 2 (Opponent): {p2_hist}\n\n"
-                    "Step 1: IGNORE any empty history. If a player has no messages, score them based on '0' or context if applicable, but mainly focus on the player who DID speak.\n"
-                    "Step 2: Calculate 4 scores (0-100) for EACH player based on these STRICT criteria:\n"
-                    "   - VOCABULARY: Richness, variety, usage of advanced words.\n"
-                    "   - GRAMMAR: Accuracy, tense usage, prepositions (-5 pts per error).\n"
-                    "   - FLUENCY: Natural flow, coherence, avoiding robotic phrasing.\n"
-                    "   - SENTENCE: Complexity, sentence length, structural variety.\n"
-                    "Step 3: WINNER is the one with highest TOTAL score.\n\n"
+                    "Step 1: IGNORE any empty history. If a player has no messages, score them 0.\n"
+                    "Step 2: Calculate 4 scores (0-100) for EACH player:\n"
+                    "   - VOCABULARY: Richness, variety, advanced word usage\n"
+                    "   - GRAMMAR: Accuracy, tense, subject-verb agreement, articles (-10 pts per error)\n"
+                    "   - FLUENCY: Natural flow, coherence, sounds human (not robotic)\n"
+                    "   - SENTENCE: Complexity, length variety, structural diversity\n\n"
+                    "Step 3: LENGTH BONUS/PENALTY (apply to each message before averaging):\n"
+                    "   - < 3 words: multiply score by 0.7 (30% penalty)\n"
+                    "   - 3-5 words: multiply score by 0.85 (15% penalty)\n"
+                    "   - 6-9 words: no change (standard)\n"
+                    "   - 10+ words: multiply score by 1.05 (5% bonus for elaborate answers)\n\n"
+                    "Step 4: WEIGHTED FINAL SCORE formula:\n"
+                    "   total = (grammar × 0.40) + (vocab × 0.25) + (fluency × 0.20) + (sentence × 0.15)\n"
+                    "   Grammar is MOST important (40%), then Vocabulary (25%), Fluency (20%), Sentence (15%)\n\n"
+                    "Step 5: WINNER is the one with highest WEIGHTED total.\n\n"
                     "Return strict JSON only:\n"
                     "{\n"
-                    "  \"player1\": { \"vocab\": 75, \"grammar\": 80, \"fluency\": 70, \"sentence\": 75, \"total\": 300, \"feedback\": \"Specific feedback on errors and strengths.\" },\n"
-                    "  \"player2\": { \"vocab\": 80, \"grammar\": 85, \"fluency\": 90, \"sentence\": 85, \"total\": 340, \"feedback\": \"Feedback for player 2.\" },\n"
+                    "  \"player1\": { \"vocab\": 75, \"grammar\": 80, \"fluency\": 70, \"sentence\": 75, \"total\": 76, \"feedback\": \"Specific feedback.\" },\n"
+                    "  \"player2\": { \"vocab\": 80, \"grammar\": 85, \"fluency\": 90, \"sentence\": 85, \"total\": 84, \"feedback\": \"Feedback for player 2.\" },\n"
                     "  \"winner\": \"player2\"\n"
                     "}"
                 )
@@ -1261,26 +1329,27 @@ YOUR SPEAKING STYLE:
 SIMULATION: {sim_name}
 USER MESSAGES: {player_history}
 
-ACCURACY FORMULA (SAME AS BATTLE MODE):
-For EACH message: Accuracy = 100 - (errors × 75 / wordCount)
-LENGTH PENALTIES:
-- Short messages (<4 words): multiply by 0.5
-- Medium messages (4-6 words): multiply by 0.75
-- Long messages (7+ words): no penalty
+Step 1: Calculate 4 scores (0-100) for the user:
+- VOCABULARY: Richness, variety, advanced word usage
+- GRAMMAR: Accuracy, tense, subject-verb agreement, articles (-10 pts per error)
+- FLUENCY: Natural flow, coherence, sounds human (not robotic)
+- SENTENCE: Complexity, length variety, structural diversity
 
-Calculate the AVERAGE accuracy across all messages.
+Step 2: LENGTH BONUS/PENALTY (apply to each message before averaging):
+- < 3 words: multiply score by 0.7 (30% penalty)
+- 3-5 words: multiply score by 0.85 (15% penalty)
+- 6-9 words: no change (standard)
+- 10+ words: multiply score by 1.05 (5% bonus for elaborate answers)
 
-Also calculate 4-factor breakdown (0-100 each):
-- VOCABULARY: Richness, variety, usage of advanced words
-- GRAMMAR: Accuracy, tense usage, prepositions (-5 pts per error)
-- FLUENCY: Natural flow, coherence
-- SENTENCE: Complexity, structural variety
+Step 3: WEIGHTED FINAL SCORE formula:
+accuracy = (grammar × 0.40) + (vocab × 0.25) + (fluency × 0.20) + (sentence × 0.15)
+Grammar is MOST important (40%), then Vocabulary (25%), Fluency (20%), Sentence (15%)
 
 Return JSON ONLY:
 {{
-  "accuracy": 72,
+  "accuracy": 76,
   "vocab": 75,
-  "grammar": 68,
+  "grammar": 80,
   "fluency": 74,
   "sentence": 71,
   "feedback": "Brief encouragement about their performance"
