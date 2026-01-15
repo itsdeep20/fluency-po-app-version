@@ -605,6 +605,79 @@ def fluency_backend(request: https_fn.Request) -> https_fn.Response:
                 print(f"[TTS_ERROR] {e}")
                 return (json.dumps({"error": str(e)}), 500, headers)
 
+        # --- TRANSLATE & SPEAK FEEDBACK (Native Language Feedback Feature) ---
+        if req_type == "translate_feedback":
+            feedback_text = data.get('text', '')
+            target_lang = data.get('lang', 'hi-IN')  # Default Hindi
+            
+            if not feedback_text or len(feedback_text) < 5:
+                return (json.dumps({"error": "Feedback text too short"}), 400, headers)
+            
+            try:
+                # Step 1: Use Flash model for fast translation
+                model = get_model()  # Flash model for speed
+                
+                # Map language code to language name - ALL 11 INDIAN LANGUAGES
+                lang_names = {
+                    'hi-IN': 'Hindi',
+                    'pa-IN': 'Punjabi',
+                    'ta-IN': 'Tamil',
+                    'te-IN': 'Telugu',
+                    'bn-IN': 'Bengali',
+                    'mr-IN': 'Marathi',
+                    'gu-IN': 'Gujarati',
+                    'kn-IN': 'Kannada',
+                    'ml-IN': 'Malayalam',
+                    'or-IN': 'Odia',
+                    'as-IN': 'Assamese'
+                }
+                target_lang_name = lang_names.get(target_lang, 'Hindi')
+                
+                translate_prompt = f"""You are explaining English learning feedback to a {target_lang_name}-speaking student.
+
+READ this English feedback, UNDERSTAND it completely, then EXPLAIN the same message in {target_lang_name} as if you are their friendly teacher speaking naturally.
+
+CRITICAL - USE NATIVE SCRIPT (NOT ROMANIZED):
+- Hindi: Write in Devanagari script (हिंदी)
+- Punjabi: Write in Gurmukhi script (ਪੰਜਾਬੀ)
+- Tamil: Write in Tamil script (தமிழ்)
+- Telugu: Write in Telugu script (తెలుగు)
+- Bengali: Write in Bengali script (বাংলা)
+- Marathi: Write in Devanagari script (मराठी)
+- Gujarati: Write in Gujarati script (ગુજરાતી)
+- Kannada: Write in Kannada script (ಕನ್ನಡ)
+- Malayalam: Write in Malayalam script (മലയാളം)
+- Odia: Write in Odia script (ଓଡ଼ିଆ)
+- Assamese: Write in Assamese script (অসমীয়া)
+
+RULES:
+1. DO NOT translate word-by-word - understand the meaning and explain naturally
+2. Keep these English words unchanged: Grammar, Vocabulary, Spelling, Sentence, Fluency, Accuracy
+3. Speak conversationally like a tutor explaining to a student
+4. Use simple, everyday {target_lang_name} that anyone can understand
+5. Do NOT add meta-comments, just give the feedback directly
+6. NEVER use romanized text (English letters for {target_lang_name}) - USE NATIVE SCRIPT ONLY
+
+ENGLISH FEEDBACK TO EXPLAIN:
+{feedback_text}
+
+NOW EXPLAIN THIS IN NATURAL {target_lang_name} USING THE NATIVE SCRIPT:"""
+
+                response = model.generate_content(translate_prompt)
+                translated_text = response.text.strip()
+                
+                print(f"[TRANSLATE_FEEDBACK] Translated to {target_lang_name}: {translated_text[:100]}...")
+                
+                # Return only translated text (no TTS audio - using text popup instead)
+                return (json.dumps({
+                    "success": True,
+                    "translatedText": translated_text
+                }), 200, headers)
+                
+            except Exception as e:
+                print(f"[TRANSLATE_FEEDBACK_ERROR] {e}")
+                return (json.dumps({"error": str(e)}), 500, headers)
+
         # --- SESSION FEEDBACK (AI-Powered Personalized Analysis) ---
         if req_type == "session_feedback":
             messages = data.get('messages', [])
@@ -1065,34 +1138,36 @@ Return ONLY the translation in {target_language} script. No explanations."""
 - Normal conversational English"""
             
             model = get_model()
-            accuracy_prompt = f"""You are a friendly, encouraging English coach. Analyze this sentence for grammar and spelling errors.
+            accuracy_prompt = f"""You are a STRICT grammar coach. Analyze this sentence and catch EVERY mistake.
 
 Sentence: "{text}"
 
-ACCURACY FORMULA:
-Accuracy = 100 - (errors × 75 / wordCount)
-LENGTH BONUS/PENALTY:
-- < 3 words: multiply accuracy by 0.7 (30% penalty for very short)
-- 3-5 words: multiply accuracy by 0.85 (15% penalty)
-- 6-9 words: no change (standard)
-- 10+ words: multiply accuracy by 1.05 (5% bonus for elaborate answers)
+BE EXTREMELY STRICT - CHECK FOR:
+1. SPELLING: Any misspelling at all - "hwllow"→"hello", "thr"→"the", "wat"→"what", "ur"→"your", "u"→"you", "pls"→"please"
+2. GRAMMAR: 
+   - Missing verbs: "I going"→"I am going", "She go"→"She goes"
+   - Wrong tense: "I goed"→"I went", "He runned"→"He ran"
+   - Subject-verb: "He don't"→"He doesn't", "They was"→"They were"
+   - Articles: "I go to market"→"I go to the market", "I am student"→"I am a student"
+3. CAPITALIZATION: "i am fine"→"I am fine" (I must always be capital)
+4. PUNCTUATION: Missing question marks, periods, commas
+5. WORD CHOICE: "I am good" at start of chat is fine, but "am good" alone is incomplete
 
-EXAMPLES:
-"OK" (1 word, perfect) → 100% × 0.7 = 70% (short penalty)
-"I going" (2 words, 1 error) → 62.5% × 0.7 = 44%
-"I going to market" (4 words, 1 error) → 81% × 0.85 = 69%
-"I am going to the market today" (7 words, perfect) → 100%
-"I am really excited to go shopping at the market today" (11 words, perfect) → 100% × 1.05 = 105% (capped at 100)
+CRITICAL RULES:
+- Even ONE small error = MUST return correction
+- If MULTIPLE errors: Show the FULL corrected sentence (not just one fix)
+- Be encouraging but strict
 
 Return JSON ONLY:
-If PERFECT:
+
+If message is PERFECT (zero errors):
 {{"accuracy": 100, "errorLevel": "perfect", "correction": null}}
 
-If MINOR ISSUE:
-{{"accuracy": 85, "errorLevel": "suggestion", "correction": {{"type": "Style", "original": "gonna", "corrected": "going to", "reason": "Casual is fine! Just a tiny polish 😊"}}}}
+If ONE error:
+{{"accuracy": 75, "errorLevel": "mistake", "correction": {{"type": "Spelling/Grammar", "original": "the wrong word/phrase", "corrected": "the correct word/phrase", "reason": "Friendly 1-line explanation"}}}}
 
-If ERROR:
-{{"accuracy": 70, "errorLevel": "mistake", "correction": {{"type": "Grammar", "original": "I going", "corrected": "I am going", "reason": "Almost! Just add 'am' - you've got this! 💪"}}}}
+If MULTIPLE errors (show full corrected sentence):
+{{"accuracy": 60, "errorLevel": "mistake", "correction": {{"type": "Grammar", "original": "{text}", "corrected": "Full corrected sentence here", "reason": "Brief explanation of main issues"}}}}
 
 JSON only:"""
             
@@ -1483,13 +1558,13 @@ If PERFECT English:
   "points": 5
 }}
 
-If HAS ERRORS (like "soory", "i mean am good"):
+If HAS ERRORS (show FULL corrected sentence if multiple):
 {{
   "reply": "your supportive response with question",
   "stageTransition": null,
   "accuracy": 70,
   "errorLevel": "suggestion",
-  "correction": {{"original": "soory", "corrected": "sorry", "reason": "Small spelling fix! 😊", "type": "spelling"}},
+  "correction": {{"original": "original word or FULL sentence if multiple errors", "corrected": "corrected word or FULL sentence", "reason": "Brief friendly explanation! 😊", "type": "spelling/grammar"}},
   "points": 5
 }}
 
@@ -1634,13 +1709,13 @@ Medium (4-6 words): multiply by 0.5
   "points": 5
 }}
 
-WITH errors:
+WITH errors (show FULL corrected sentence if multiple errors):
 {{
   "reply": "your response",
   "stageTransition": null,
   "accuracy": 40,
   "errorLevel": "suggestion",
-  "correction": {{"original": "speacial", "corrected": "special", "reason": "spelling error", "type": "spelling"}},
+  "correction": {{"original": "original word or FULL sentence if multiple errors", "corrected": "corrected word or FULL sentence", "reason": "brief explanation", "type": "spelling/grammar"}},
   "points": 5
 }}
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import {
@@ -14,7 +15,7 @@ import {
   Train, Plane, Loader2, LogOut, MessageCircle, Target, Home,
   Users, Hash, Clock, Award, User, X, Info, Play, Menu, Settings, HelpCircle, Sparkles,
   ChevronUp, ChevronDown, AlertTriangle, Mic, MicOff, Volume2, VolumeX, Lightbulb, Globe,
-  FileText, Download, TrendingUp, TrendingDown, BarChart3, BookOpen, History
+  FileText, Download, TrendingUp, TrendingDown, BarChart3, BookOpen, History, Square, RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -444,6 +445,9 @@ const App = () => {
   const [isAiAssistOn, setIsAiAssistOn] = useState(true); // ON by default
   const [isTranslationOn, setIsTranslationOn] = useState(true); // ON by default
   const [isBattleTipsOn, setIsBattleTipsOn] = useState(false); // OFF by default - Battle Tips
+  const isBattleTipsOnRef = useRef(isBattleTipsOn); // Ref for stale closure prevention
+  useEffect(() => { isBattleTipsOnRef.current = isBattleTipsOn; }, [isBattleTipsOn]);
+
   const [battleCorrections, setBattleCorrections] = useState([]); // Track battle corrections for PDF
   // Sync battleCorrections to ref for stale closure prevention
   useEffect(() => { battleCorrectionsRef.current = battleCorrections; }, [battleCorrections]);
@@ -451,6 +455,7 @@ const App = () => {
   const [showTranslationPopup, setShowTranslationPopup] = useState(null); // { messageId, translation }
   const [isLoadingAssist, setIsLoadingAssist] = useState(false);
   const [isLoadingTranslation, setIsLoadingTranslation] = useState(false);
+  const [nativeFeedbackPopup, setNativeFeedbackPopup] = useState(null); // { text: translatedText, source: 'simulation'|'battle'|'progress' }
   const longPressTimer = useRef(null);
   const [shouldShakeButtons, setShouldShakeButtons] = useState(false);
   const shakeTimer = useRef(null);
@@ -736,6 +741,7 @@ const App = () => {
           if (data.settings.soundEnabled !== undefined) setSoundEnabled(data.settings.soundEnabled);
           if (data.settings.difficultyLevel) setDifficultyLevel(data.settings.difficultyLevel);
           if (data.settings.isSpeakerOn !== undefined) setIsSpeakerOn(data.settings.isSpeakerOn);
+          if (data.settings.isBattleTipsOn !== undefined) setIsBattleTipsOn(data.settings.isBattleTipsOn);
           console.log('[SETTINGS] Loaded from Firestore:', data.settings);
         }
 
@@ -1942,14 +1948,16 @@ const App = () => {
         }
 
         setMessages(prev => {
-          // Keep system/correction messages and any local optimistic messages
+          // Keep system/correction/suggestion messages and any local optimistic messages
           const nonFirestoreMsgs = prev.filter(m =>
             m.sender === 'system' ||
             m.sender === 'correction' ||
+            m.sender === 'suggestion' ||  // QUICKTIPS: Keep suggestion messages!
             (m.id && typeof m.id === 'string' && (
               m.id.startsWith('loc_') ||
               m.id.startsWith('bot_') ||
-              m.id.startsWith('ai_')
+              m.id.startsWith('ai_') ||
+              m.id.startsWith('tip_')  // QUICKTIPS: Keep tip messages!
             ))
           );
 
@@ -2234,7 +2242,8 @@ const App = () => {
           console.log('[BATTLE_CORRECTION] Saved:', correction.original, '->', correction.corrected);
 
           // Show tip card ONLY if toggle is ON
-          if (isBattleTipsOn) {
+          console.log('[QUICK_TIPS_DEBUG] Toggle state:', isBattleTipsOnRef.current, 'State:', isBattleTipsOn);
+          if (isBattleTipsOnRef.current) {
             const tipId = 'tip_' + Date.now();
             const tipNow = Date.now();
             adjustedTimestamps.current[tipId] = tipNow;
@@ -2323,8 +2332,9 @@ const App = () => {
     console.log('[BUG6 FIX] Captured latest data from refs:', { msgCount: capturedMessages.length, accCount: capturedBattleAccuracies.length });
 
     // Show ending view for Simulation only (Bug 4 fix: skip for Battle to avoid animation flash)
+    // UPDATE: For simulation, show 'analyzing' IMMEDIATELY and start API call right away
     if (!isCompetitive) {
-      setView('ending');
+      setView('analyzing'); // Skip 'ending', go straight to 'analyzing' for faster UX
     }
 
     resetChatStates();
@@ -2374,37 +2384,41 @@ const App = () => {
 
     // SIMULATION MODE ONLY - Call PRO model for accurate analysis (same as battle)
     if (capturedSession?.type === 'bot') {
-      // Show analyzing animation while PRO model analyzes
-      setView('analyzing');
+      // View is already set to 'analyzing' at the top of endSession
 
-      // Prepare messages for PRO analysis (same format as battle)
+      // Prepare messages for PRO analysis
       const myMsgs = myMessages.map(m => m.text);
 
-      // Call /analyze endpoint for PRO model accuracy (same as battle)
+      // START API CALL IMMEDIATELY (don't wait for calculations)
+      // This happens IN PARALLEL with the animation
       let proAccuracy = sessionAccuracy; // Fallback to Flash average
-      try {
-        const token = await user.getIdToken();
-        const res = await fetch(`${BACKEND_URL}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({
-            type: 'analyze_simulation',
-            simId: capturedSession.id,
-            simName: capturedSession.opponent?.name || 'Simulation',
-            playerHistory: myMsgs
-          })
-        });
-        const data = await res.json();
-        if (data.accuracy !== undefined) {
-          proAccuracy = Math.round(data.accuracy);
-          console.log('[SIM PRO ANALYSIS] PRO accuracy:', proAccuracy, 'vs Flash average:', sessionAccuracy);
+      const analyzePromise = (async () => {
+        try {
+          const token = await user.getIdToken();
+          console.log('[SIM PRO ANALYSIS] Starting API call immediately...');
+          const res = await fetch(`${BACKEND_URL}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              type: 'analyze_simulation',
+              simId: capturedSession.id,
+              simName: capturedSession.opponent?.name || 'Simulation',
+              playerHistory: myMsgs
+            })
+          });
+          const data = await res.json();
+          if (data.accuracy !== undefined) {
+            proAccuracy = Math.round(data.accuracy);
+            console.log('[SIM PRO ANALYSIS] PRO accuracy:', proAccuracy, 'vs Flash average:', sessionAccuracy);
+          }
+        } catch (e) {
+          console.error('[SIM PRO ANALYSIS] Failed, using Flash average:', e);
         }
-      } catch (e) {
-        console.error('[SIM PRO ANALYSIS] Failed, using Flash average:', e);
-      }
+        return proAccuracy;
+      })();
 
-      // Use PRO accuracy instead of Flash average
-      sessionAccuracy = proAccuracy;
+      // Wait for API to complete
+      sessionAccuracy = await analyzePromise;
 
       // Store session history to Firestore
       const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0; // Duration in seconds
@@ -2462,17 +2476,12 @@ const App = () => {
           }
         }
 
-        // EARLY END FIX: <3 messages should NOT affect accuracy at all
+        // EARLY END FIX: <3 messages should NOT affect anything at all
+        // No streak, no points, no accuracy contribution - session doesn't count
         if (totalSent < 3) {
-          // Only update streak and points, DON'T update avgScore/sessions count
-          const n = {
-            ...prev,
-            points: prev.points + sessionPoints, // Still add any points earned
-            streak: newStreak,
-            lastPracticeDate: todayStr
-          };
-          setTimeout(() => saveUserData(n, null), 10);
-          return n;
+          // DON'T update anything - just return unchanged stats
+          // This prevents gaming the system by starting/ending sessions quickly
+          return prev;
         }
 
         // NORMAL: 3+ messages update everything
@@ -5047,111 +5056,155 @@ const App = () => {
               <motion.div
                 initial={{ scale: 0.8, y: 50 }}
                 animate={{ scale: 1, y: 0 }}
-                className="bg-white rounded-3xl w-full max-w-sm p-6 text-center my-auto max-h-[90vh] overflow-y-auto shadow-2xl"
+                className="bg-white rounded-3xl w-full max-w-sm text-center my-auto max-h-[90vh] overflow-y-auto shadow-2xl"
               >
-                <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center shadow-lg shadow-emerald-200">
-                  <span className="text-4xl">{showSessionSummary.accuracy >= 80 ? '🌟' : showSessionSummary.accuracy >= 50 ? '👍' : '💪'}</span>
-                </div>
+                {/* Check if < 3 messages - show "Need More Practice" screen */}
+                {showSessionSummary.messagesCount < 3 ? (
+                  <>
+                    {/* Orange Header - Like Battle Mode */}
+                    <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-6 text-white">
+                      <div className="text-lg font-bold uppercase tracking-wide">SESSION ENDED</div>
+                      <div className="text-sm opacity-90">Not enough messages for analysis</div>
+                    </div>
 
-                <h2 className="text-2xl font-black text-gray-900 mb-2">
-                  {showSessionSummary.accuracy >= 80 ? 'Excellent Work!' : showSessionSummary.accuracy >= 50 ? 'Good Progress!' : 'Keep Practicing!'}
-                </h2>
-                <p className="text-gray-500 mb-4">{showSessionSummary.simName}</p>
-
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="bg-emerald-50 rounded-2xl p-4">
-                    <div className="text-3xl font-black text-emerald-600">+{showSessionSummary.points}</div>
-                    <div className="text-xs text-emerald-700 font-semibold">Points Earned</div>
-                  </div>
-                  <div className={`rounded-2xl p-4 ${showSessionSummary.accuracy >= 80 ? 'bg-emerald-50' : showSessionSummary.accuracy >= 60 ? 'bg-amber-50' : 'bg-red-50'}`}>
-                    <div className={`text-3xl font-black ${showSessionSummary.accuracy >= 80 ? 'text-emerald-600' : showSessionSummary.accuracy >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{showSessionSummary.accuracy}%</div>
-                    <div className={`text-xs font-semibold ${showSessionSummary.accuracy >= 80 ? 'text-emerald-700' : showSessionSummary.accuracy >= 60 ? 'text-amber-700' : 'text-red-700'}`}>Accuracy</div>
-                  </div>
-                </div>
-
-                <div className="flex justify-center gap-4 text-sm text-gray-500 mb-4">
-                  <span>{showSessionSummary.messagesCount} messages</span>
-                  <span>•</span>
-                  <span>{showSessionSummary.correctionsCount} corrections</span>
-                </div>
-
-
-                {/* AI Feedback Section - Modern with thin orange border */}
-                <div className="bg-white border border-orange-300 rounded-2xl p-5 mb-4 shadow-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xl">🎓</span>
-                    <span className="font-bold uppercase tracking-wide text-orange-600">Your Feedback</span>
-                  </div>
-
-                  {/* Scrollable content - LARGER */}
-                  <div className="max-h-48 overflow-y-auto pr-2 text-base leading-relaxed text-gray-800">
-                    {isLoadingFeedback ? (
-                      <span className="animate-pulse text-orange-500">Analyzing your session...</span>
-                    ) : (
-                      // Parse markdown: **text** → bold, color-code keywords
-                      (aiFeedback || "Great effort! Keep practicing to improve.").split(/(\*\*[^*]+\*\*)/).map((part, idx) => {
-                        if (part.startsWith('**') && part.endsWith('**')) {
-                          const text = part.slice(2, -2);
-                          // Color-code specific keywords
-                          if (text.toLowerCase().includes('needs work') || text.toLowerCase().includes('error') || text.toLowerCase().includes('mistake')) {
-                            return <span key={idx} className="font-bold text-red-600">{text}</span>;
-                          } else if (text.toLowerCase().includes('good') || text.toLowerCase().includes('strength') || text.toLowerCase().includes('okay')) {
-                            return <span key={idx} className="font-bold text-emerald-600">{text}</span>;
-                          } else {
-                            return <span key={idx} className="font-bold text-orange-700">{text}</span>;
-                          }
-                        }
-                        return part;
-                      })
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-3 text-center">↓ scroll if more content</div>
-                </div>
-
-                {/* Motivation Section */}
-                <div className="bg-teal-50 border border-teal-100 rounded-2xl p-3 mb-4 text-left">
-                  <div className="flex items-center gap-2 text-teal-700 text-sm">
-                    <Users size={16} />
-                    <span><strong>4,200+ learners</strong> at your level practice daily. You're not alone! 🌍</span>
-                  </div>
-                </div>
-
-                {/* Mistakes - Blinking Button */}
-                {showSessionSummary.corrections && showSessionSummary.corrections.length > 0 ? (
-                  <div className="bg-gradient-to-r from-amber-100 to-orange-100 border-2 border-amber-300 rounded-2xl p-4 mb-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">📝</span>
-                        <span className="text-sm font-bold text-amber-800">Found {showSessionSummary.corrections.length} area{showSessionSummary.corrections.length > 1 ? 's' : ''} to improve</span>
+                    <div className="p-6">
+                      {/* Speech bubble icon */}
+                      <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                        <MessageCircle size={32} className="text-gray-400" />
                       </div>
+
+                      <h2 className="text-2xl font-black text-gray-900 mb-2">Need More Practice!</h2>
+                      <p className="text-gray-500 mb-6">Not enough messages to analyze the result. Play longer next time!</p>
+
+                      {/* Yellow TIP Box - Like Battle Mode */}
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-left">
+                        <div className="flex items-center gap-2 text-amber-700 font-bold text-sm mb-1">
+                          <Lightbulb size={16} />
+                          <span>TIP</span>
+                        </div>
+                        <p className="text-amber-800 text-sm">
+                          Play a bit longer next time to get your scores analyzed! Your accuracy wasn't affected by this session.
+                        </p>
+                      </div>
+
+                      {/* Back Button */}
                       <button
-                        onClick={() => setShowMistakesPopup(true)}
-                        className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-full shadow-md hover:bg-amber-600 transition-all animate-pulse"
+                        onClick={() => setShowSessionSummary(null)}
+                        className="w-full py-4 bg-gradient-to-r from-gray-800 to-gray-900 text-white font-bold rounded-2xl hover:from-gray-700 hover:to-gray-800 transition-all flex items-center justify-center gap-2"
                       >
-                        View All →
+                        <Home size={18} />
+                        <span>Back to Home</span>
                       </button>
                     </div>
-                  </div>
-                ) : showSessionSummary.messagesCount === 0 ? (
-                  <div className="bg-gradient-to-r from-gray-100 to-slate-100 border-2 border-gray-300 rounded-2xl p-4 mb-4 text-center">
-                    <div className="text-2xl mb-1">💬</div>
-                    <div className="text-gray-700 font-bold">No Messages to Analyze</div>
-                    <div className="text-sm text-gray-600">Send messages to see your mistakes and areas to improve.</div>
-                  </div>
+                  </>
                 ) : (
-                  <div className="bg-gradient-to-r from-emerald-100 to-green-100 border-2 border-emerald-300 rounded-2xl p-4 mb-4 text-center">
-                    <div className="text-2xl mb-1">🎉</div>
-                    <div className="text-emerald-700 font-bold">Perfect Session!</div>
-                    <div className="text-sm text-emerald-600">No corrections needed - excellent work!</div>
+                  /* Normal feedback screen for 3+ messages */
+                  <div className="p-6">
+                    <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center shadow-lg shadow-emerald-200">
+                      <span className="text-4xl">{showSessionSummary.accuracy >= 80 ? '🌟' : showSessionSummary.accuracy >= 50 ? '👍' : '💪'}</span>
+                    </div>
+
+                    <h2 className="text-2xl font-black text-gray-900 mb-2">
+                      {showSessionSummary.accuracy >= 80 ? 'Excellent Work!' : showSessionSummary.accuracy >= 50 ? 'Good Progress!' : 'Keep Practicing!'}
+                    </h2>
+                    <p className="text-gray-500 mb-4">{showSessionSummary.simName}</p>
+
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="bg-emerald-50 rounded-2xl p-4">
+                        <div className="text-3xl font-black text-emerald-600">+{showSessionSummary.points}</div>
+                        <div className="text-xs text-emerald-700 font-semibold">Points Earned</div>
+                      </div>
+                      <div className={`rounded-2xl p-4 ${showSessionSummary.accuracy >= 80 ? 'bg-emerald-50' : showSessionSummary.accuracy >= 60 ? 'bg-amber-50' : 'bg-red-50'}`}>
+                        <div className={`text-3xl font-black ${showSessionSummary.accuracy >= 80 ? 'text-emerald-600' : showSessionSummary.accuracy >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{showSessionSummary.accuracy}%</div>
+                        <div className={`text-xs font-semibold ${showSessionSummary.accuracy >= 80 ? 'text-emerald-700' : showSessionSummary.accuracy >= 60 ? 'text-amber-700' : 'text-red-700'}`}>Accuracy</div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-center gap-4 text-sm text-gray-500 mb-4">
+                      <span>{showSessionSummary.messagesCount} messages</span>
+                      <span>•</span>
+                      <span>{showSessionSummary.correctionsCount} corrections</span>
+                    </div>
+
+
+                    {/* AI Feedback Section - Modern with thin orange border */}
+                    <div className="bg-white border border-orange-300 rounded-2xl p-5 mb-4 shadow-sm">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-xl">🎓</span>
+                        <span className="font-bold uppercase tracking-wide text-orange-600">Your Feedback</span>
+                      </div>
+
+                      {/* Scrollable content - LARGER */}
+                      <div className="max-h-48 overflow-y-auto pr-2 text-base leading-relaxed text-gray-800">
+                        {isLoadingFeedback ? (
+                          <span className="animate-pulse text-orange-500">Analyzing your session...</span>
+                        ) : (
+                          // Parse markdown: **text** → bold, color-code keywords
+                          (aiFeedback || "Great effort! Keep practicing to improve.").split(/(\*\*[^*]+\*\*)/).map((part, idx) => {
+                            if (part.startsWith('**') && part.endsWith('**')) {
+                              const text = part.slice(2, -2);
+                              // Color-code specific keywords
+                              if (text.toLowerCase().includes('needs work') || text.toLowerCase().includes('error') || text.toLowerCase().includes('mistake')) {
+                                return <span key={idx} className="font-bold text-red-600">{text}</span>;
+                              } else if (text.toLowerCase().includes('good') || text.toLowerCase().includes('strength') || text.toLowerCase().includes('okay')) {
+                                return <span key={idx} className="font-bold text-emerald-600">{text}</span>;
+                              } else {
+                                return <span key={idx} className="font-bold text-orange-700">{text}</span>;
+                              }
+                            }
+                            return part;
+                          })
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-3 text-center">↓ scroll if more content</div>
+                    </div>
+
+                    {/* Motivation Section */}
+                    <div className="bg-teal-50 border border-teal-100 rounded-2xl p-3 mb-4 text-left">
+                      <div className="flex items-center gap-2 text-teal-700 text-sm">
+                        <Users size={16} />
+                        <span><strong>4,200+ learners</strong> at your level practice daily. You're not alone! 🌍</span>
+                      </div>
+                    </div>
+
+                    {/* Mistakes - Blinking Button */}
+                    {showSessionSummary.corrections && showSessionSummary.corrections.length > 0 ? (
+                      <div className="bg-gradient-to-r from-amber-100 to-orange-100 border-2 border-amber-300 rounded-2xl p-4 mb-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">📝</span>
+                            <span className="text-sm font-bold text-amber-800">Found {showSessionSummary.corrections.length} area{showSessionSummary.corrections.length > 1 ? 's' : ''} to improve</span>
+                          </div>
+                          <button
+                            onClick={() => setShowMistakesPopup(true)}
+                            className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-full shadow-md hover:bg-amber-600 transition-all animate-pulse"
+                          >
+                            View All →
+                          </button>
+                        </div>
+                      </div>
+                    ) : showSessionSummary.messagesCount === 0 ? (
+                      <div className="bg-gradient-to-r from-gray-100 to-slate-100 border-2 border-gray-300 rounded-2xl p-4 mb-4 text-center">
+                        <div className="text-2xl mb-1">💬</div>
+                        <div className="text-gray-700 font-bold">No Messages to Analyze</div>
+                        <div className="text-sm text-gray-600">Send messages to see your mistakes and areas to improve.</div>
+                      </div>
+                    ) : (
+                      <div className="bg-gradient-to-r from-emerald-100 to-green-100 border-2 border-emerald-300 rounded-2xl p-4 mb-4 text-center">
+                        <div className="text-2xl mb-1">🎉</div>
+                        <div className="text-emerald-700 font-bold">Perfect Session!</div>
+                        <div className="text-sm text-emerald-600">No corrections needed - excellent work!</div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => setShowSessionSummary(null)}
+                      className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black rounded-2xl hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg shadow-emerald-200 uppercase tracking-widest text-sm"
+                    >
+                      Continue Practicing 🚀
+                    </button>
                   </div>
                 )}
-
-                <button
-                  onClick={() => setShowSessionSummary(null)}
-                  className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black rounded-2xl hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg shadow-emerald-200 uppercase tracking-widest text-sm"
-                >
-                  Continue Practicing 🚀
-                </button>
               </motion.div>
 
               {/* Full-Screen Mistakes Popup */}
@@ -6097,34 +6150,36 @@ const App = () => {
                   </button>
                 </div>
 
-                {/* Battle Tips Toggle */}
-                <div className="flex items-center justify-between py-3 border-t border-gray-100">
-                  <div className="flex items-center gap-2">
-                    <Lightbulb size={16} className="text-yellow-500" />
-                    <span className="text-sm text-gray-700">Battle Tips</span>
-                    <div className="group relative">
-                      <Info size={12} className="text-gray-400 cursor-help" />
-                      <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                        Show grammar tips during battles. Tips are always saved for your progress report.
+                {/* Quick Tips Toggle - Only show in Battle mode (hide in simulation/bot mode) */}
+                {activeSession?.type !== 'bot' && (
+                  <div className="flex items-center justify-between py-3 border-t border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <Lightbulb size={16} className="text-yellow-500" />
+                      <span className="text-sm text-gray-700">Quick Tips</span>
+                      <div className="group relative">
+                        <Info size={12} className="text-gray-400 cursor-help" />
+                        <div className="absolute left-0 bottom-6 w-48 bg-gray-800 text-white text-[10px] p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                          Show grammar tips during battles. Tips are always saved for your progress report.
+                        </div>
                       </div>
                     </div>
+                    <button
+                      onClick={() => {
+                        const newValue = !isBattleTipsOn;
+                        setIsBattleTipsOn(newValue);
+                        // Sync to Firestore for persistence
+                        if (user) {
+                          setDoc(doc(db, 'users', user.uid), {
+                            settings: { isBattleTipsOn: newValue }
+                          }, { merge: true });
+                        }
+                      }}
+                      className={`w-10 h-5 rounded-full transition-all ${isBattleTipsOn ? 'bg-yellow-500' : 'bg-gray-300'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isBattleTipsOn ? 'ml-5' : 'ml-0.5'}`} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      const newValue = !isBattleTipsOn;
-                      setIsBattleTipsOn(newValue);
-                      // Sync to Firestore for tracking
-                      if (user) {
-                        setDoc(doc(db, 'users', user.uid), {
-                          settings: { isBattleTipsOn: newValue }
-                        }, { merge: true });
-                      }
-                    }}
-                    className={`w-10 h-5 rounded-full transition-all ${isBattleTipsOn ? 'bg-yellow-500' : 'bg-gray-300'}`}
-                  >
-                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-all ${isBattleTipsOn ? 'ml-5' : 'ml-0.5'}`} />
-                  </button>
-                </div>
+                )}
 
                 {/* Session Timer Selector */}
                 <div className="py-3 border-b border-gray-100">
@@ -6317,7 +6372,8 @@ const App = () => {
                           btn.querySelector('span').innerText = 'Loading...';
 
                           try {
-                            const lang = motherTongue === 'Hindi' ? 'hi-IN' : motherTongue === 'Tamil' ? 'ta-IN' : motherTongue === 'Telugu' ? 'te-IN' : motherTongue === 'Bengali' ? 'bn-IN' : 'hi-IN';
+                            const langMap = { 'Hindi': 'hi-IN', 'Punjabi': 'pa-IN', 'Tamil': 'ta-IN', 'Telugu': 'te-IN', 'Bengali': 'bn-IN', 'Marathi': 'mr-IN', 'Gujarati': 'gu-IN', 'Kannada': 'kn-IN', 'Malayalam': 'ml-IN', 'Odia': 'or-IN', 'Assamese': 'as-IN' };
+                            const lang = langMap[motherTongue] || 'hi-IN';
                             console.log('[TRANSLATION_TTS] Requesting WaveNet TTS for lang:', lang);
                             const token = await user.getIdToken();
                             const res = await fetch(`${BACKEND_URL}`, {
@@ -6421,82 +6477,46 @@ const App = () => {
                     </motion.div>
                   )
                 ) : m.sender === 'correction' ? (
-                  // Check if this correction is minimized
+                  // ALL CORRECTIONS NOW USE QUICK TIP STYLE (compact, yellow/amber)
                   minimizedCorrections[m.id] ? (
-                    // COMPACT minimized pill - same size as yellow tip
+                    // Minimized pill - click to expand
                     <motion.button
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: false }))}
-                      className="flex items-center gap-2 bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 rounded-full px-3 py-1.5 shadow-sm hover:shadow transition-all cursor-pointer blinking-alert"
+                      className="flex items-center gap-2 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-full px-3 py-1.5 shadow-sm hover:shadow transition-all cursor-pointer blinking-alert"
                     >
-                      <AlertTriangle size={14} className="text-red-500" />
-                      <span className="text-red-700 font-medium text-xs">Mistake</span>
-                      <ChevronDown size={12} className="text-red-500" />
+                      <Lightbulb size={14} className="text-amber-500" />
+                      <span className="text-amber-700 font-medium text-xs">Tip available</span>
+                      <ChevronDown size={12} className="text-amber-500" />
                     </motion.button>
                   ) : (
-                    // Full expanded correction card
+                    // Expanded Quick Tip style for corrections
                     <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      className="w-full max-w-md bg-gradient-to-br from-red-50 via-orange-50 to-amber-50 border-2 border-red-200 rounded-2xl p-4 shadow-lg"
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="w-full max-w-sm bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-3 shadow-sm"
                     >
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-rose-500 rounded-xl flex items-center justify-center shadow-md">
-                            <AlertTriangle size={20} className="text-white" />
-                          </div>
-                          <div>
-                            <div className="font-black text-red-700 text-base">Your Mistake</div>
-                            <div className="text-[10px] text-red-500 uppercase font-bold tracking-wide">{m.correction?.type || 'Needs Improvement'}</div>
-                          </div>
+                          <Lightbulb size={16} className="text-amber-500" />
+                          <span className="font-bold text-amber-700 text-sm">Quick Tip</span>
                         </div>
-                        {/* Minimize button */}
                         <button
                           onClick={() => setMinimizedCorrections(prev => ({ ...prev, [m.id]: true }))}
-                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-100 rounded-lg transition-colors"
-                          title="Minimize"
+                          className="text-amber-400 hover:text-amber-600 p-1 hover:bg-amber-100 rounded transition-colors"
                         >
-                          <ChevronUp size={18} />
+                          <X size={14} />
                         </button>
                       </div>
-
-                      <div className="space-y-3 text-sm">
-                        {/* What you said - with strikethrough */}
-                        <div className="bg-red-100/80 border border-red-200 rounded-xl p-3">
-                          <div className="text-[10px] text-red-600 font-black uppercase mb-1 tracking-wide flex items-center gap-1">
-                            <X size={12} /> What you said:
-                          </div>
-                          <div className="text-red-800 line-through font-medium">{m.originalText}</div>
+                      <div className="text-xs text-amber-800 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-500">"{m.originalText || m.correction?.original}"</span>
+                          <span className="text-amber-400">→</span>
+                          <span className="font-semibold text-amber-700">"{m.correction?.corrected}"</span>
                         </div>
-
-                        {/* Correct way - highlighted */}
-                        <div className="bg-emerald-100/80 border border-emerald-300 rounded-xl p-3">
-                          <div className="text-[10px] text-emerald-700 font-black uppercase mb-1 tracking-wide flex items-center gap-1">
-                            ✓ Correct way:
-                          </div>
-                          <div className="text-emerald-800 font-bold text-base">{m.correction?.corrected}</div>
-                        </div>
-
-                        {/* Explanation */}
-                        <div className="bg-white/80 border border-gray-200 rounded-xl p-3">
-                          <div className="text-[10px] text-gray-600 font-black uppercase mb-1 tracking-wide">💡 Why this matters:</div>
-                          <div className="text-gray-800">{m.correction?.reason}</div>
-                          {m.correction?.example && (
-                            <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg p-2 text-blue-700 text-xs">
-                              <span className="font-semibold">Example:</span> "{m.correction.example}"
-                            </div>
-                          )}
-                        </div>
+                        <div className="text-amber-600 italic">{m.correction?.reason}</div>
                       </div>
-
-                      {/* Detailed Explanation Button */}
-                      <button
-                        onClick={() => getDetailedExplanation(m.correction)}
-                        className="mt-4 w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 hover:from-indigo-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg"
-                      >
-                        <MessageCircle size={16} /> Learn More from Professor
-                      </button>
                     </motion.div>
                   )
 

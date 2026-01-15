@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trophy, Star, Zap, MessageCircle, Share2, Home, RotateCw, CheckCircle2, XCircle } from 'lucide-react';
+import { Trophy, Star, Zap, MessageCircle, Share2, Home, RotateCw, CheckCircle2, XCircle, Globe } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose, soundEnabled = true }) => {
+const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose, soundEnabled = true, onListenFeedback, motherTongue = 'Hindi' }) => {
     const [step, setStep] = useState(0); // 0: Intro, 1: Counting, 2: Final Result
 
     // GUARD: If dualAnalysis is null/undefined, show loading or return early
@@ -331,6 +331,33 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                         <p className="text-gray-600 text-sm leading-snug">
                             {myData.feedback || "Great match! Keep practicing to improve accuracy."}
                         </p>
+
+                        {/* Read in Native Language Button */}
+                        {onListenFeedback && myData.feedback && (
+                            <div className="mt-3 flex justify-center">
+                                <button
+                                    onClick={async (e) => {
+                                        const btn = e.currentTarget;
+                                        const originalContent = btn.innerHTML;
+                                        btn.disabled = true;
+                                        btn.innerHTML = `<span class="animate-pulse">Translating...</span>`;
+
+                                        try {
+                                            await onListenFeedback(myData.feedback);
+                                        } catch (err) {
+                                            console.error('[BATTLE_NATIVE_FEEDBACK] Error:', err);
+                                        } finally {
+                                            btn.disabled = false;
+                                            btn.innerHTML = originalContent;
+                                        }
+                                    }}
+                                    className="px-3 py-1.5 bg-gradient-to-r from-orange-400 to-amber-400 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-opacity shadow-sm"
+                                >
+                                    <Globe size={12} />
+                                    <span>Read in {motherTongue}</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex gap-3">
