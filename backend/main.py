@@ -1540,10 +1540,12 @@ JSON only:"""
                 complexity_rate = complex_responses / total_responses if total_responses > 0 else 0
                 sentence_score = max(20, min(100, (completeness_rate * 60) + (complexity_rate * 25) + 15))
                 
-                # FINAL: Weighted average × length multiplier
-                raw_total = (grammar_score * 0.40) + (vocab_score * 0.25) + (fluency_score * 0.20) + (sentence_score * 0.15)
-                final_total = round(raw_total * length_multiplier)
-                final_total = max(0, min(100, final_total))
+                # FINAL: Total is SUM of individual scores (User Request)
+                # raw_total = (grammar_score * 0.40) + (vocab_score * 0.25) + (fluency_score * 0.20) + (sentence_score * 0.15)
+                # final_total = round(raw_total * length_multiplier)
+                
+                # Simple Sum Calculation
+                final_total = round(vocab_score + grammar_score + fluency_score + sentence_score)
                 
                 return {
                     "vocab": round(vocab_score),
@@ -1571,20 +1573,22 @@ JSON only:"""
                         user_score = p1_scores['total']
                         random_variance = random.random() * 0.10  # 0-10% extra randomness
                         
-                        # Calculate handicap based on user's level
-                        if user_score < 30:
+                        # Calculate handicap based on user's level (SCALED FOR SUM SYSTEM - Max 400)
+                        # Previous thresholds: 30, 50, 70, 85 (on 100 scale)
+                        # New thresholds: 120, 200, 280, 340 (on 400 scale)
+                        if user_score < 120:
                             # Beginner: Heavy support (35-45% handicap)
                             handicap_percent = 0.35 + random_variance
                             level = "Beginner"
-                        elif user_score < 50:
+                        elif user_score < 200:
                             # Learning: Moderate support (25-35% handicap)
                             handicap_percent = 0.25 + random_variance
                             level = "Learning"
-                        elif user_score < 70:
+                        elif user_score < 280:
                             # Improving: Light support (15-25% handicap)
                             handicap_percent = 0.15 + random_variance
                             level = "Improving"
-                        elif user_score < 85:
+                        elif user_score < 340:
                             # Good: Minimal handicap (7-17%)
                             handicap_percent = 0.07 + random_variance
                             level = "Good"
@@ -1605,12 +1609,12 @@ JSON only:"""
                             'feedback': p2_scores.get('feedback', 'Bot opponent')
                         }
                         
-                        # Recalculate total with weighted formula
+                        # Recalculate total with Sum formula
                         p2_display_scores['total'] = round(
-                            (p2_display_scores['grammar'] * 0.40) + 
-                            (p2_display_scores['vocab'] * 0.25) + 
-                            (p2_display_scores['fluency'] * 0.20) + 
-                            (p2_display_scores['sentence'] * 0.15)
+                            p2_display_scores['grammar'] + 
+                            p2_display_scores['vocab'] + 
+                            p2_display_scores['fluency'] + 
+                            p2_display_scores['sentence']
                         )
                         
                         print(f"[HANDICAP] Bot TRUE: {p2_scores['total']}, Bot FINAL: {p2_display_scores['total']}")

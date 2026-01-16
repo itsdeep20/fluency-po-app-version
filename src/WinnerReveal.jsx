@@ -132,8 +132,10 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
 
     const AnimatedNumber = ({ value, delay = 0 }) => {
         const [count, setCount] = useState(0);
+        const shouldAnimate = step >= 1;
+
         useEffect(() => {
-            if (step >= 1) {
+            if (shouldAnimate) {
                 // Add delay before starting animation
                 const startTimeout = setTimeout(() => {
                     const duration = 1500;
@@ -154,7 +156,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
 
                 return () => clearTimeout(startTimeout);
             }
-        }, [value, step, delay]);
+        }, [value, shouldAnimate, delay]);
 
         return <span>{count}</span>;
     };
