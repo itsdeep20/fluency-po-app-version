@@ -1540,19 +1540,22 @@ JSON only:"""
                 complexity_rate = complex_responses / total_responses if total_responses > 0 else 0
                 sentence_score = max(20, min(100, (completeness_rate * 60) + (complexity_rate * 25) + 15))
                 
-                # FINAL: Total is SUM of individual scores (User Request)
-                # raw_total = (grammar_score * 0.40) + (vocab_score * 0.25) + (fluency_score * 0.20) + (sentence_score * 0.15)
-                # final_total = round(raw_total * length_multiplier)
+                # FINAL: Dual Scoring System
+                # 1. Weighted Average (0-100) for Dashboard Accuracy Stats
+                weighted_total = (grammar_score * 0.40) + (vocab_score * 0.25) + (fluency_score * 0.20) + (sentence_score * 0.15)
+                weighted_total = round(weighted_total * length_multiplier)
+                weighted_total = max(0, min(100, weighted_total))
                 
-                # Simple Sum Calculation
-                final_total = round(vocab_score + grammar_score + fluency_score + sentence_score)
+                # 2. Battle Score (Sum) for Winner Determination & Reveal
+                battle_score = round(vocab_score + grammar_score + fluency_score + sentence_score)
                 
                 return {
                     "vocab": round(vocab_score),
                     "grammar": round(grammar_score),
                     "fluency": round(fluency_score),
                     "sentence": round(sentence_score),
-                    "total": final_total,
+                    "total": weighted_total,      # Maintained for Dashboard Stats
+                    "battleScore": battle_score,  # Used for Battle Winner
                     "feedback": feedback
                 }
 
@@ -1570,34 +1573,32 @@ JSON only:"""
                     p2_display_scores = p2_scores.copy()  # Scores to display/compare
                     
                     if is_bot_match:
-                        user_score = p1_scores['total']
+                        user_score = p1_scores['battleScore']
                         random_variance = random.random() * 0.10  # 0-10% extra randomness
                         
-                        # Calculate handicap based on user's level (SCALED FOR SUM SYSTEM - Max 400)
-                        # Previous thresholds: 30, 50, 70, 85 (on 100 scale)
-                        # New thresholds: 120, 200, 280, 340 (on 400 scale)
+                        # Calculate handicap based on user's Battle Score (Max 400)
                         if user_score < 120:
-                            # Beginner: Heavy support (35-45% handicap)
+                            # Beginner
                             handicap_percent = 0.35 + random_variance
                             level = "Beginner"
                         elif user_score < 200:
-                            # Learning: Moderate support (25-35% handicap)
+                            # Learning
                             handicap_percent = 0.25 + random_variance
                             level = "Learning"
                         elif user_score < 280:
-                            # Improving: Light support (15-25% handicap)
+                            # Improving
                             handicap_percent = 0.15 + random_variance
                             level = "Improving"
                         elif user_score < 340:
-                            # Good: Minimal handicap (7-17%)
+                            # Good
                             handicap_percent = 0.07 + random_variance
                             level = "Good"
                         else:
-                            # Expert: Almost fair fight (2-12%)
+                            # Expert
                             handicap_percent = 0.02 + random_variance
                             level = "Expert"
                         
-                        print(f"[HANDICAP] User level: {level}, User score: {user_score}, Handicap: {round(handicap_percent * 100)}%")
+                        print(f"[HANDICAP] User level: {level}, Use BattleScore: {user_score}, Handicap: {round(handicap_percent * 100)}%")
                         
                         # Apply handicap to EACH category score
                         handicap_multiplier = 1 - handicap_percent
@@ -1609,25 +1610,30 @@ JSON only:"""
                             'feedback': p2_scores.get('feedback', 'Bot opponent')
                         }
                         
-                        # Recalculate total with Sum formula
-                        p2_display_scores['total'] = round(
+                        # Recalculate Bot scores
+                        # 1. Weighted (for Stats compliance)
+                        w_tot = (p2_display_scores['grammar'] * 0.40) + (p2_display_scores['vocab'] * 0.25) + (p2_display_scores['fluency'] * 0.20) + (p2_display_scores['sentence'] * 0.15)
+                        p2_display_scores['total'] = round(w_tot)
+                        
+                        # 2. Battle Score (for Winner logic)
+                        p2_display_scores['battleScore'] = round(
                             p2_display_scores['grammar'] + 
                             p2_display_scores['vocab'] + 
                             p2_display_scores['fluency'] + 
                             p2_display_scores['sentence']
                         )
                         
-                        print(f"[HANDICAP] Bot TRUE: {p2_scores['total']}, Bot FINAL: {p2_display_scores['total']}")
+                        print(f"[HANDICAP] Bot TRUE: {p2_scores['battleScore']}, Bot FINAL: {p2_display_scores['battleScore']}")
                     
-                    # Determine winner (using handicapped scores for bot)
-                    if p1_scores['total'] > p2_display_scores['total']:
+                    # Determine winner (using BATTLE SCORE - Sum)
+                    if p1_scores['battleScore'] > p2_display_scores['battleScore']:
                         winner = "player1"
-                    elif p2_display_scores['total'] > p1_scores['total']:
+                    elif p2_display_scores['battleScore'] > p1_scores['battleScore']:
                         winner = "player2"
                     else:
                         winner = "draw"
                     
-                    print(f"[ANALYZE] P1: {p1_scores['total']}, P2: {p2_display_scores['total']}, Winner: {winner}")
+                    print(f"[ANALYZE] P1: {p1_scores['battleScore']}, P2: {p2_display_scores['battleScore']}, Winner: {winner}")
                     
                     final_results = {
                         "player1": p1_scores,
