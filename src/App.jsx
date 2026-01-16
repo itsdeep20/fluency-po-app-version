@@ -2770,6 +2770,8 @@ const App = () => {
           // Use the already-calculated values
           const myData = amIPlayer1 ? adjustedData?.player1 : adjustedData?.player2;
           const oppData = amIPlayer1 ? adjustedData?.player2 : adjustedData?.player1;
+          const myScore = myData?.total || 0;
+          const totalSent = myMsgs?.length || 0;
 
           // Prepare battle chat history for analytics
           const battleChatHistory = capturedMessages
