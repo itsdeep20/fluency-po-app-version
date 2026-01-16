@@ -845,71 +845,81 @@ Return ONLY the translation in {target_language} script. No explanations."""
             # 1. Filter out rooms older than 3 minutes to avoid stale matches
             three_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=3)
             
-            # 2. Try to find an existing room to join
-            waiting_docs = db.collection('queue') \
-                .where('status', '==', 'waiting') \
-                .where('mode', '==', 'random') \
-                .where('createdAt', '>', three_mins_ago) \
-                .limit(10).stream() # Get a few to avoid host matching self
+            # 2. Try to find an existing room to join (with retry loop for race conditions)
+            MAX_JOIN_ATTEMPTS = 3
+            join_attempt = 0
             
-            found_room = None
-            for doc_snap in waiting_docs:
-                if doc_snap.to_dict().get('hostId') != user_id:
-                    found_room = doc_snap
-                    break
-            
-            if found_room:
-                # MATCH FOUND (Human) - Use a transaction to ensure atomic join
-                room_ref = db.collection('queue').document(found_room.id)
-                role_pair = random.choice(ROLE_PAIRS)
-                role_idx = random.randint(0, 1)
+            while join_attempt < MAX_JOIN_ATTEMPTS:
+                join_attempt += 1
                 
-                @firestore.transactional
-                def update_room(transaction, ref):
-                    snapshot = ref.get(transaction=transaction)
-                    if not snapshot.exists or snapshot.get('status') != 'waiting':
-                        return None # Room taken or gone
+                waiting_docs = db.collection('queue') \
+                    .where('status', '==', 'waiting') \
+                    .where('mode', '==', 'random') \
+                    .where('createdAt', '>', three_mins_ago) \
+                    .limit(10).stream()
+                
+                # Collect all waiting rooms (excluding self)
+                waiting_rooms = [doc_snap for doc_snap in waiting_docs if doc_snap.to_dict().get('hostId') != user_id]
+                
+                if not waiting_rooms:
+                    break  # No rooms found, exit loop and create new room
+                
+                # Try each waiting room
+                for found_room in waiting_rooms:
+                    room_ref = db.collection('queue').document(found_room.id)
+                    role_pair = random.choice(ROLE_PAIRS)
+                    role_idx = random.randint(0, 1)
                     
-                    # Calculate higher timer (0 = infinity is highest)
-                    host_duration = snapshot.get('sessionDuration') or 7
-                    joiner_duration = user_session_duration
-                    # 0 means 'never ends' which is the highest
-                    if host_duration == 0 or joiner_duration == 0:
-                        final_duration = 0  # Infinity wins
-                    else:
-                        final_duration = max(host_duration, joiner_duration)
-                    
-                    transaction.update(ref, {
-                        'status': 'matched',
-                        'player2Id': user_id, 'player2Name': user_name, 'player2Avatar': user_avatar,
-                        'sessionDuration': final_duration,  # Higher timer wins
-                        'startedAt': firestore.SERVER_TIMESTAMP,
-                        'roleData': {
-                            'pairId': role_pair['id'], 'topic': role_pair['topic'],
-                            'player1Role': role_pair['roles'][role_idx], 'player1Icon': role_pair['icons'][role_idx], 'player1Desc': role_pair['descriptions'][role_idx],
-                            'player2Role': role_pair['roles'][1-role_idx], 'player2Icon': role_pair['icons'][1-role_idx], 'player2Desc': role_pair['descriptions'][1-role_idx]
-                        }
-                    })
-                    return snapshot.to_dict()
+                    @firestore.transactional
+                    def update_room(transaction, ref):
+                        snapshot = ref.get(transaction=transaction)
+                        if not snapshot.exists or snapshot.get('status') != 'waiting':
+                            return None # Room taken or gone
+                        
+                        # Calculate higher timer (0 = infinity is highest)
+                        host_duration = snapshot.get('sessionDuration') or 7
+                        joiner_duration = user_session_duration
+                        # 0 means 'never ends' which is the highest
+                        if host_duration == 0 or joiner_duration == 0:
+                            final_duration = 0  # Infinity wins
+                        else:
+                            final_duration = max(host_duration, joiner_duration)
+                        
+                        transaction.update(ref, {
+                            'status': 'matched',
+                            'player2Id': user_id, 'player2Name': user_name, 'player2Avatar': user_avatar,
+                            'sessionDuration': final_duration,  # Higher timer wins
+                            'startedAt': firestore.SERVER_TIMESTAMP,
+                            'roleData': {
+                                'pairId': role_pair['id'], 'topic': role_pair['topic'],
+                                'player1Role': role_pair['roles'][role_idx], 'player1Icon': role_pair['icons'][role_idx], 'player1Desc': role_pair['descriptions'][role_idx],
+                                'player2Role': role_pair['roles'][1-role_idx], 'player2Icon': role_pair['icons'][1-role_idx], 'player2Desc': role_pair['descriptions'][1-role_idx]
+                            }
+                        })
+                        return snapshot.to_dict()
 
-                room_data = update_room(db.transaction(), room_ref)
+                    room_data = update_room(db.transaction(), room_ref)
+                    
+                    if room_data:
+                        # SUCCESS - Matched with this room
+                        host_duration = room_data.get('sessionDuration') or 7
+                        if host_duration == 0 or user_session_duration == 0:
+                            final_duration = 0
+                        else:
+                            final_duration = max(host_duration, user_session_duration)
+                        return (json.dumps({
+                            "success": True, "matched": True, "roomId": found_room.id,
+                            "opponent": {"id": room_data.get('hostId'), "name": room_data.get('userName'), "avatar": room_data.get('userAvatar')},
+                            "myRole": role_pair['roles'][1-role_idx], "myIcon": role_pair['icons'][1-role_idx], "myDesc": role_pair['descriptions'][1-role_idx], "topic": role_pair['topic'],
+                            "sessionDuration": final_duration
+                        }), 200, headers)
+                    # Transaction failed (room taken), try next room
+                    continue
                 
-                if room_data:
-                    # Return the final session duration so both players use same timer
-                    host_duration = room_data.get('sessionDuration') or 7
-                    if host_duration == 0 or user_session_duration == 0:
-                        final_duration = 0
-                    else:
-                        final_duration = max(host_duration, user_session_duration)
-                    return (json.dumps({
-                        "success": True, "matched": True, "roomId": found_room.id,
-                        "opponent": {"id": room_data.get('hostId'), "name": room_data.get('userName'), "avatar": room_data.get('userAvatar')},
-                        "myRole": role_pair['roles'][1-role_idx], "myIcon": role_pair['icons'][1-role_idx], "myDesc": role_pair['descriptions'][1-role_idx], "topic": role_pair['topic'],
-                        "sessionDuration": final_duration  # Higher timer for both
-                    }), 200, headers)
-                # If room_data is None, transaction failed, fall through to host a new room
+                # All rooms in this batch were taken, retry with fresh query
+                time.sleep(0.1)  # Small delay before retry
             
-            # 3. NO ROOM FOUND - HOST A NEW ONE
+            # 3. NO ROOM FOUND (after retries) - HOST A NEW ONE
             # Check for duplicates
             existing = db.collection('queue').where('hostId', '==', user_id).where('status', '==', 'waiting').limit(1).stream()
             existing_room = next(existing, None)
@@ -1294,10 +1304,12 @@ YOUR SPEAKING STYLE:
 
         # --- ANALYSIS (UNCHANGED) ---
         if req_type == "analyze":
-            model = get_pro_model()  # Use PRO model for accurate battle analysis
+            print("[ANALYZE] Starting HYBRID battle analysis...")
+            model = get_model()  # Use Flash model (faster) - only identifying, not calculating
             p1_hist = data.get('player1History')
             p2_hist = data.get('player2History')
             room_id = data.get('roomId')
+            is_bot_match = data.get('isBotMatch', False)  # NEW: Flag for bot matches
             
             # Check if results already exist (Single Source of Truth)
             if room_id:
@@ -1308,50 +1320,319 @@ YOUR SPEAKING STYLE:
                         print(f"[ANALYZE] Returning existing results for {room_id}")
                         return (json.dumps(existing_results), 200, headers)
 
-            # Handle empty arrays - use explicit None check instead of truthiness
+            # Handle empty arrays
             p1_hist = p1_hist if p1_hist is not None else []
             p2_hist = p2_hist if p2_hist is not None else []
             
-            print(f"[ANALYZE] Received history - P1: {len(p1_hist)} msgs, P2: {len(p2_hist)} msgs")
+            print(f"[ANALYZE] Received history - P1: {len(p1_hist)} msgs, P2: {len(p2_hist)} msgs, isBotMatch: {is_bot_match}")
 
-            # If AT LEAST ONE player has messages, analyze (don't fail if opponent is empty)
-            if len(p1_hist) > 0 or len(p2_hist) > 0:
-                prompt = (
-                    "ACT AS A STRICT ENGLISH EXAMINER. Analyze the conversation history below.\n"
-                    f"Player 1 (Human): {p1_hist}\n"
-                    f"Player 2 (Opponent): {p2_hist}\n\n"
-                    "Step 1: IGNORE any empty history. If a player has no messages, score them 0.\n"
-                    "Step 2: Calculate 4 scores (0-100) for EACH player:\n"
-                    "   - VOCABULARY: Richness, variety, advanced word usage\n"
-                    "   - GRAMMAR: Accuracy, tense, subject-verb agreement, articles (-10 pts per error)\n"
-                    "   - FLUENCY: Natural flow, coherence, sounds human (not robotic)\n"
-                    "   - SENTENCE: Complexity, length variety, structural diversity\n\n"
-                    "Step 3: LENGTH BONUS/PENALTY (apply to each message before averaging):\n"
-                    "   - < 3 words: multiply score by 0.7 (30% penalty)\n"
-                    "   - 3-5 words: multiply score by 0.85 (15% penalty)\n"
-                    "   - 6-9 words: no change (standard)\n"
-                    "   - 10+ words: multiply score by 1.05 (5% bonus for elaborate answers)\n\n"
-                    "Step 4: WEIGHTED FINAL SCORE formula:\n"
-                    "   total = (grammar × 0.40) + (vocab × 0.25) + (fluency × 0.20) + (sentence × 0.15)\n"
-                    "   Grammar is MOST important (40%), then Vocabulary (25%), Fluency (20%), Sentence (15%)\n\n"
-                    "Step 5: WINNER is the one with highest WEIGHTED total.\n\n"
-                    "Return strict JSON only:\n"
-                    "{\n"
-                    "  \"player1\": { \"vocab\": 75, \"grammar\": 80, \"fluency\": 70, \"sentence\": 75, \"total\": 76, \"feedback\": \"Specific feedback.\" },\n"
-                    "  \"player2\": { \"vocab\": 80, \"grammar\": 85, \"fluency\": 90, \"sentence\": 85, \"total\": 84, \"feedback\": \"Feedback for player 2.\" },\n"
-                    "  \"winner\": \"player2\"\n"
-                    "}"
-                )
+            # Helper function to calculate scores for a player using hybrid approach
+            def calculate_player_scores(messages):
+                if not messages or len(messages) == 0:
+                    return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No messages sent."}
+                
+                # STEP 1: Python calculates basic stats (instant)
+                all_text = ' '.join(messages)
+                all_words = all_text.split()
+                total_words = len(all_words)
+                unique_words = len(set(w.lower() for w in all_words))
+                total_messages = len(messages)
+                
+                if total_words == 0:
+                    return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No words sent."}
+                
+                # Calculate length multiplier
+                avg_words_per_msg = total_words / total_messages
+                if avg_words_per_msg < 3:
+                    length_multiplier = 0.70
+                elif avg_words_per_msg <= 5:
+                    length_multiplier = 0.85
+                elif avg_words_per_msg <= 9:
+                    length_multiplier = 1.00
+                else:
+                    length_multiplier = 1.05
+                
+                # STEP 2: AI identifies errors with DETAILED analysis
+                identify_prompt = f"""Analyze these English messages carefully. Return detailed analysis.
+
+MESSAGES: {messages}
+
+Return JSON ONLY:
+{{
+  "grammar_errors": 0,
+  "spelling_errors": 0,
+  "punctuation_errors": 0,
+  "capitalization_errors": 0,
+  "article_errors": 0,
+  
+  "gibberish_words": 0,
+  "valid_english_words": 0,
+  "basic_words": 0,
+  "intermediate_words": 0,
+  "advanced_words": 0,
+  
+  "awkward_phrases": 0,
+  "incomplete_thoughts": 0,
+  "coherence_score": 85,
+  "natural_flow": 80,
+  
+  "complete_responses": 0,
+  "complex_responses": 0,
+  "total_responses": 1,
+  
+  "feedback": "Brief feedback"
+}}
+
+DETAILED RULES:
+- grammar_errors: Missing verbs, wrong tense, subject-verb mismatch (NOT articles)
+- spelling_errors: Misspelled words (typos like "teh" → "the")
+- punctuation_errors: Missing . ? ! or wrong comma usage
+- capitalization_errors: "i" should be "I", no capital at sentence start
+- article_errors: Missing or wrong a/an/the usage
+
+- gibberish_words: ANY word that is NOT a valid English word (e.g., "vnvhhv", "asdfg", "hhhh", "bfrghrtyu")
+- valid_english_words: Count of REAL English words (total - gibberish)
+- basic_words: Common everyday words (I, am, go, the, is, you, me, yes, no, ok, good, bad)
+- intermediate_words: Semi-advanced (purchase, appreciate, wonderful, delicious, consider)
+- advanced_words: Sophisticated (eloquent, meticulous, comprehensive, articulate, profound)
+
+- awkward_phrases: Unnatural word order or broken phrasing
+- incomplete_thoughts: Sentences missing essential parts
+- coherence_score: Does the message make logical sense? (0-100, gibberish = 0)
+- natural_flow: Does it sound like a native speaker? (0-100, gibberish = 0)
+
+- complete_responses: Messages that are meaningful as a whole
+- complex_responses: Uses because/if/when/that/although
+- total_responses: Total number of messages
+
+JSON only:"""
+                
                 try:
-                    res = generate_with_pro_model(model, prompt)
-                    # Clean JSON
+                    res = model.generate_content(identify_prompt).text.strip()
+                    if '```' in res:
+                        parts = res.split('```')
+                        for part in parts:
+                            if part.strip().startswith('json'):
+                                res = part.strip()[4:].strip()
+                                break
+                            elif part.strip().startswith('{'):
+                                res = part.strip()
+                                break
                     start = res.find('{')
                     end = res.rfind('}') + 1
-                    json_str = res[start:end]
+                    ai_result = json.loads(res[start:end]) if start >= 0 and end > start else {}
+                except:
+                    ai_result = {"grammar_errors": 0, "spelling_errors": 0, "punctuation_errors": 0, "capitalization_errors": 0, "article_errors": 0, "gibberish_words": 0, "valid_english_words": total_words, "basic_words": total_words, "intermediate_words": 0, "advanced_words": 0, "awkward_phrases": 0, "incomplete_thoughts": 0, "coherence_score": 70, "natural_flow": 70, "complete_responses": total_messages, "complex_responses": 0, "total_responses": total_messages, "feedback": "Keep practicing!"}
+                
+                # STEP 3: Python calculates scores using REFINED formulas
+                grammar_errors = ai_result.get('grammar_errors', 0)
+                spelling_errors = ai_result.get('spelling_errors', 0)
+                punctuation_errors = ai_result.get('punctuation_errors', 0)
+                capitalization_errors = ai_result.get('capitalization_errors', 0)
+                article_errors = ai_result.get('article_errors', 0)
+                gibberish_words = ai_result.get('gibberish_words', 0)
+                valid_english_words = ai_result.get('valid_english_words', total_words - gibberish_words)
+                basic_words = ai_result.get('basic_words', 0)
+                intermediate_words = ai_result.get('intermediate_words', 0)
+                advanced_words = ai_result.get('advanced_words', 0)
+                awkward_phrases = ai_result.get('awkward_phrases', 0)
+                incomplete_thoughts = ai_result.get('incomplete_thoughts', 0)
+                coherence_score = ai_result.get('coherence_score', 70)
+                natural_flow = ai_result.get('natural_flow', 70)
+                complete_responses = ai_result.get('complete_responses', ai_result.get('complete_sentences', 0))
+                complex_responses = ai_result.get('complex_responses', ai_result.get('complex_sentences', 0))
+                total_responses = max(ai_result.get('total_responses', ai_result.get('total_sentences', total_messages)), 1)
+                feedback = ai_result.get('feedback', 'Keep practicing!')
+                
+                # ============================================
+                # GRAMMAR: Refined Rate-Based + Flat Gibberish Penalty
+                # ============================================
+                grammar_rate = grammar_errors / total_words if total_words > 0 else 0
+                spelling_rate = spelling_errors / total_words if total_words > 0 else 0
+                punctuation_rate = punctuation_errors / total_responses if total_responses > 0 else 0
+                capitalization_rate = capitalization_errors / total_responses if total_responses > 0 else 0
+                article_rate = article_errors / total_words if total_words > 0 else 0
+                gibberish_rate = gibberish_words / total_words if total_words > 0 else 0
+                valid_ratio = valid_english_words / total_words if total_words > 0 else 0
+                
+                # Weighted rate penalty (each rate × weight)
+                rate_penalty = (
+                    grammar_rate * 150 +        # Grammar: heavy
+                    spelling_rate * 100 +        # Spelling: medium-heavy
+                    punctuation_rate * 15 +      # Punctuation: light
+                    capitalization_rate * 8 +    # Capitalization: minimal
+                    article_rate * 80 +          # Articles: medium
+                    gibberish_rate * 50          # Gibberish rate penalty
+                )
+                
+                # Flat gibberish penalty: -20 per gibberish word
+                gibberish_flat_penalty = gibberish_words * 20
+                
+                # Calculate base grammar score
+                base_grammar = 100 - rate_penalty - gibberish_flat_penalty
+                
+                # Apply valid ratio multiplier for mostly-gibberish content
+                if valid_ratio < 0.3:
+                    grammar_score = min(15, max(0, base_grammar))
+                elif valid_ratio < 0.7:
+                    grammar_score = max(0, min(100, base_grammar * valid_ratio))
+                else:
+                    grammar_score = max(20, min(100, base_grammar))
+                
+                # ============================================
+                # SENSE-MAKING REWARD: Bonus for clear intent
+                # ============================================
+                # If grammar is low but message makes sense, give relief
+                if coherence_score > 50 and grammar_score < 50:
+                    if grammar_score < 20:
+                        sense_bonus = 20  # High reward for very low scores
+                    elif grammar_score < 30:
+                        sense_bonus = 12  # Medium reward
+                    elif grammar_score < 40:
+                        sense_bonus = 6   # Small reward
+                    else:  # 40-50
+                        sense_bonus = 3   # Minimal reward
                     
-                    final_results = json.loads(json_str)
+                    grammar_score = min(50, grammar_score + sense_bonus)
+                
+                # ============================================
+                # VOCABULARY: Stricter with Flat Gibberish Penalty
+                # ============================================
+                valid_words = total_words - gibberish_words
+                if total_words > 0 and valid_words > 0:
+                    # Word level scoring
+                    basic_ratio = basic_words / valid_words if valid_words > 0 else 1
+                    intermediate_ratio = intermediate_words / valid_words if valid_words > 0 else 0
+                    advanced_ratio = advanced_words / valid_words if valid_words > 0 else 0
+                    word_level_score = (basic_ratio * 40) + (intermediate_ratio * 70) + (advanced_ratio * 100)
                     
-                    # SINGLE SOURCE OF TRUTH: Save to Firestore
+                    # Gibberish penalties: rate-based + flat
+                    gibberish_rate_penalty = gibberish_rate * 50
+                    gibberish_flat = gibberish_words * 15  # -15 per gibberish word
+                    
+                    vocab_score = max(0, min(100, word_level_score - gibberish_rate_penalty - gibberish_flat))
+                else:
+                    vocab_score = 0 if gibberish_words > 0 else 40
+                
+                # FLUENCY: Enhanced with coherence, flow, and depth penalty
+                avg_words_per_response = total_words / total_responses if total_responses > 0 else 0
+                
+                # Depth penalty for very short responses
+                if avg_words_per_response < 3:
+                    depth_penalty = 30
+                elif avg_words_per_response < 5:
+                    depth_penalty = 15
+                else:
+                    depth_penalty = 0
+                
+                # Gibberish kills fluency
+                gibberish_ratio = gibberish_words / total_words if total_words > 0 else 0
+                if gibberish_ratio > 0.3:
+                    fluency_score = max(10, 30 - (gibberish_words * 10))
+                else:
+                    awkward_penalty = (awkward_phrases / total_responses * 40) if total_responses > 0 else 0
+                    incomplete_penalty = (incomplete_thoughts / total_responses * 30) if total_responses > 0 else 0
+                    base_fluency = (coherence_score * 0.40) + (natural_flow * 0.60)
+                    fluency_score = max(25, min(100, base_fluency - awkward_penalty - incomplete_penalty - depth_penalty))
+                
+                # SENTENCE: (completeness × 60) + (complexity × 25) + base 15, min 20
+                completeness_rate = complete_responses / total_responses if total_responses > 0 else 0
+                complexity_rate = complex_responses / total_responses if total_responses > 0 else 0
+                sentence_score = max(20, min(100, (completeness_rate * 60) + (complexity_rate * 25) + 15))
+                
+                # FINAL: Weighted average × length multiplier
+                raw_total = (grammar_score * 0.40) + (vocab_score * 0.25) + (fluency_score * 0.20) + (sentence_score * 0.15)
+                final_total = round(raw_total * length_multiplier)
+                final_total = max(0, min(100, final_total))
+                
+                return {
+                    "vocab": round(vocab_score),
+                    "grammar": round(grammar_score),
+                    "fluency": round(fluency_score),
+                    "sentence": round(sentence_score),
+                    "total": final_total,
+                    "feedback": feedback
+                }
+
+            # If at least one player has messages, analyze
+            if len(p1_hist) > 0 or len(p2_hist) > 0:
+                try:
+                    p1_scores = calculate_player_scores(p1_hist)
+                    p2_scores = calculate_player_scores(p2_hist)
+                    
+                    # ============================================
+                    # DYNAMIC HANDICAP SYSTEM (for bot matches)
+                    # Bot uses TRUE scores but handicapped based on user's level
+                    # ============================================
+                    
+                    p2_display_scores = p2_scores.copy()  # Scores to display/compare
+                    
+                    if is_bot_match:
+                        user_score = p1_scores['total']
+                        random_variance = random.random() * 0.10  # 0-10% extra randomness
+                        
+                        # Calculate handicap based on user's level
+                        if user_score < 30:
+                            # Beginner: Heavy support (35-45% handicap)
+                            handicap_percent = 0.35 + random_variance
+                            level = "Beginner"
+                        elif user_score < 50:
+                            # Learning: Moderate support (25-35% handicap)
+                            handicap_percent = 0.25 + random_variance
+                            level = "Learning"
+                        elif user_score < 70:
+                            # Improving: Light support (15-25% handicap)
+                            handicap_percent = 0.15 + random_variance
+                            level = "Improving"
+                        elif user_score < 85:
+                            # Good: Minimal handicap (7-17%)
+                            handicap_percent = 0.07 + random_variance
+                            level = "Good"
+                        else:
+                            # Expert: Almost fair fight (2-12%)
+                            handicap_percent = 0.02 + random_variance
+                            level = "Expert"
+                        
+                        print(f"[HANDICAP] User level: {level}, User score: {user_score}, Handicap: {round(handicap_percent * 100)}%")
+                        
+                        # Apply handicap to EACH category score
+                        handicap_multiplier = 1 - handicap_percent
+                        p2_display_scores = {
+                            'vocab': round(p2_scores['vocab'] * handicap_multiplier),
+                            'grammar': round(p2_scores['grammar'] * handicap_multiplier),
+                            'fluency': round(p2_scores['fluency'] * handicap_multiplier),
+                            'sentence': round(p2_scores['sentence'] * handicap_multiplier),
+                            'feedback': p2_scores.get('feedback', 'Bot opponent')
+                        }
+                        
+                        # Recalculate total with weighted formula
+                        p2_display_scores['total'] = round(
+                            (p2_display_scores['grammar'] * 0.40) + 
+                            (p2_display_scores['vocab'] * 0.25) + 
+                            (p2_display_scores['fluency'] * 0.20) + 
+                            (p2_display_scores['sentence'] * 0.15)
+                        )
+                        
+                        print(f"[HANDICAP] Bot TRUE: {p2_scores['total']}, Bot FINAL: {p2_display_scores['total']}")
+                    
+                    # Determine winner (using handicapped scores for bot)
+                    if p1_scores['total'] > p2_display_scores['total']:
+                        winner = "player1"
+                    elif p2_display_scores['total'] > p1_scores['total']:
+                        winner = "player2"
+                    else:
+                        winner = "draw"
+                    
+                    print(f"[ANALYZE] P1: {p1_scores['total']}, P2: {p2_display_scores['total']}, Winner: {winner}")
+                    
+                    final_results = {
+                        "player1": p1_scores,
+                        "player2": p2_display_scores,  # Use handicapped scores for bot
+                        "winner": winner,
+                        "isBotMatch": is_bot_match
+                    }
+                    
+                    # Save to Firestore
                     if room_id:
                         analyzed_by = data.get('analyzedBy')
                         final_results['analyzedBy'] = analyzed_by
@@ -1365,10 +1646,9 @@ YOUR SPEAKING STYLE:
                     return (json.dumps(final_results), 200, headers)
                 except Exception as e:
                     print(f"[ANALYZE_ERROR] {e}")
-                    # Fallback JSON
                     fallback = {
-                        "player1": {"vocab": 75, "grammar": 70, "fluency": 75, "sentence": 70, "total": 290},
-                        "player2": {"vocab": 80, "grammar": 75, "fluency": 80, "sentence": 75, "total": 310},
+                        "player1": {"vocab": 75, "grammar": 70, "fluency": 75, "sentence": 70, "total": 72},
+                        "player2": {"vocab": 80, "grammar": 75, "fluency": 80, "sentence": 75, "total": 77},
                         "winner": "player2",
                         "feedback": "Analysis failed, using estimates."
                     }
@@ -1376,7 +1656,7 @@ YOUR SPEAKING STYLE:
                         db.collection('queue').document(room_id).update({'results': fallback, 'status': 'ended'})
                     return (json.dumps(fallback), 200, headers)
             else:
-                # No messages from either player - return a draw
+                # No messages from either player
                 draw_result = {
                     "player1": {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No messages sent."},
                     "player2": {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No messages sent."},
@@ -1390,60 +1670,249 @@ YOUR SPEAKING STYLE:
 
         # --- SIMULATION ANALYSIS (Same PRO model as Battle) ---
         if req_type == "analyze_simulation":
-            print("[ANALYZE_SIM] Starting simulation analysis...")
-            model = get_pro_model()  # Use same PRO model as battle
+            print("[ANALYZE_SIM] Starting HYBRID simulation analysis...")
+            model = get_model()  # Use Flash model (faster) - only identifying, not calculating
             player_history = data.get('playerHistory', [])
             sim_name = data.get('simName', 'Simulation')
             
             if not player_history or len(player_history) == 0:
                 return (json.dumps({"accuracy": 0, "feedback": "No messages to analyze."}), 200, headers)
             
-            # Use same strict accuracy formula as Battle mode
-            prompt = f"""You are a STRICT ENGLISH EXAMINER. Analyze the user's messages from a simulation session.
+            # STEP 1: Python calculates basic stats (instant)
+            all_text = ' '.join(player_history)
+            all_words = all_text.split()
+            total_words = len(all_words)
+            unique_words = len(set(w.lower() for w in all_words))
+            total_messages = len(player_history)
+            
+            # Calculate length multiplier
+            avg_words_per_msg = total_words / total_messages if total_messages > 0 else 0
+            if avg_words_per_msg < 3:
+                length_multiplier = 0.70
+            elif avg_words_per_msg <= 5:
+                length_multiplier = 0.85
+            elif avg_words_per_msg <= 9:
+                length_multiplier = 1.00
+            else:
+                length_multiplier = 1.05
+            
+            print(f"[ANALYZE_SIM] Stats: {total_words} words, {unique_words} unique, {total_messages} msgs, multiplier: {length_multiplier}")
+            
+            # STEP 2: AI identifies errors with DETAILED analysis
+            identify_prompt = f"""Analyze these English messages carefully. Return detailed analysis.
 
-SIMULATION: {sim_name}
-USER MESSAGES: {player_history}
-
-Step 1: Calculate 4 scores (0-100) for the user:
-- VOCABULARY: Richness, variety, advanced word usage
-- GRAMMAR: Accuracy, tense, subject-verb agreement, articles (-10 pts per error)
-- FLUENCY: Natural flow, coherence, sounds human (not robotic)
-- SENTENCE: Complexity, length variety, structural diversity
-
-Step 2: LENGTH BONUS/PENALTY (apply to each message before averaging):
-- < 3 words: multiply score by 0.7 (30% penalty)
-- 3-5 words: multiply score by 0.85 (15% penalty)
-- 6-9 words: no change (standard)
-- 10+ words: multiply score by 1.05 (5% bonus for elaborate answers)
-
-Step 3: WEIGHTED FINAL SCORE formula:
-accuracy = (grammar × 0.40) + (vocab × 0.25) + (fluency × 0.20) + (sentence × 0.15)
-Grammar is MOST important (40%), then Vocabulary (25%), Fluency (20%), Sentence (15%)
+MESSAGES: {player_history}
 
 Return JSON ONLY:
 {{
-  "accuracy": 76,
-  "vocab": 75,
-  "grammar": 80,
-  "fluency": 74,
-  "sentence": 71,
-  "feedback": "Brief encouragement about their performance"
+  "grammar_errors": 0,
+  "spelling_errors": 0,
+  "punctuation_errors": 0,
+  "capitalization_errors": 0,
+  "article_errors": 0,
+  
+  "gibberish_words": 0,
+  "valid_english_words": 0,
+  "basic_words": 0,
+  "intermediate_words": 0,
+  "advanced_words": 0,
+  
+  "awkward_phrases": 0,
+  "incomplete_thoughts": 0,
+  "coherence_score": 85,
+  "natural_flow": 80,
+  
+  "complete_responses": 0,
+  "complex_responses": 0,
+  "total_responses": 1,
+  
+  "feedback": "Brief feedback"
 }}
-"""
+
+DETAILED RULES:
+- grammar_errors: Missing verbs, wrong tense, subject-verb mismatch (NOT articles)
+- spelling_errors: Misspelled words (typos like "teh" → "the")
+- punctuation_errors: Missing . ? ! or wrong comma usage
+- capitalization_errors: "i" should be "I", no capital at sentence start
+- article_errors: Missing or wrong a/an/the usage
+
+- gibberish_words: ANY word that is NOT a valid English word (e.g., "vnvhhv", "asdfg", "hhhh", "bfrghrtyu")
+- valid_english_words: Count of REAL English words (total - gibberish)
+- basic_words: Common everyday words (I, am, go, the, is, you, me, yes, no, ok, good, bad)
+- intermediate_words: Semi-advanced (purchase, appreciate, wonderful, delicious, consider)
+- advanced_words: Sophisticated (eloquent, meticulous, comprehensive, articulate, profound)
+
+- awkward_phrases: Unnatural word order or broken phrasing
+- incomplete_thoughts: Sentences missing essential parts
+- coherence_score: Does the message make logical sense? (0-100, gibberish = 0)
+- natural_flow: Does it sound like a native speaker? (0-100, gibberish = 0)
+
+- complete_responses: Messages that are meaningful as a whole
+- complex_responses: Uses because/if/when/that/although
+- total_responses: Total number of messages
+
+JSON only:"""
             
             try:
-                res = generate_with_pro_model(model, prompt)
+                res = model.generate_content(identify_prompt).text.strip()
                 # Clean JSON
+                if '```' in res:
+                    parts = res.split('```')
+                    for part in parts:
+                        if part.strip().startswith('json'):
+                            res = part.strip()[4:].strip()
+                            break
+                        elif part.strip().startswith('{'):
+                            res = part.strip()
+                            break
                 start = res.find('{')
                 end = res.rfind('}') + 1
-                json_str = res[start:end]
-                result = json.loads(json_str)
-                print(f"[ANALYZE_SIM] PRO result: accuracy={result.get('accuracy')}")
+                if start >= 0 and end > start:
+                    ai_result = json.loads(res[start:end])
+                else:
+                    raise ValueError("No JSON found in response")
+                    
+                print(f"[ANALYZE_SIM] AI identified: {ai_result}")
+                
+                # STEP 3: Python calculates scores using REFINED formulas
+                grammar_errors = ai_result.get('grammar_errors', 0)
+                spelling_errors = ai_result.get('spelling_errors', 0)
+                punctuation_errors = ai_result.get('punctuation_errors', 0)
+                capitalization_errors = ai_result.get('capitalization_errors', 0)
+                article_errors = ai_result.get('article_errors', 0)
+                gibberish_words = ai_result.get('gibberish_words', 0)
+                valid_english_words = ai_result.get('valid_english_words', total_words - gibberish_words)
+                basic_words = ai_result.get('basic_words', 0)
+                intermediate_words = ai_result.get('intermediate_words', 0)
+                advanced_words = ai_result.get('advanced_words', 0)
+                awkward_phrases = ai_result.get('awkward_phrases', 0)
+                incomplete_thoughts = ai_result.get('incomplete_thoughts', 0)
+                coherence_score = ai_result.get('coherence_score', 70)
+                natural_flow = ai_result.get('natural_flow', 70)
+                complete_responses = ai_result.get('complete_responses', ai_result.get('complete_sentences', 0))
+                complex_responses = ai_result.get('complex_responses', ai_result.get('complex_sentences', 0))
+                total_responses = max(ai_result.get('total_responses', ai_result.get('total_sentences', total_messages)), 1)
+                feedback = ai_result.get('feedback', 'Keep practicing!')
+                
+                # ============================================
+                # GRAMMAR: Refined Rate-Based + Flat Gibberish Penalty
+                # ============================================
+                grammar_rate = grammar_errors / total_words if total_words > 0 else 0
+                spelling_rate = spelling_errors / total_words if total_words > 0 else 0
+                punctuation_rate = punctuation_errors / total_responses if total_responses > 0 else 0
+                capitalization_rate = capitalization_errors / total_responses if total_responses > 0 else 0
+                article_rate = article_errors / total_words if total_words > 0 else 0
+                gibberish_rate = gibberish_words / total_words if total_words > 0 else 0
+                valid_ratio = valid_english_words / total_words if total_words > 0 else 0
+                
+                # Weighted rate penalty (each rate × weight)
+                rate_penalty = (
+                    grammar_rate * 150 +        # Grammar: heavy
+                    spelling_rate * 100 +        # Spelling: medium-heavy
+                    punctuation_rate * 15 +      # Punctuation: light
+                    capitalization_rate * 8 +    # Capitalization: minimal
+                    article_rate * 80 +          # Articles: medium
+                    gibberish_rate * 50          # Gibberish rate penalty
+                )
+                
+                # Flat gibberish penalty: -20 per gibberish word
+                gibberish_flat_penalty = gibberish_words * 20
+                
+                # Calculate base grammar score
+                base_grammar = 100 - rate_penalty - gibberish_flat_penalty
+                
+                # Apply valid ratio multiplier for mostly-gibberish content
+                if valid_ratio < 0.3:
+                    grammar_score = min(15, max(0, base_grammar))
+                elif valid_ratio < 0.7:
+                    grammar_score = max(0, min(100, base_grammar * valid_ratio))
+                else:
+                    grammar_score = max(20, min(100, base_grammar))
+                
+                # ============================================
+                # SENSE-MAKING REWARD: Bonus for clear intent
+                # ============================================
+                # If grammar is low but message makes sense, give relief
+                if coherence_score > 50 and grammar_score < 50:
+                    if grammar_score < 20:
+                        sense_bonus = 20  # High reward for very low scores
+                    elif grammar_score < 30:
+                        sense_bonus = 12  # Medium reward
+                    elif grammar_score < 40:
+                        sense_bonus = 6   # Small reward
+                    else:  # 40-50
+                        sense_bonus = 3   # Minimal reward
+                    
+                    grammar_score = min(50, grammar_score + sense_bonus)
+                
+                # ============================================
+                # VOCABULARY: Stricter with Flat Gibberish Penalty
+                # ============================================
+                valid_words = total_words - gibberish_words
+                if total_words > 0 and valid_words > 0:
+                    # Word level scoring
+                    basic_ratio = basic_words / valid_words if valid_words > 0 else 1
+                    intermediate_ratio = intermediate_words / valid_words if valid_words > 0 else 0
+                    advanced_ratio = advanced_words / valid_words if valid_words > 0 else 0
+                    word_level_score = (basic_ratio * 40) + (intermediate_ratio * 70) + (advanced_ratio * 100)
+                    
+                    # Gibberish penalties: rate-based + flat
+                    gibberish_rate_penalty = gibberish_rate * 50
+                    gibberish_flat = gibberish_words * 15  # -15 per gibberish word
+                    
+                    vocab_score = max(0, min(100, word_level_score - gibberish_rate_penalty - gibberish_flat))
+                else:
+                    vocab_score = 0 if gibberish_words > 0 else 40
+                
+                # FLUENCY: Enhanced with coherence, flow, and depth penalty
+                avg_words_per_response = total_words / total_responses if total_responses > 0 else 0
+                
+                # Depth penalty for very short responses
+                if avg_words_per_response < 3:
+                    depth_penalty = 30
+                elif avg_words_per_response < 5:
+                    depth_penalty = 15
+                else:
+                    depth_penalty = 0
+                
+                # Gibberish kills fluency
+                gibberish_ratio = gibberish_words / total_words if total_words > 0 else 0
+                if gibberish_ratio > 0.3:
+                    fluency_score = max(10, 30 - (gibberish_words * 10))
+                else:
+                    awkward_penalty = (awkward_phrases / total_responses * 40) if total_responses > 0 else 0
+                    incomplete_penalty = (incomplete_thoughts / total_responses * 30) if total_responses > 0 else 0
+                    base_fluency = (coherence_score * 0.40) + (natural_flow * 0.60)
+                    fluency_score = max(25, min(100, base_fluency - awkward_penalty - incomplete_penalty - depth_penalty))
+                
+                # SENTENCE: (completeness × 60) + (complexity × 25) + base 15, min 20
+                completeness_rate = complete_responses / total_responses if total_responses > 0 else 0
+                complexity_rate = complex_responses / total_responses if total_responses > 0 else 0
+                sentence_score = max(20, min(100, (completeness_rate * 60) + (complexity_rate * 25) + 15))
+                
+                # FINAL: Weighted average × length multiplier
+                raw_accuracy = (grammar_score * 0.40) + (vocab_score * 0.25) + (fluency_score * 0.20) + (sentence_score * 0.15)
+                final_accuracy = round(raw_accuracy * length_multiplier)
+                final_accuracy = max(0, min(100, final_accuracy))
+                
+                print(f"[ANALYZE_SIM] Scores: grammar={grammar_score:.1f}, vocab={vocab_score:.1f}, fluency={fluency_score:.1f}, sentence={sentence_score:.1f}")
+                print(f"[ANALYZE_SIM] Final: raw={raw_accuracy:.1f} × {length_multiplier} = {final_accuracy}")
+                
+                result = {
+                    "accuracy": final_accuracy,
+                    "grammar": round(grammar_score),
+                    "vocab": round(vocab_score),
+                    "fluency": round(fluency_score),
+                    "sentence": round(sentence_score),
+                    "feedback": feedback
+                }
                 return (json.dumps(result), 200, headers)
+                
             except Exception as e:
                 print(f"[ANALYZE_SIM_ERROR] {e}")
-                # Fallback - use simple estimation
-                fallback = {"accuracy": 75, "feedback": "Analysis unavailable, estimated score."}
+                # Fallback - use simple estimation based on word count
+                simple_score = min(80, 50 + (total_words // 5))
+                fallback = {"accuracy": simple_score, "feedback": "Analysis unavailable, estimated score."}
                 return (json.dumps(fallback), 200, headers)
 
         # --- OTHER HANDLERS (Sims, etc) ---

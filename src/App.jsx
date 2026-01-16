@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import WinnerReveal from './WinnerReveal';
+import ScoringGuide from './ScoringGuide';
 
 // ===== PROFESSIONAL SOUND UTILITIES =====
 const createAudioContext = () => {
@@ -371,6 +372,7 @@ const App = () => {
   const [dualAnalysis, setDualAnalysis] = useState(null);
   const [battleOpponentData, setBattleOpponentData] = useState(null); // Captured opponent for WinnerReveal
   const [showWinnerReveal, setShowWinnerReveal] = useState(false);
+  const [sessionEndTransition, setSessionEndTransition] = useState(null); // 'opponent_left' | 'time_over' | null
   const [showMenu, setShowMenu] = useState(false);
   const [loadingAction, setLoadingAction] = useState(null); // 'practice' | 'compete' | 'friend' | 'google' | 'guest'
   const [recentChats, setRecentChats] = useState([]);
@@ -397,6 +399,7 @@ const App = () => {
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
   const [showMistakesPopup, setShowMistakesPopup] = useState(false); // Full-screen mistakes list popup
   const [showAchievements, setShowAchievements] = useState(false);
+  const [showScoringGuide, setShowScoringGuide] = useState(false); // Scoring tips guide
   const [lockedAvatarModal, setLockedAvatarModal] = useState(null); // Bug 5: Beautiful locked avatar popup
   const [showDetailedExplanation, setShowDetailedExplanation] = useState(null);
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
@@ -899,13 +902,13 @@ const App = () => {
       window.addEventListener('focus', handleFocus);
       window.addEventListener('blur', handleBlur);
 
-      // Heartbeat every 30 seconds (only if tab is visible)
+      // Heartbeat every 10 seconds (only if tab is visible)
       heartbeatRef.current = setInterval(() => {
         if (document.visibilityState === 'visible') {
           setDoc(presenceDocRef, { lastSeen: serverTimestamp(), isOnline: true }, { merge: true })
             .catch(e => console.error('Heartbeat error:', e));
         }
-      }, 30000);
+      }, 10000);
 
       // Listen for all live users (excluding self)
       const liveQuery = query(
@@ -1679,12 +1682,24 @@ const App = () => {
       const data = await res.json();
       if (data.success) {
         setRoomCode(data.roomCode);
+        console.log('[CREATE_ROOM] Room created:', data.roomId, 'Code:', data.roomCode);
+
         const unsub = onSnapshot(doc(db, 'queue', data.roomId), (snap) => {
-          if (snap.exists() && snap.data().status === 'matched') {
-            unsub();
-            joinMatch(data.roomId, { id: snap.data().player2Id, name: snap.data().player2Name, avatar: snap.data().player2Avatar }, 'human', 'Friend Match');
-            setShowRoomInput(false); setRoomCode("");
+          if (snap.exists()) {
+            const roomData = snap.data();
+            console.log('[CREATE_ROOM_LISTENER] Status update:', roomData.status, 'Player2:', roomData.player2Id);
+
+            if (roomData.status === 'matched') {
+              console.log('[CREATE_ROOM_LISTENER] Match found! Joining...');
+              unsub();
+              joinMatch(data.roomId, { id: roomData.player2Id, name: roomData.player2Name, avatar: roomData.player2Avatar }, 'human', 'Friend Match');
+              setShowRoomInput(false); setRoomCode("");
+            }
+          } else {
+            console.log('[CREATE_ROOM_LISTENER] Doc does not exist');
           }
+        }, (error) => {
+          console.error('[CREATE_ROOM_LISTENER] Error:', error);
         });
       } else { setToastNotification({ type: 'error', message: data.error || 'Failed to create room', icon: '❌' }); }
     } catch (e) { setToastNotification({ type: 'error', message: e.message || 'Connection error', icon: '❌' }); } finally { setIsCreatingRoom(false); }
@@ -1748,14 +1763,26 @@ const App = () => {
           }, 3000); // Reduced to 3s for faster entry
 
           randomSearchListener.current = onSnapshot(doc(db, 'queue', data.roomId), (snap) => {
-            if (snap.exists() && snap.data().status === 'matched' && !snap.data().isBotMatch) {
-              if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-              const r = snap.data(); const amI = r.hostId === user.uid;
-              // Use the higher timer from matched room
-              if (r.sessionDuration !== undefined) {
-                setSessionDuration(r.sessionDuration);
+            if (snap.exists()) {
+              const r = snap.data();
+              console.log('[RANDOM_MATCH_LISTENER] Status update:', r.status, 'isBotMatch:', r.isBotMatch, 'Player2:', r.player2Id);
+
+              if (r.status === 'matched' && !r.isBotMatch) {
+                console.log('[RANDOM_MATCH_LISTENER] Human match found! Joining...');
+                // CRITICAL: Unsubscribe IMMEDIATELY to prevent double-firing
+                if (randomSearchListener.current) {
+                  randomSearchListener.current();
+                  randomSearchListener.current = null;
+                }
+                if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                const amI = r.hostId === user.uid;
+                if (r.sessionDuration !== undefined) {
+                  setSessionDuration(r.sessionDuration);
+                }
+                joinMatch(data.roomId, { id: amI ? r.player2Id : r.hostId, name: amI ? r.player2Name : r.userName, avatar: amI ? r.player2Avatar : r.userAvatar }, 'human', r.roleData?.topic);
               }
-              joinMatch(data.roomId, { id: amI ? r.player2Id : r.hostId, name: amI ? r.player2Name : r.userName, avatar: amI ? r.player2Avatar : r.userAvatar }, 'human', r.roleData?.topic);
+            } else {
+              console.log('[RANDOM_MATCH_LISTENER] Doc does not exist or was deleted');
             }
           }, (error) => {
             console.error("Match listener (queue) error:", error);
@@ -1874,16 +1901,102 @@ const App = () => {
         }
 
         // 2. SYNC END SESSION (Listen for opponent ending it)
-        if (data.status === 'ended' && data.endedBy && data.endedBy !== user.uid) {
-          // If opponent ended it, we act as if we just finished.
-          // But we need the results! They should be in data.results
-          if (data.results) {
-            setDualAnalysis(data.results);
-            setBattleOpponentData(activeSession?.opponent); // Capture opponent before clearing
-            setShowWinnerReveal(true);
-            setView('dashboard');
-            setActiveSession(null);
-            setTimerActive(false);
+        if (data.status === 'ended' && data.endedBy && data.endedBy !== user.uid && !isEndingRef.current) {
+          console.log('[OPPONENT_ENDED] Opponent ended session:', { endReason: data.endReason, endedBy: data.endedBy });
+          isEndingRef.current = true;
+
+          // Stop timer and cleanup
+          setTimerActive(false);
+          if (chatListener.current) { chatListener.current(); chatListener.current = null; }
+          if (matchListener.current) { matchListener.current(); matchListener.current = null; }
+
+          // CRITICAL: Reset refs so next match can proceed
+          isJoiningRef.current = false;
+          isEndingRef.current = false;
+
+          // Capture current messages from ref
+          const capturedMessages = [...messagesRef.current];
+          const myMessages = capturedMessages.filter(m => m.sender === 'me');
+          const oppMessages = capturedMessages.filter(m => m.sender === 'opponent');
+          const combinedCount = myMessages.length + oppMessages.length;
+
+          console.log('[OPPONENT_ENDED] Message counts:', { myCount: myMessages.length, oppCount: oppMessages.length, combined: combinedCount });
+
+          // Show appropriate popup based on message count
+          if (combinedCount < 6) {
+            // Not enough messages - show transition then orange insufficient popup
+            const transitionType = data.endReason === 'time_over' ? 'time_over' : 'opponent_left';
+            setSessionEndTransition(transitionType);
+            setBattleOpponentData(opponent);
+
+            // After 3 seconds, show the scorecard
+            setTimeout(() => {
+              setSessionEndTransition(null);
+              setDualAnalysis({
+                insufficientMessages: true,
+                message: data.endReason === 'time_over'
+                  ? 'Time is up! Not enough messages to analyze the result.'
+                  : 'Your opponent left early. Not enough messages to analyze the result.',
+                player1: { total: 0, vocab: 0, grammar: 0, fluency: 0, sentence: 0 },
+                player2: { total: 0, vocab: 0, grammar: 0, fluency: 0, sentence: 0 },
+                winner: 'none'
+              });
+              setShowWinnerReveal(true);
+              setView('dashboard');
+              setActiveSession(null);
+            }, 3000);
+          } else {
+            // Enough messages - show transition then analyze
+            const transitionType = data.endReason === 'time_over' ? 'time_over' : 'opponent_left';
+            setSessionEndTransition(transitionType);
+            setBattleOpponentData(opponent);
+
+            // After 3 seconds, show analyzing
+            setTimeout(() => {
+              setSessionEndTransition(null);
+              setView('analyzing');
+            }, 3000);
+
+            const myMsgs = myMessages.map(m => m.text);
+            const oppMsgs = oppMessages.map(m => m.text);
+
+            (async () => {
+              try {
+                const token = await user.getIdToken();
+                const res = await fetch(`${BACKEND_URL}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                  body: JSON.stringify({
+                    type: 'analyze',
+                    roomId: roomId,
+                    player1History: myMsgs,
+                    player2History: oppMsgs,
+                    isBotMatch: false
+                  })
+                });
+                const result = await res.json();
+                console.log('[OPPONENT_ENDED] Analysis result:', result);
+
+                if (result.player1 && result.player2) {
+                  setDualAnalysis({ ...result, analyzedBy: user.uid });
+                  setBattleOpponentData(opponent);
+                  setShowWinnerReveal(true);
+                }
+              } catch (e) {
+                console.error('[OPPONENT_ENDED] Analysis failed:', e);
+                setDualAnalysis({
+                  insufficientMessages: true,
+                  message: 'Analysis failed. Please try again.',
+                  player1: { total: 0 }, player2: { total: 0 }, winner: 'none'
+                });
+                setBattleOpponentData(opponent);
+                setShowWinnerReveal(true);
+              } finally {
+                setView('dashboard');
+                setActiveSession(null);
+                isEndingRef.current = false;
+              }
+            })();
           }
         }
       }
@@ -1931,6 +2044,7 @@ const App = () => {
           // HUMAN MATCH: Fast-path (Instant Delivery)
           if (type === 'human') {
             console.log('[CHAT_LISTENER] Using HUMAN fast-path');
+            playReceiveSound(); // Play sound for incoming message
             newMsgs.forEach(m => {
               processedMessageIds.current.add(m.id);
               setVisibleMessageIds(prev => new Set([...prev, m.id]));
@@ -2346,14 +2460,28 @@ const App = () => {
     setFeedbackSubmitted(false);
 
     setTimerActive(false);
-    if (initiatedByMe && isCompetitive) {
+
+    // UPDATE FIRESTORE: Notify opponent that session ended
+    if (initiatedByMe && isCompetitive && capturedSession.id) {
       try {
-        const token = await user.getIdToken();
-        await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'end_session', roomId: capturedSession.id, endedBy: user.uid }) });
-      } catch (e) { }
+        const roomRef = doc(db, 'queue', capturedSession.id);
+        await setDoc(roomRef, {
+          status: 'ended',
+          endReason: timeEnded ? 'time_over' : 'left_early',
+          endedBy: user.uid,
+          endedAt: serverTimestamp()
+        }, { merge: true });
+        console.log('[SESSION_END] Updated Firestore:', { roomId: capturedSession.id, endReason: timeEnded ? 'time_over' : 'left_early' });
+      } catch (e) {
+        console.error('[SESSION_END] Firestore update failed:', e);
+      }
     }
     if (chatListener.current) { chatListener.current(); chatListener.current = null; }
     if (matchListener.current) { matchListener.current(); matchListener.current = null; }
+
+    // CRITICAL: Reset isJoiningRef so next match can proceed
+    isJoiningRef.current = false;
+    isEndingRef.current = false;
 
     // Calculate accuracy based on messages and corrections
     const myMessages = capturedMessages.filter(m => m.sender === 'me');
@@ -2596,94 +2724,39 @@ const App = () => {
       try {
         const myMsgs = myMessages.map(m => m.text);
         const oppMsgs = oppMessages.map(m => m.text);
-        console.log('[ANALYZE DEBUG] Sending:', { roomId: capturedSession.id, analyzedBy: user.uid, myMsgs, oppMsgs });
+        const isBotMatch = capturedSession?.type === 'battle-bot';
+        console.log('[ANALYZE DEBUG] Sending:', { roomId: capturedSession.id, analyzedBy: user.uid, myMsgs, oppMsgs, isBotMatch });
         const token = await user.getIdToken();
-        const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'analyze', roomId: capturedSession.id, analyzedBy: user.uid, player1History: myMsgs, player2History: oppMsgs }) });
+        const res = await fetch(`${BACKEND_URL}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            type: 'analyze',
+            roomId: capturedSession.id,
+            analyzedBy: user.uid,
+            player1History: myMsgs,
+            player2History: oppMsgs,
+            isBotMatch: isBotMatch  // NEW: Pass flag to backend
+          })
+        });
         const data = await res.json();
 
-        // V8: Prefer per-message battleAccuracies average over AI analysis
-        // Bug 2 Fix: Use CAPTURED battleAccuracies (before reset), not state
-        let myScore;
-        if (capturedBattleAccuracies.length > 0) {
-          // Use average of per-message accuracies (transparent, formula-based)
-          myScore = Math.round(capturedBattleAccuracies.reduce((a, b) => a + b, 0) / capturedBattleAccuracies.length);
-          console.log('[V8 BATTLE_SCORE] Using per-message average:', myScore, 'from', capturedBattleAccuracies.length, 'messages');
-        } else {
-          // Fallback to AI analysis (old method)
-          const rawScore = data?.player1?.total || 280;
-          myScore = Math.min(100, Math.round(rawScore / 4));
-          console.log('[V8 BATTLE_SCORE] Fallback to AI analysis:', myScore);
-        }
+        // Backend now handles handicap for bot matches
+        // Just use the scores returned by backend directly
+        console.log('[ANALYZE] Received from backend:', data);
 
-        // PROBABILITY-BASED BOT SCORING (for battle-bot matches)
-        // 70% chance: Bot wins by 10-30% above user score
-        // 30% chance: User wins (bot scores 10-15% below user)
-        // Bot score capped at its TRUE analyzed score from AI
-        // Minimum bot score floor: 50%
-        let botScore;
+        // Use backend scores directly (handicap already applied if bot match)
         let adjustedData = { ...data };
 
-        if (capturedSession?.type === 'battle-bot') {
-          // Get bot's TRUE score from AI analysis (this is the cap)
-          // Bot messages are AI-generated, so they score high (~85-95%)
-          const botTrueScore = Math.round((data?.player2?.total || 340) / 4); // Convert to 0-100 scale
-          console.log('[PROB_BOT] Bot true analyzed score:', botTrueScore);
-
-          // Roll dice for probability (0-100)
-          const roll = Math.random() * 100;
-          const BOT_FLOOR = 50 + Math.floor(Math.random() * 6); // Dynamic floor: 50-55
-
-          if (roll < 70) {
-            // 70% CHANCE: BOT WINS - scores 10-30% above user
-            const bonusPercent = 0.10 + (Math.random() * 0.20); // 10-30%
-            botScore = Math.round(myScore * (1 + bonusPercent));
-            console.log('[PROB_BOT] Mode: BOT WINS (70%) | Bonus:', Math.round(bonusPercent * 100) + '%');
-          } else {
-            // 30% CHANCE: USER WINS - bot scores 10-15% below user
-            const penaltyPercent = 0.10 + (Math.random() * 0.05); // 10-15%
-            botScore = Math.round(myScore * (1 - penaltyPercent));
-            console.log('[PROB_BOT] Mode: USER WINS (30%) | Penalty:', Math.round(penaltyPercent * 100) + '%');
-          }
-
-          // Apply caps: min floor (50%) and max (bot's true analyzed score)
-          botScore = Math.max(BOT_FLOOR, botScore); // Floor at 50%
-          botScore = Math.min(botTrueScore, botScore); // Cap at bot's true score
-
-          console.log('[PROB_BOT] Final bot score:', botScore, '(User:', myScore, '| Cap:', botTrueScore, '| Floor:', BOT_FLOOR, ')');
-
-          // Override dualAnalysis with fair scores (scale 0-100 to display format)
-          const myDisplayScore = Math.round(myScore * 4); // Scale to ~400 max for display
-          const botDisplayScore = Math.round(botScore * 4);
-
-          // Generate breakdown scores proportionally
-          const generateBreakdown = (total) => {
-            const base = Math.floor(total / 4);
-            const variance = Math.floor(Math.random() * 10) - 5;
-            return {
-              vocab: Math.max(0, Math.min(100, base + variance)),
-              grammar: Math.max(0, Math.min(100, base + Math.floor(Math.random() * 10) - 5)),
-              fluency: Math.max(0, Math.min(100, base + Math.floor(Math.random() * 10) - 5)),
-              sentence: Math.max(0, Math.min(100, base + Math.floor(Math.random() * 10) - 5)),
-              total: total
-            };
-          };
-
-          // Use REAL PRO model analysis for user (player1)
-          // Bot scores are generated since we don't analyze bot messages
-          adjustedData.player1 = {
-            vocab: data?.player1?.vocab || Math.floor(myDisplayScore / 4),
-            grammar: data?.player1?.grammar || Math.floor(myDisplayScore / 4),
-            fluency: data?.player1?.fluency || Math.floor(myDisplayScore / 4),
-            sentence: data?.player1?.sentence || Math.floor(myDisplayScore / 4),
-            total: myDisplayScore,
-            feedback: data?.player1?.feedback || 'Good effort!'
-          };
-          adjustedData.player2 = { ...generateBreakdown(botDisplayScore), feedback: 'Bot opponent' };
-          adjustedData.winner = myDisplayScore > botDisplayScore ? 'player1' : myDisplayScore < botDisplayScore ? 'player2' : 'draw';
-          adjustedData.analyzedBy = user.uid;
-
-          console.log('[PROB_BOT] Final - You:', myDisplayScore, 'Bot:', botDisplayScore, 'Winner:', adjustedData.winner);
+        // For backward compatibility: ensure player scores exist
+        if (!adjustedData.player1) {
+          adjustedData.player1 = { vocab: 0, grammar: 0, fluency: 0, sentence: 0, total: 0, feedback: 'No data' };
         }
+        if (!adjustedData.player2) {
+          adjustedData.player2 = { vocab: 0, grammar: 0, fluency: 0, sentence: 0, total: 0, feedback: 'No data' };
+        }
+
+        console.log('[ANALYZE] Final scores - You:', adjustedData.player1?.total, 'Bot:', adjustedData.player2?.total, 'Winner:', adjustedData.winner);
 
         setDualAnalysis(adjustedData);
 
@@ -4217,6 +4290,41 @@ const App = () => {
         </AnimatePresence>
 
         {/* MODALS */}
+
+        {/* Session End Transition Overlay */}
+        <AnimatePresence>
+          {sessionEndTransition && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.8, opacity: 0 }}
+                className="bg-white rounded-3xl p-8 text-center max-w-sm shadow-2xl"
+              >
+                <div className="text-6xl mb-4">
+                  {sessionEndTransition === 'time_over' ? '⏰' : '🚪'}
+                </div>
+                <h2 className="text-2xl font-black text-gray-900 mb-2">
+                  {sessionEndTransition === 'time_over' ? "Time's Up!" : 'Opponent Left'}
+                </h2>
+                <p className="text-gray-600 mb-4">
+                  {sessionEndTransition === 'time_over'
+                    ? 'The battle session has ended. Calculating results...'
+                    : 'Your opponent has left the chat. Calculating results...'}
+                </p>
+                <div className="flex justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-4 border-emerald-500 border-t-transparent"></div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence>
           {showWinnerReveal && (
             <WinnerReveal
@@ -4243,13 +4351,17 @@ const App = () => {
               onSetFeedbackText={setFeedbackText}
               onDashboard={() => { setShowWinnerReveal(false); setView('dashboard'); }}
               onClose={() => setShowWinnerReveal(false)}
+              onShowTips={() => setShowScoringGuide(true)}
             />
           )}
         </AnimatePresence>
 
+        {/* Scoring Tips Guide */}
+        <ScoringGuide isOpen={showScoringGuide} onClose={() => setShowScoringGuide(false)} />
+
         <AnimatePresence>
           {showRoomInput && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto" onAnimationComplete={() => { if (!roomCode) setRoomCodeInput(''); }}>
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-sm p-6 relative my-auto max-h-[90vh] overflow-y-auto">
                 <button onClick={() => { setShowRoomInput(false); setRoomCode(""); setRoomCodeInput(""); }} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
                 <h3 className="text-2xl font-black mb-6 text-center">Play with Friend</h3>
@@ -5157,6 +5269,14 @@ const App = () => {
                         )}
                       </div>
                       <div className="text-xs text-gray-400 mt-3 text-center">↓ scroll if more content</div>
+
+                      {/* Scoring Tips Link */}
+                      <button
+                        onClick={() => setShowScoringGuide(true)}
+                        className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium hover:underline transition-colors block w-full text-center"
+                      >
+                        💡 Want to score better? See tips →
+                      </button>
                     </div>
 
                     {/* Motivation Section */}

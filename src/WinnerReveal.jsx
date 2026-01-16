@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Trophy, Star, Zap, MessageCircle, Share2, Home, RotateCw, CheckCircle2, XCircle, Globe } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose, soundEnabled = true, onListenFeedback, motherTongue = 'Hindi' }) => {
+const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose, soundEnabled = true, onListenFeedback, motherTongue = 'Hindi', onShowTips }) => {
     const [step, setStep] = useState(0); // 0: Intro, 1: Counting, 2: Final Result
 
     // GUARD: If dualAnalysis is null/undefined, show loading or return early
@@ -42,8 +42,9 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
     const isWinner = didMyPlayerWin;
     const isDraw = !winnerFromBackend || winnerFromBackend === 'draw' || winnerFromBackend === 'none';
 
-    const myTotal = myData.total || 0;
-    const oppTotal = oppData.total || 0;
+    // Calculate total - ALWAYS sum individual scores to avoid backend inconsistencies
+    const myTotal = (myData.vocab || 0) + (myData.grammar || 0) + (myData.fluency || 0) + (myData.sentence || 0);
+    const oppTotal = (oppData.vocab || 0) + (oppData.grammar || 0) + (oppData.fluency || 0) + (oppData.sentence || 0);
 
 
     // Sound Effects using Web Audio API
@@ -100,6 +101,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
             setStep(1); // Start counting skills
         }, 1000);
 
+        // DELAY REVEAL to allow for sequential animation (approx 2s total for rows)
         setTimeout(() => {
             setStep(2); // Reveal Winner
             if (isWinner) {
@@ -113,7 +115,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
             } else {
                 playSound('lose');
             }
-        }, 4500); // Allow time for counting animation
+        }, 5500); // Extended time for counting animation
     }, [isWinner]);
 
     // Framer Motion Variants
@@ -132,22 +134,27 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
         const [count, setCount] = useState(0);
         useEffect(() => {
             if (step >= 1) {
-                const duration = 2000;
-                const steps = 60;
-                const increment = value / steps;
-                let current = 0;
-                const timer = setInterval(() => {
-                    current += increment;
-                    if (current >= value) {
-                        setCount(value);
-                        clearInterval(timer);
-                    } else {
-                        setCount(Math.floor(current));
-                    }
-                }, duration / steps);
-                return () => clearInterval(timer);
+                // Add delay before starting animation
+                const startTimeout = setTimeout(() => {
+                    const duration = 1500;
+                    const steps = 30;
+                    const increment = value / steps;
+                    let current = 0;
+                    const timer = setInterval(() => {
+                        current += increment;
+                        if (current >= value) {
+                            setCount(value);
+                            clearInterval(timer);
+                        } else {
+                            setCount(Math.floor(current));
+                        }
+                    }, duration / steps);
+                    return () => clearInterval(timer);
+                }, delay); // Respect the delay prop
+
+                return () => clearTimeout(startTimeout);
             }
-        }, [value, step]);
+        }, [value, step, delay]);
 
         return <span>{count}</span>;
     };
@@ -186,9 +193,24 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                     <div className="p-6 text-center">
                         <div className="text-6xl mb-4">💬</div>
                         <h3 className="text-xl font-black text-gray-900 mb-2">Need More Practice!</h3>
-                        <p className="text-gray-600 mb-4">
-                            {dualAnalysis?.message || 'Both players need to send at least 6 messages combined for a proper analysis.'}
-                        </p>
+
+                        {/* Check if opponent left early - show highlighted message */}
+                        {dualAnalysis?.message?.includes('opponent left') ? (
+                            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-4">
+                                <div className="text-2xl mb-2">🚪</div>
+                                <p className="text-red-700 font-bold text-base">
+                                    Your opponent left early!
+                                </p>
+                                <p className="text-red-600 text-sm mt-1">
+                                    Not enough messages to analyze the result.
+                                </p>
+                            </div>
+                        ) : (
+                            <p className="text-gray-600 mb-4">
+                                {dualAnalysis?.message || 'Both players need to send at least 6 messages combined for a proper analysis.'}
+                            </p>
+                        )}
+
                         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-left">
                             <div className="text-xs font-bold text-amber-700 uppercase mb-1">💡 Tip</div>
                             <p className="text-sm text-amber-800">
@@ -258,7 +280,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 </div>
                             )}
                             <div className={`mt-2 text-4xl font-black ${isWinner ? 'text-emerald-600' : 'text-gray-800'}`}>
-                                {step >= 1 ? <AnimatedNumber value={myTotal} /> : 0}
+                                {step >= 1 ? <AnimatedNumber value={myTotal} delay={2500} /> : 0}
                             </div>
                             <div className="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Total Score</div>
                         </motion.div>
@@ -276,7 +298,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 </div>
                             )}
                             <div className={`mt-2 text-4xl font-black ${!isWinner && !isDraw ? 'text-emerald-600' : 'text-gray-800'}`}>
-                                {step >= 1 ? <AnimatedNumber value={oppTotal} /> : 0}
+                                {step >= 1 ? <AnimatedNumber value={oppTotal} delay={2500} /> : 0}
                             </div>
                             <div className="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Total Score</div>
                         </motion.div>
@@ -305,7 +327,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 className="grid grid-cols-3 items-center group hover:bg-gray-50 p-2 rounded-xl transition-colors"
                             >
                                 <div className={`text-xl font-black text-left ${skill.myScore > skill.oppScore ? 'text-emerald-600' : 'text-gray-400'}`}>
-                                    {step >= 1 ? <AnimatedNumber value={skill.myScore || 0} /> : '-'}
+                                    {step >= 1 ? <AnimatedNumber value={skill.myScore || 0} delay={i * 500} /> : '-'}
                                 </div>
 
                                 <div className="flex justify-center">
@@ -315,7 +337,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 </div>
 
                                 <div className={`text-xl font-black text-right ${skill.oppScore > skill.myScore ? 'text-emerald-600' : 'text-gray-400'}`}>
-                                    {step >= 1 ? <AnimatedNumber value={skill.oppScore || 0} /> : '-'}
+                                    {step >= 1 ? <AnimatedNumber value={skill.oppScore || 0} delay={i * 500} /> : '-'}
                                 </div>
                             </motion.div>
                         ))}
@@ -357,6 +379,16 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                     <span>Read in {motherTongue}</span>
                                 </button>
                             </div>
+                        )}
+
+                        {/* Scoring Tips Link */}
+                        {onShowTips && (
+                            <button
+                                onClick={onShowTips}
+                                className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium hover:underline transition-colors"
+                            >
+                                💡 Want to score better? See tips →
+                            </button>
                         )}
                     </div>
 
