@@ -1573,45 +1573,54 @@ JSON only:"""
                     p2_display_scores = p2_scores.copy()  # Scores to display/compare
                     
                     if is_bot_match:
-                        user_score = p1_scores['battleScore']
                         random_variance = random.random() * 0.10  # 0-10% extra randomness
                         
-                        # Calculate handicap based on user's Battle Score (Max 400)
-                        if user_score < 120:
-                            # Beginner
-                            handicap_percent = 0.35 + random_variance
-                            level = "Beginner"
-                        elif user_score < 200:
-                            # Learning
-                            handicap_percent = 0.25 + random_variance
-                            level = "Learning"
-                        elif user_score < 280:
-                            # Improving
-                            handicap_percent = 0.15 + random_variance
-                            level = "Improving"
-                        elif user_score < 340:
-                            # Good
-                            handicap_percent = 0.07 + random_variance
-                            level = "Good"
-                        else:
-                            # Expert
-                            handicap_percent = 0.02 + random_variance
-                            level = "Expert"
+                        # --- NEW: Per-Factor Handicap System ---
+                        # Goal: Allow users with high scores (82+) to WIN against the bot.
+                        # We apply a specific handicap to EACH factor based on the User's score in that factor.
                         
-                        print(f"[HANDICAP] User level: {level}, Use BattleScore: {user_score}, Handicap: {round(handicap_percent * 100)}%")
+                        modified_bot_scores = {}
                         
-                        # Apply handicap to EACH category score
-                        handicap_multiplier = 1 - handicap_percent
+                        for category in ['vocab', 'grammar', 'fluency', 'sentence']:
+                            user_val = p1_scores.get(category, 0)
+                            bot_val = p2_scores.get(category, 0)
+                            
+                            # Determine handicap % based on User's performance in this specific category
+                            if user_val >= 82:
+                                # Expert Zone: User is great! Let them have a chance to WIN.
+                                # Reduce bot by ~20% (Bot becomes ~80), so User (82+) wins.
+                                base_handicap = 0.20 
+                            elif user_val >= 70:
+                                # Good Zone: Competitive.
+                                # Reduce bot by ~25% (Bot ~75).
+                                base_handicap = 0.25
+                            elif user_val >= 50:
+                                # Improver: Bot definitely wins but not by 100-0.
+                                # Reduce bot by ~30% (Bot ~70).
+                                base_handicap = 0.30
+                            else:
+                                # Beginner: Encouragement mode.
+                                # Reduce bot by ~45% (Bot ~55-60).
+                                base_handicap = 0.45
+                            
+                            # Apply randomness
+                            final_handicap = base_handicap + random_variance
+                            multiplier = max(0.1, 1.0 - final_handicap)
+                            
+                            # Calculate Bot's new score for this factor
+                            modified_bot_scores[category] = round(bot_val * multiplier)
+                        
+                        # Set the display scores
                         p2_display_scores = {
-                            'vocab': round(p2_scores['vocab'] * handicap_multiplier),
-                            'grammar': round(p2_scores['grammar'] * handicap_multiplier),
-                            'fluency': round(p2_scores['fluency'] * handicap_multiplier),
-                            'sentence': round(p2_scores['sentence'] * handicap_multiplier),
+                            'vocab': modified_bot_scores['vocab'],
+                            'grammar': modified_bot_scores['grammar'],
+                            'fluency': modified_bot_scores['fluency'],
+                            'sentence': modified_bot_scores['sentence'],
                             'feedback': p2_scores.get('feedback', 'Bot opponent')
                         }
                         
                         # Recalculate Bot scores
-                        # 1. Weighted (for Stats compliance)
+                        # 1. Weighted (for Stats compliance - Dashboard Update)
                         w_tot = (p2_display_scores['grammar'] * 0.40) + (p2_display_scores['vocab'] * 0.25) + (p2_display_scores['fluency'] * 0.20) + (p2_display_scores['sentence'] * 0.15)
                         p2_display_scores['total'] = round(w_tot)
                         
@@ -1622,6 +1631,8 @@ JSON only:"""
                             p2_display_scores['fluency'] + 
                             p2_display_scores['sentence']
                         )
+                        
+                        print(f"[HANDICAP] Per-Factor Logic Applied. Bot Final Sum: {p2_display_scores['battleScore']}")
                         
                         print(f"[HANDICAP] Bot TRUE: {p2_scores['battleScore']}, Bot FINAL: {p2_display_scores['battleScore']}")
                     
