@@ -1964,7 +1964,7 @@ const App = () => {
               try {
                 // SYNC FIX: First check if analysis is already cached in Firestore
                 // The player who ended should have saved it there
-                const roomRef = doc(db, 'rooms', roomId);
+                const roomRef = doc(db, 'queue', roomId);
                 const roomSnap = await getDoc(roomRef);
                 const roomData = roomSnap.data();
 
@@ -2778,7 +2778,7 @@ const App = () => {
         // Only save for human vs human matches (not bot matches)
         if (!isBotMatch && capturedSession?.id) {
           try {
-            const roomRef = doc(db, 'rooms', capturedSession.id);
+            const roomRef = doc(db, 'queue', capturedSession.id);
             await updateDoc(roomRef, {
               analysis: adjustedData,
               analyzedAt: serverTimestamp()
