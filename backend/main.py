@@ -1329,7 +1329,7 @@ YOUR SPEAKING STYLE:
             # Helper function to calculate scores for a player using hybrid approach
             def calculate_player_scores(messages):
                 if not messages or len(messages) == 0:
-                    return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No messages sent."}
+                    return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "battleScore": 0, "feedback": "No messages sent."}
                 
                 # STEP 1: Python calculates basic stats (instant)
                 all_text = ' '.join(messages)
@@ -1339,7 +1339,7 @@ YOUR SPEAKING STYLE:
                 total_messages = len(messages)
                 
                 if total_words == 0:
-                    return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "feedback": "No words sent."}
+                    return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "battleScore": 0, "feedback": "No words sent."}
                 
                 # Calculate length multiplier
                 avg_words_per_msg = total_words / total_messages
