@@ -7,7 +7,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
-  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc, increment
+  doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc, increment, updateDoc
 } from 'firebase/firestore';
 
 import {
