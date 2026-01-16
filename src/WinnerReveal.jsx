@@ -3,6 +3,40 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Trophy, Star, Zap, MessageCircle, Share2, Home, RotateCw, CheckCircle2, XCircle, Globe } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
+// AnimatedNumber - Defined at MODULE LEVEL to prevent recreation on parent re-renders
+const AnimatedNumber = React.memo(({ value, delay = 0, shouldAnimate }) => {
+    const [count, setCount] = useState(0);
+    const hasStarted = useRef(false);
+
+    useEffect(() => {
+        if (shouldAnimate && !hasStarted.current && value > 0) {
+            hasStarted.current = true;
+
+            const startTimeout = setTimeout(() => {
+                const duration = 1500;
+                const steps = 30;
+                const increment = value / steps;
+                let current = 0;
+                const timer = setInterval(() => {
+                    current += increment;
+                    if (current >= value) {
+                        setCount(value);
+                        clearInterval(timer);
+                    } else {
+                        setCount(Math.floor(current));
+                    }
+                }, duration / steps);
+            }, delay);
+
+            return () => clearTimeout(startTimeout);
+        } else if (shouldAnimate && value === 0) {
+            setCount(0);
+        }
+    }, []); // Empty deps - only run on mount
+
+    return <span>{count}</span>;
+});
+
 const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClose, soundEnabled = true, onListenFeedback, motherTongue = 'Hindi', onShowTips }) => {
     const [step, setStep] = useState(0); // 0: Intro, 1: Counting, 2: Final Result
 
@@ -129,41 +163,6 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
         hidden: { opacity: 0, y: 20 },
         visible: (i) => ({ opacity: 1, y: 0, transition: { delay: i * 0.2, duration: 0.5 } })
     };
-
-    // AnimatedNumber: Animates from 0 to value ONCE on mount
-    // Uses useMemo to capture initial shouldAnimate state
-    const AnimatedNumber = React.memo(({ value, delay = 0, shouldAnimate }) => {
-        const [count, setCount] = useState(0);
-        const hasStarted = useRef(false);
-
-        useEffect(() => {
-            if (shouldAnimate && !hasStarted.current && value > 0) {
-                hasStarted.current = true;
-
-                const startTimeout = setTimeout(() => {
-                    const duration = 1500;
-                    const steps = 30;
-                    const increment = value / steps;
-                    let current = 0;
-                    const timer = setInterval(() => {
-                        current += increment;
-                        if (current >= value) {
-                            setCount(value);
-                            clearInterval(timer);
-                        } else {
-                            setCount(Math.floor(current));
-                        }
-                    }, duration / steps);
-                }, delay);
-
-                return () => clearTimeout(startTimeout);
-            } else if (shouldAnimate && value === 0) {
-                setCount(0);
-            }
-        }, []); // Empty deps - only run on mount
-
-        return <span>{count}</span>;
-    });
 
     // Pre-calculate shouldAnimate once
     const shouldAnimate = step >= 1;
