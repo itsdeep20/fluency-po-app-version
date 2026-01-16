@@ -1962,25 +1962,41 @@ const App = () => {
 
             (async () => {
               try {
-                const token = await user.getIdToken();
-                const res = await fetch(`${BACKEND_URL}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                  body: JSON.stringify({
-                    type: 'analyze',
-                    roomId: roomId,
-                    player1History: myMsgs,
-                    player2History: oppMsgs,
-                    isBotMatch: false
-                  })
-                });
-                const result = await res.json();
-                console.log('[OPPONENT_ENDED] Analysis result:', result);
+                // SYNC FIX: First check if analysis is already cached in Firestore
+                // The player who ended should have saved it there
+                const roomRef = doc(db, 'rooms', roomId);
+                const roomSnap = await getDoc(roomRef);
+                const roomData = roomSnap.data();
 
-                if (result.player1 && result.player2) {
-                  setDualAnalysis({ ...result, analyzedBy: user.uid });
+                if (roomData?.analysis && roomData?.analysis?.player1 && roomData?.analysis?.player2) {
+                  console.log('[OPPONENT_ENDED] Using cached analysis from Firestore');
+                  const cachedAnalysis = roomData.analysis;
+                  setDualAnalysis({ ...cachedAnalysis, analyzedBy: roomData.analysis.analyzedBy || data.endedBy });
                   setBattleOpponentData(opponent);
                   setShowWinnerReveal(true);
+                } else {
+                  // Fallback: No cached analysis, call analyze endpoint
+                  console.log('[OPPONENT_ENDED] No cached analysis, calling analyze endpoint');
+                  const token = await user.getIdToken();
+                  const res = await fetch(`${BACKEND_URL}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                      type: 'analyze',
+                      roomId: roomId,
+                      player1History: myMsgs,
+                      player2History: oppMsgs,
+                      isBotMatch: false
+                    })
+                  });
+                  const result = await res.json();
+                  console.log('[OPPONENT_ENDED] Analysis result:', result);
+
+                  if (result.player1 && result.player2) {
+                    setDualAnalysis({ ...result, analyzedBy: user.uid });
+                    setBattleOpponentData(opponent);
+                    setShowWinnerReveal(true);
+                  }
                 }
               } catch (e) {
                 console.error('[OPPONENT_ENDED] Analysis failed:', e);
@@ -2757,6 +2773,21 @@ const App = () => {
         }
 
         console.log('[ANALYZE] Final scores - You:', adjustedData.player1?.total, 'Bot:', adjustedData.player2?.total, 'Winner:', adjustedData.winner);
+
+        // SYNC FIX: Save analysis to Firestore for other player to read
+        // Only save for human vs human matches (not bot matches)
+        if (!isBotMatch && capturedSession?.id) {
+          try {
+            const roomRef = doc(db, 'rooms', capturedSession.id);
+            await updateDoc(roomRef, {
+              analysis: adjustedData,
+              analyzedAt: serverTimestamp()
+            });
+            console.log('[ANALYZE] Saved analysis to Firestore for sync');
+          } catch (syncErr) {
+            console.error('[ANALYZE] Failed to save analysis to Firestore:', syncErr);
+          }
+        }
 
         setDualAnalysis(adjustedData);
 
