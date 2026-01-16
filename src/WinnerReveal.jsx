@@ -130,17 +130,16 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
         visible: (i) => ({ opacity: 1, y: 0, transition: { delay: i * 0.2, duration: 0.5 } })
     };
 
-    const AnimatedNumber = ({ value, delay = 0 }) => {
+    // AnimatedNumber: Animates from 0 to value ONCE on mount
+    // Uses useMemo to capture initial shouldAnimate state
+    const AnimatedNumber = React.memo(({ value, delay = 0, shouldAnimate }) => {
         const [count, setCount] = useState(0);
-        const hasAnimated = useRef(false);
-        const shouldAnimate = step >= 1;
+        const hasStarted = useRef(false);
 
         useEffect(() => {
-            // Only animate once - prevent re-animation on re-renders
-            if (shouldAnimate && !hasAnimated.current) {
-                hasAnimated.current = true;
+            if (shouldAnimate && !hasStarted.current && value > 0) {
+                hasStarted.current = true;
 
-                // Add delay before starting animation
                 const startTimeout = setTimeout(() => {
                     const duration = 1500;
                     const steps = 30;
@@ -155,15 +154,19 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                             setCount(Math.floor(current));
                         }
                     }, duration / steps);
-                    return () => clearInterval(timer);
-                }, delay); // Respect the delay prop
+                }, delay);
 
                 return () => clearTimeout(startTimeout);
+            } else if (shouldAnimate && value === 0) {
+                setCount(0);
             }
-        }, [value, shouldAnimate, delay]);
+        }, []); // Empty deps - only run on mount
 
         return <span>{count}</span>;
-    };
+    });
+
+    // Pre-calculate shouldAnimate once
+    const shouldAnimate = step >= 1;
 
     // SPECIAL DISPLAY for insufficient messages (early exit)
     if (isInsufficientMessages) {
@@ -286,7 +289,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 </div>
                             )}
                             <div className={`mt-2 text-4xl font-black ${isWinner ? 'text-emerald-600' : 'text-gray-800'}`}>
-                                {step >= 1 ? <AnimatedNumber value={myTotal} delay={2500} /> : 0}
+                                {step >= 1 ? <AnimatedNumber value={myTotal} delay={2500} shouldAnimate={shouldAnimate} /> : 0}
                             </div>
                             <div className="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Total Score</div>
                         </motion.div>
@@ -304,7 +307,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 </div>
                             )}
                             <div className={`mt-2 text-4xl font-black ${!isWinner && !isDraw ? 'text-emerald-600' : 'text-gray-800'}`}>
-                                {step >= 1 ? <AnimatedNumber value={oppTotal} delay={2500} /> : 0}
+                                {step >= 1 ? <AnimatedNumber value={oppTotal} delay={2500} shouldAnimate={shouldAnimate} /> : 0}
                             </div>
                             <div className="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Total Score</div>
                         </motion.div>
@@ -333,7 +336,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 className="grid grid-cols-3 items-center group hover:bg-gray-50 p-2 rounded-xl transition-colors"
                             >
                                 <div className={`text-xl font-black text-left ${skill.myScore > skill.oppScore ? 'text-emerald-600' : 'text-gray-400'}`}>
-                                    {step >= 1 ? <AnimatedNumber value={skill.myScore || 0} delay={i * 500} /> : '-'}
+                                    {step >= 1 ? <AnimatedNumber value={skill.myScore || 0} delay={i * 500} shouldAnimate={shouldAnimate} /> : '-'}
                                 </div>
 
                                 <div className="flex justify-center">
@@ -343,7 +346,7 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 </div>
 
                                 <div className={`text-xl font-black text-right ${skill.oppScore > skill.myScore ? 'text-emerald-600' : 'text-gray-400'}`}>
-                                    {step >= 1 ? <AnimatedNumber value={skill.oppScore || 0} delay={i * 500} /> : '-'}
+                                    {step >= 1 ? <AnimatedNumber value={skill.oppScore || 0} delay={i * 500} shouldAnimate={shouldAnimate} /> : '-'}
                                 </div>
                             </motion.div>
                         ))}
