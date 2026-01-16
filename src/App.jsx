@@ -2765,13 +2765,14 @@ const App = () => {
         const amIPlayer1 = !analyzedBy || analyzedBy === user.uid;
         const didIWin = amIPlayer1 ? (adjustedData?.winner === 'player1') : (adjustedData?.winner === 'player2');
 
+        // Calculate scores BEFORE try block so they're in scope for setStats
+        const myData = amIPlayer1 ? adjustedData?.player1 : adjustedData?.player2;
+        const oppData = amIPlayer1 ? adjustedData?.player2 : adjustedData?.player1;
+        const myScore = myData?.total || 0;
+        const totalSent = myMsgs?.length || 0;
+
         // Store competitive session
         try {
-          // Use the already-calculated values
-          const myData = amIPlayer1 ? adjustedData?.player1 : adjustedData?.player2;
-          const oppData = amIPlayer1 ? adjustedData?.player2 : adjustedData?.player1;
-          const myScore = myData?.total || 0;
-          const totalSent = myMsgs?.length || 0;
 
           // Prepare battle chat history for analytics
           const battleChatHistory = capturedMessages
