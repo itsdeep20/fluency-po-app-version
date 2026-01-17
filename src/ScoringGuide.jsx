@@ -10,7 +10,7 @@ const ScoringGuide = ({ isOpen, onClose }) => {
             icon: <MessageSquare className="w-5 h-5" />,
             title: "Write Complete Sentences",
             subtitle: "One-word answers limit your score",
-            color: "from-blue-500 to-cyan-500",
+            color: "from-emerald-500 to-teal-500",
             bad: ["Yes.", "No.", "Ok."],
             good: ["Yes, I completely agree with that.", "No, I think we should consider other options."]
         },
@@ -18,7 +18,7 @@ const ScoringGuide = ({ isOpen, onClose }) => {
             icon: <BookOpen className="w-5 h-5" />,
             title: "Use Better Words",
             subtitle: "Replace simple words with richer ones",
-            color: "from-purple-500 to-pink-500",
+            color: "from-teal-500 to-cyan-500",
             bad: ["It was good.", "I feel bad."],
             good: ["It was absolutely wonderful!", "I feel quite disappointed about it."]
         },
@@ -34,7 +34,7 @@ const ScoringGuide = ({ isOpen, onClose }) => {
             icon: <TrendingUp className="w-5 h-5" />,
             title: "Build Longer Sentences",
             subtitle: "Connect your ideas naturally",
-            color: "from-orange-500 to-amber-500",
+            color: "from-cyan-500 to-emerald-500",
             bad: ["I like coffee. It is tasty."],
             good: ["I like coffee because it gives me energy and tastes great."]
         }
@@ -67,7 +67,7 @@ const ScoringGuide = ({ isOpen, onClose }) => {
                     onClick={e => e.stopPropagation()}
                 >
                     {/* Header */}
-                    <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 p-5 relative overflow-hidden">
+                    <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-5 relative overflow-hidden">
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.1),transparent)]" />
                         <div className="relative flex items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -170,7 +170,7 @@ const ScoringGuide = ({ isOpen, onClose }) => {
                     <div className="p-4 bg-gray-50 border-t border-gray-100">
                         <button
                             onClick={onClose}
-                            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-3 rounded-xl hover:shadow-lg transition-all active:scale-[0.98]"
+                            className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold py-3 rounded-xl hover:shadow-lg transition-all active:scale-[0.98]"
                         >
                             Got it! Let's Practice
                         </button>

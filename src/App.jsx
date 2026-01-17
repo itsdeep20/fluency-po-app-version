@@ -326,7 +326,7 @@ const App = () => {
   const [inputText, setInputText] = useState("");
   const [currentStage, setCurrentStage] = useState("");
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
-  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null });
+  const [stats, setStats] = useState({ streak: 0, points: 0, level: 'Starter', sessions: 0, avgScore: 0, lastPracticeDate: null, battleWins: 0, battleLosses: 0 });
   const [userAvatar, setUserAvatar] = useState('🦁');
   const [sessionPoints, setSessionPoints] = useState(0);
   const [isBotTyping, setIsBotTyping] = useState(false);
@@ -346,6 +346,7 @@ const App = () => {
   const matchListener = useRef(null);
   const chatListener = useRef(null);
   const lastOpponentMsgTimeRef = useRef(Date.now()); // Track last opponent message for inactivity
+  const lastMyMsgTimeRef = useRef(0); // Track when I sent my last message
   const inactivityTimerRef = useRef(null); // Timer to check opponent inactivity
   // Stale Closure Fix Refs (Bug 6)
   const messagesRef = useRef([]);
@@ -700,9 +701,12 @@ const App = () => {
   }, [showSessionSummary]);
 
   // Save settings to Firestore when any setting changes
+  const isLoadingSettingsRef = useRef(false); // Prevent save during load
   useEffect(() => {
     if (!user) return;
-    // Skip initial load (settings loaded from Firestore will trigger this)
+    // Skip if currently loading from Firestore (prevents infinite loop)
+    if (isLoadingSettingsRef.current) return;
+    // Skip initial load
     if (!window._settingsInitialized) {
       window._settingsInitialized = true;
       return;
@@ -738,14 +742,18 @@ const App = () => {
 
         // Load saved settings from Firestore
         if (data.settings) {
+          // Set flag to prevent save useEffect from triggering during load
+          isLoadingSettingsRef.current = true;
           if (data.settings.isDarkTheme !== undefined) setIsDarkTheme(data.settings.isDarkTheme);
           if (data.settings.motherTongue) setMotherTongue(data.settings.motherTongue);
-          if (data.settings.sessionDuration !== undefined) setSessionDuration(data.settings.sessionDuration); // !== undefined to handle 0
+          if (data.settings.sessionDuration !== undefined) setSessionDuration(data.settings.sessionDuration);
           if (data.settings.soundEnabled !== undefined) setSoundEnabled(data.settings.soundEnabled);
           if (data.settings.difficultyLevel) setDifficultyLevel(data.settings.difficultyLevel);
           if (data.settings.isSpeakerOn !== undefined) setIsSpeakerOn(data.settings.isSpeakerOn);
           if (data.settings.isBattleTipsOn !== undefined) setIsBattleTipsOn(data.settings.isBattleTipsOn);
           console.log('[SETTINGS] Loaded from Firestore:', data.settings);
+          // Reset flag after React batches the updates (use setTimeout to ensure it's after the render)
+          setTimeout(() => { isLoadingSettingsRef.current = false; }, 100);
         }
 
         // MIGRATION: Add email for existing users who don't have it (runs once per user)
@@ -1012,13 +1020,18 @@ const App = () => {
         setTimeRemaining(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
+            // IMPORTANT: Also clear inactivity timer to prevent conflict
+            if (inactivityTimerRef.current) {
+              clearInterval(inactivityTimerRef.current);
+              inactivityTimerRef.current = null;
+            }
             setTimerActive(false);
-            // Bug 3 & 7: Show Time's Up notification before ending
-            setShowTimeOver(true);
+            // Bug 3 & 7: Show Time's Up transition animation before ending
+            setSessionEndTransition('time_over');
             setTimeout(() => {
-              setShowTimeOver(false);
+              setSessionEndTransition(null);
               endSession(true, true); // Second param = timeEnded flag
-            }, 4000); // Bug 7 Fix: Show for 4 seconds (was 2)
+            }, 4000); // Show animation for 4 seconds
             return 0;
           }
           return prev - 1;
@@ -1030,17 +1043,36 @@ const App = () => {
 
   // Opponent Inactivity Timer - Auto-end if opponent inactive for 60 seconds (human battles only)
   useEffect(() => {
-    if (view === 'chat' && activeSession?.type === 'human' && timerActive) {
-      // Reset last message time when entering battle
+    // FIX: Run inactivity check for ALL human matches, not just when timerActive
+    // (timerActive is false when sessionDuration=0/infinity mode)
+    if (view === 'chat' && activeSession?.type === 'human') {
+      // Reset both refs when entering battle
       lastOpponentMsgTimeRef.current = Date.now();
+      lastMyMsgTimeRef.current = 0; // Reset - no message sent yet
 
       inactivityTimerRef.current = setInterval(() => {
-        const timeSinceLastMsg = Date.now() - lastOpponentMsgTimeRef.current;
-        if (timeSinceLastMsg >= 60000) { // 60 seconds = 1 minute
+        const now = Date.now();
+        const timeSinceOpponentMsg = now - lastOpponentMsgTimeRef.current;
+        // Only trigger if I sent a message (lastMyMsgTimeRef > 0) AND I sent AFTER opponent's last message
+        const iSentLast = lastMyMsgTimeRef.current > 0 && lastMyMsgTimeRef.current > lastOpponentMsgTimeRef.current;
+
+        console.log('[INACTIVITY_CHECK]', {
+          timeSinceOpponentMsg: Math.round(timeSinceOpponentMsg / 1000) + 's',
+          iSentLast,
+          myLast: lastMyMsgTimeRef.current,
+          oppLast: lastOpponentMsgTimeRef.current
+        });
+
+        if (timeSinceOpponentMsg >= 60000 && iSentLast) { // 60 seconds = 1 minute AND I sent last
           clearInterval(inactivityTimerRef.current);
-          console.log('[INACTIVITY] Opponent inactive for 60s, auto-ending session');
-          setSessionEndReason('timeout');
-          endSession(true, false);
+          console.log('[INACTIVITY] Opponent inactive for 60s (I sent last), auto-ending session');
+          // Show 'opponent_left' animation for me (the active player)
+          setSessionEndTransition('opponent_left');
+          // End session with 'inactivity' reason so opponent knows they were inactive
+          setTimeout(() => {
+            setSessionEndTransition(null);
+            endSession(true, false, 'inactivity'); // Pass inactivity reason
+          }, 4000);
         }
       }, 5000); // Check every 5 seconds
 
@@ -1048,7 +1080,7 @@ const App = () => {
         if (inactivityTimerRef.current) clearInterval(inactivityTimerRef.current);
       };
     }
-  }, [view, activeSession?.type, timerActive]);
+  }, [view, activeSession?.type]);
 
   // Auto-clear session end reason popup after 5 seconds (enough time to read)
   useEffect(() => {
@@ -1925,11 +1957,25 @@ const App = () => {
           // Show appropriate popup based on message count
           if (combinedCount < 6) {
             // Not enough messages - show transition then orange insufficient popup
-            const transitionType = data.endReason === 'time_over' ? 'time_over' : 'opponent_left';
+            // TIMER LOGIC: Compare durations - if opponent had same or greater duration and time_over, both see "Time's Up"
+            // If opponent had SHORTER duration, I see "Opponent Left" (their timer ended, not mine)
+            // INACTIVITY: If endReason is 'inactivity', it means I was inactive (opponent ended because I didn't respond)
+            let transitionType = 'opponent_left';
+            if (data.endReason === 'inactivity') {
+              // I was the inactive one - show "you_inactive" animation
+              transitionType = 'you_inactive';
+            } else if (data.endReason === 'time_over') {
+              const enderDuration = data.enderTimerDuration || 0;
+              // Same duration or I have no limit (0) → Show "Time's Up"
+              if (enderDuration >= sessionDuration || sessionDuration === 0) {
+                transitionType = 'time_over';
+              }
+              // Else opponent had shorter timer → Show "Opponent Left" (default)
+            }
             setSessionEndTransition(transitionType);
             setBattleOpponentData(opponent);
 
-            // After 3 seconds, show the scorecard
+            // After 4 seconds, show the scorecard (increased from 3s for better readability)
             setTimeout(() => {
               setSessionEndTransition(null);
               setDualAnalysis({
@@ -1944,18 +1990,28 @@ const App = () => {
               setShowWinnerReveal(true);
               setView('dashboard');
               setActiveSession(null);
-            }, 3000);
+            }, 4000);
           } else {
             // Enough messages - show transition then analyze
-            const transitionType = data.endReason === 'time_over' ? 'time_over' : 'opponent_left';
+            // TIMER LOGIC: Same as above - compare durations for correct animation
+            // INACTIVITY: If endReason is 'inactivity', it means I was inactive
+            let transitionType = 'opponent_left';
+            if (data.endReason === 'inactivity') {
+              transitionType = 'you_inactive';
+            } else if (data.endReason === 'time_over') {
+              const enderDuration = data.enderTimerDuration || 0;
+              if (enderDuration >= sessionDuration || sessionDuration === 0) {
+                transitionType = 'time_over';
+              }
+            }
             setSessionEndTransition(transitionType);
             setBattleOpponentData(opponent);
 
-            // After 3 seconds, show analyzing
+            // After 4 seconds, show analyzing (increased from 3s for better readability)
             setTimeout(() => {
               setSessionEndTransition(null);
               setView('analyzing');
-            }, 3000);
+            }, 4000);
 
             const myMsgs = myMessages.map(m => m.text);
             const oppMsgs = oppMessages.map(m => m.text);
@@ -2353,6 +2409,8 @@ const App = () => {
         return tA - tB;
       }));
       playSendSound(); // Play send sound
+      // Track when I sent my last message for inactivity detection
+      lastMyMsgTimeRef.current = now;
 
       try {
         const token = await user.getIdToken();
@@ -2465,7 +2523,7 @@ const App = () => {
     }
   };
 
-  const endSession = async (initiatedByMe = true, timeEnded = false) => {
+  const endSession = async (initiatedByMe = true, timeEnded = false, inactivityReason = null) => {
     if (!activeSession || isEndingRef.current) return;
     isEndingRef.current = true;
 
@@ -2499,11 +2557,12 @@ const App = () => {
         const roomRef = doc(db, 'queue', capturedSession.id);
         await setDoc(roomRef, {
           status: 'ended',
-          endReason: timeEnded ? 'time_over' : 'left_early',
+          endReason: inactivityReason || (timeEnded ? 'time_over' : 'left_early'),
           endedBy: user.uid,
-          endedAt: serverTimestamp()
+          endedAt: serverTimestamp(),
+          enderTimerDuration: sessionDuration // Pass ender's timer duration for comparison
         }, { merge: true });
-        console.log('[SESSION_END] Updated Firestore:', { roomId: capturedSession.id, endReason: timeEnded ? 'time_over' : 'left_early' });
+        console.log('[SESSION_END] Updated Firestore:', { roomId: capturedSession.id, endReason: timeEnded ? 'time_over' : 'left_early', enderTimerDuration: sessionDuration });
       } catch (e) {
         console.error('[SESSION_END] Firestore update failed:', e);
       }
@@ -2752,169 +2811,213 @@ const App = () => {
         return; // Exit early without stats update
       }
 
-      setView('analyzing');
-      try {
-        const myMsgs = myMessages.map(m => m.text);
-        const oppMsgs = oppMessages.map(m => m.text);
-        const isBotMatch = capturedSession?.type === 'battle-bot';
-        console.log('[ANALYZE DEBUG] Sending:', { roomId: capturedSession.id, analyzedBy: user.uid, myMsgs, oppMsgs, isBotMatch });
-        const token = await user.getIdToken();
-        const res = await fetch(`${BACKEND_URL}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({
-            type: 'analyze',
-            roomId: capturedSession.id,
-            analyzedBy: user.uid,
-            player1History: myMsgs,
-            player2History: oppMsgs,
-            isBotMatch: isBotMatch  // NEW: Pass flag to backend
-          })
-        });
-        const data = await res.json();
+      // Show transition animation for the initiating player (time_over or left_early)
+      // SKIP if already showing transition (e.g., timer/inactivity already set it)
+      if (!sessionEndTransition) {
+        const transitionType = timeEnded ? 'time_over' : 'opponent_left';
+        setSessionEndTransition(transitionType);
+      }
+      setBattleOpponentData(capturedSession?.opponent);
 
-        // Backend now handles handicap for bot matches
-        // Just use the scores returned by backend directly
-        console.log('[ANALYZE] Received from backend:', data);
+      // Start API call IMMEDIATELY (runs in parallel with transition animation)
+      const myMsgs = myMessages.map(m => m.text);
+      const oppMsgs = oppMessages.map(m => m.text);
+      const isBotMatch = capturedSession?.type === 'battle-bot';
+      console.log('[ANALYZE DEBUG] Starting API call in parallel with animation...');
 
-        // Use backend scores directly (handicap already applied if bot match)
-        let adjustedData = { ...data };
+      // Use requestAnimationFrame to GUARANTEE the browser paints the transition
+      // before starting async work (setTimeout(0) does NOT guarantee paint)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          // Double RAF ensures we're after the paint
+          // FIRE-AND-FORGET: Start background async so we can return and let React render
+          (async () => {
+            // Create the API promise (starts immediately)
+            const analyzePromise = (async () => {
+              const token = await user.getIdToken();
+              const res = await fetch(`${BACKEND_URL}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                  type: 'analyze',
+                  roomId: capturedSession.id,
+                  analyzedBy: user.uid,
+                  player1History: myMsgs,
+                  player2History: oppMsgs,
+                  isBotMatch: isBotMatch
+                })
+              });
+              const data = await res.json();
+              console.log('[ANALYZE] Received from backend:', data);
+              return data;
+            })();
 
-        // For backward compatibility: ensure player scores exist
-        if (!adjustedData.player1) {
-          adjustedData.player1 = { vocab: 0, grammar: 0, fluency: 0, sentence: 0, total: 0, feedback: 'No data' };
-        }
-        if (!adjustedData.player2) {
-          adjustedData.player2 = { vocab: 0, grammar: 0, fluency: 0, sentence: 0, total: 0, feedback: 'No data' };
-        }
+            // Wait for both: animation (4s) AND API call to complete (increased from 2.5s)
+            const minAnimationTime = new Promise(resolve => setTimeout(resolve, 4000));
+            const [apiResult] = await Promise.all([analyzePromise, minAnimationTime]);
 
-        console.log('[ANALYZE] Final scores - You:', adjustedData.player1?.total, 'Bot:', adjustedData.player2?.total, 'Winner:', adjustedData.winner);
+            // Clear transition and show analyzing briefly
+            setSessionEndTransition(null);
+            setView('analyzing');
 
-        // SYNC FIX: Save analysis to Firestore for other player to read
-        // Only save for human vs human matches (not bot matches)
-        if (!isBotMatch && capturedSession?.id) {
-          try {
-            const roomRef = doc(db, 'queue', capturedSession.id);
-            await updateDoc(roomRef, {
-              analysis: adjustedData,
-              analyzedAt: serverTimestamp()
-            });
-            console.log('[ANALYZE] Saved analysis to Firestore for sync');
-          } catch (syncErr) {
-            console.error('[ANALYZE] Failed to save analysis to Firestore:', syncErr);
-          }
-        }
+            try {
+              // Use backend scores directly (handicap already applied if bot match)
+              let adjustedData = { ...apiResult };
 
-        setDualAnalysis(adjustedData);
+              // For backward compatibility: ensure player scores exist
+              if (!adjustedData.player1) {
+                adjustedData.player1 = { vocab: 0, grammar: 0, fluency: 0, sentence: 0, total: 0, feedback: 'No data' };
+              }
+              if (!adjustedData.player2) {
+                adjustedData.player2 = { vocab: 0, grammar: 0, fluency: 0, sentence: 0, total: 0, feedback: 'No data' };
+              }
 
-        // Determine win BEFORE try block so it's accessible in setStats
-        const analyzedBy = adjustedData?.analyzedBy;
-        const amIPlayer1 = !analyzedBy || analyzedBy === user.uid;
-        const didIWin = amIPlayer1 ? (adjustedData?.winner === 'player1') : (adjustedData?.winner === 'player2');
+              console.log('[ANALYZE] Final scores - You:', adjustedData.player1?.total, 'Opponent:', adjustedData.player2?.total, 'Winner:', adjustedData.winner);
 
-        // Calculate scores BEFORE try block so they're in scope for setStats
-        const myData = amIPlayer1 ? adjustedData?.player1 : adjustedData?.player2;
-        const oppData = amIPlayer1 ? adjustedData?.player2 : adjustedData?.player1;
-        const myScore = myData?.total || 0;
-        const totalSent = myMsgs?.length || 0;
+              // SYNC FIX: Save analysis to Firestore for other player to read
+              // Only save for human vs human matches (not bot matches)
+              if (!isBotMatch && capturedSession?.id) {
+                try {
+                  const roomRef = doc(db, 'queue', capturedSession.id);
+                  await updateDoc(roomRef, {
+                    analysis: adjustedData,
+                    analyzedAt: serverTimestamp()
+                  });
+                  console.log('[ANALYZE] Saved analysis to Firestore for sync');
+                } catch (syncErr) {
+                  console.error('[ANALYZE] Failed to save analysis to Firestore:', syncErr);
+                }
+              }
 
-        // Store competitive session
-        try {
+              setDualAnalysis(adjustedData);
 
-          // Prepare battle chat history for analytics
-          const battleChatHistory = capturedMessages
-            .filter(m => m.sender === 'me' || m.sender === 'opponent')
-            .map(m => ({
-              sender: m.sender,
-              text: m.text,
-              timestamp: m.createdAt || Date.now()
-            }));
-          const battleDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+              // Determine win BEFORE try block so it's accessible in setStats
+              const analyzedBy = adjustedData?.analyzedBy;
+              const amIPlayer1 = !analyzedBy || analyzedBy === user.uid;
+              const didIWin = amIPlayer1 ? (adjustedData?.winner === 'player1') : (adjustedData?.winner === 'player2');
 
-          const sessionsRef = collection(db, 'users', user.uid, 'sessions');
-          await addDoc(sessionsRef, {
-            type: capturedSession.type === 'battle-bot' ? 'battle-bot' : '1v1',
-            score: myData?.total || 0,
-            opponentId: capturedSession.opponent?.id, // For replay with same opponent
-            opponentName: capturedSession.opponent?.name || 'Opponent',
-            opponentAvatar: capturedSession.opponent?.avatar || '👤',
-            won: didIWin,
-            corrections: battleCorrectionsRef.current, // Use battleCorrections (tracked during battle)
-            correctionsCount: battleCorrectionsRef.current.length,
-            accuracy: myScore,
-            messagesCount: totalSent,
-            duration: battleDuration, // Session duration for time tracking
-            startTime: serverTimestamp(),
-            timestamp: serverTimestamp(),
-            chatHistory: battleChatHistory // Full chat for analytics
-          });
-          console.log('[DEBUG_SAVE] Battle session saved with corrections:', battleCorrectionsRef.current);
-        } catch (e) { console.error('Session save error:', e); }
+              // Calculate scores BEFORE try block so they're in scope for setStats
+              const myData = amIPlayer1 ? adjustedData?.player1 : adjustedData?.player2;
+              const oppData = amIPlayer1 ? adjustedData?.player2 : adjustedData?.player1;
+              const myScore = myData?.total || 0;
+              const totalSent = myMsgs?.length || 0;
+
+              // Store competitive session
+              try {
+
+                // Prepare battle chat history for analytics
+                const battleChatHistory = capturedMessages
+                  .filter(m => m.sender === 'me' || m.sender === 'opponent')
+                  .map(m => ({
+                    sender: m.sender,
+                    text: m.text,
+                    timestamp: m.createdAt || Date.now()
+                  }));
+                const battleDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+
+                const sessionsRef = collection(db, 'users', user.uid, 'sessions');
+                await addDoc(sessionsRef, {
+                  type: capturedSession.type === 'battle-bot' ? 'battle-bot' : '1v1',
+                  score: myData?.total || 0,
+                  opponentId: capturedSession.opponent?.id, // For replay with same opponent
+                  opponentName: capturedSession.opponent?.name || 'Opponent',
+                  opponentAvatar: capturedSession.opponent?.avatar || '👤',
+                  won: didIWin,
+                  corrections: battleCorrectionsRef.current, // Use battleCorrections (tracked during battle)
+                  correctionsCount: battleCorrectionsRef.current.length,
+                  accuracy: myScore,
+                  messagesCount: totalSent,
+                  duration: battleDuration, // Session duration for time tracking
+                  startTime: serverTimestamp(),
+                  timestamp: serverTimestamp(),
+                  chatHistory: battleChatHistory // Full chat for analytics
+                });
+                console.log('[DEBUG_SAVE] Battle session saved with corrections:', battleCorrectionsRef.current);
+              } catch (e) { console.error('Session save error:', e); }
 
 
-        const todayStr = getLocalDateStr();
-        setStats(prev => {
-          const lastDate = prev.lastPracticeDate;
-          let newStreak = prev.streak || 0;
+              const todayStr = getLocalDateStr();
+              setStats(prev => {
+                const lastDate = prev.lastPracticeDate;
+                let newStreak = prev.streak || 0;
 
-          if (lastDate !== todayStr) {
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = getLocalDateStr(yesterday);
+                if (lastDate !== todayStr) {
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  const yesterdayStr = getLocalDateStr(yesterday);
 
-            if (lastDate === yesterdayStr) {
-              newStreak += 1;
-            } else {
-              newStreak = 1;
+                  if (lastDate === yesterdayStr) {
+                    newStreak += 1;
+                  } else {
+                    newStreak = 1;
+                  }
+                }
+
+                // EARLY END FIX: <3 messages should NOT affect stats at all
+                // No wins, no losses, no avgScore contribution - battle doesn't count
+                if (totalSent < 3) {
+                  // Only update streak, DON'T count as win OR loss
+                  const n = {
+                    ...prev,
+                    streak: newStreak,
+                    lastPracticeDate: todayStr
+                    // NO battleWins/battleLosses update - battle doesn't count
+                  };
+                  setTimeout(() => saveUserData(n, null), 10);
+                  return n;
+                }
+
+                // NORMAL: 3+ messages update everything
+                const newTotalSessions = prev.sessions + 1;
+                // V8: Battle Mode uses same HYBRID formula as Simulation
+                console.log('[V8 BATTLE_SCORE] Contributing to avgScore:', myScore, 'sessions:', prev.sessions);
+                // HYBRID FORMULA: Simple average for first 5 sessions, then EMA
+                let newAvgScore;
+                if (prev.sessions < 5) {
+                  // Simple average for new users (fair weight)
+                  newAvgScore = Math.round((prev.avgScore * prev.sessions + myScore) / newTotalSessions);
+                } else {
+                  // EMA after 5 sessions (stability)
+                  newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
+                }
+                // Level based on ACCURACY (not points) - Stage naming
+                const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
+                const n = {
+                  ...prev,
+                  sessions: newTotalSessions,
+                  points: prev.points + myScore,
+                  avgScore: newAvgScore,
+                  level: newLevel,
+                  streak: newStreak,
+                  lastPracticeDate: todayStr,
+                  // Track battle wins AND losses for proper battles (3+ messages)
+                  battleWins: (prev.battleWins || 0) + (didIWin ? 1 : 0),
+                  battleLosses: (prev.battleLosses || 0) + (!didIWin && adjustedData?.winner !== 'draw' ? 1 : 0)
+                };
+                setTimeout(() => saveUserData(n, null), 10);
+                return n;
+              });
+              setShowWinnerReveal(true);
+              setView('dashboard');
+            } catch (e) {
+              setSessionEndTransition(null);
+              setView('dashboard');
             }
-          }
+            setActiveSession(null);
+            setIsEnding(false);
+            setShowExitWarning(false);
 
-          // EARLY END FIX: <3 messages should NOT affect accuracy at all
-          if (totalSent < 3) {
-            // Only update streak and battleWins, DON'T update avgScore/sessions
-            const n = {
-              ...prev,
-              streak: newStreak,
-              lastPracticeDate: todayStr,
-              battleWins: (prev.battleWins || 0) + (didIWin ? 1 : 0)
-            };
-            setTimeout(() => saveUserData(n, null), 10);
-            return n;
-          }
+            // Reset guards after delay
+            setTimeout(() => {
+              isEndingRef.current = false;
+              isJoiningRef.current = false;
+            }, 1500);
+          })(); // End of fire-and-forget async IIFE
+        }); // End of inner requestAnimationFrame
+      }); // End of outer requestAnimationFrame - ensures paint before async
 
-          // NORMAL: 3+ messages update everything
-          const newTotalSessions = prev.sessions + 1;
-          // V8: Battle Mode uses same HYBRID formula as Simulation
-          console.log('[V8 BATTLE_SCORE] Contributing to avgScore:', myScore, 'sessions:', prev.sessions);
-          // HYBRID FORMULA: Simple average for first 5 sessions, then EMA
-          let newAvgScore;
-          if (prev.sessions < 5) {
-            // Simple average for new users (fair weight)
-            newAvgScore = Math.round((prev.avgScore * prev.sessions + myScore) / newTotalSessions);
-          } else {
-            // EMA after 5 sessions (stability)
-            newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
-          }
-          // Level based on ACCURACY (not points) - Stage naming
-          const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
-          const n = {
-            ...prev,
-            sessions: newTotalSessions,
-            points: prev.points + myScore,
-            avgScore: newAvgScore,
-            level: newLevel,
-            streak: newStreak,
-            lastPracticeDate: todayStr,
-            battleWins: (prev.battleWins || 0) + (didIWin ? 1 : 0) // Track battle wins for achievements
-          };
-          setTimeout(() => saveUserData(n, null), 10);
-          return n;
-        });
-        setBattleOpponentData(capturedSession?.opponent); // Capture opponent before clearing
-        setShowWinnerReveal(true);
-        setView('dashboard');
-      } catch (e) { setView('dashboard'); }
-      setActiveSession(null);
+      // Return immediately so React can render the transition
+      return;
     }
 
     setIsEnding(false);
@@ -4655,6 +4758,7 @@ const App = () => {
                       <div className="text-xl font-black text-amber-600">{stats.points || 0}</div>
                       <div className="text-[9px] text-amber-500 font-semibold">Points</div>
                     </div>
+
                     {/* Accuracy - Clickable */}
                     <button
                       onClick={() => setShowAccuracyInfo(true)}
@@ -4691,10 +4795,10 @@ const App = () => {
                         </div>
                       </div>
                     </button>
-                    {/* Battles Won */}
+                    {/* Battles Won - Using real stats */}
                     <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl p-3 text-center">
                       <div className="text-xl font-black text-rose-600">
-                        {sessionHistory.filter(s => s.won).length}/{sessionHistory.filter(s => s.type === '1v1').length}
+                        {stats.battleWins || 0}/{(stats.battleWins || 0) + (stats.battleLosses || 0)}
                       </div>
                       <div className="text-[9px] text-rose-500 font-semibold">Battles ⚔️</div>
                     </div>
@@ -5330,14 +5434,6 @@ const App = () => {
                       <span>Want to score better? See tips →</span>
                     </button>
 
-                    {/* Motivation Section */}
-                    <div className="bg-teal-50 border border-teal-100 rounded-2xl p-3 mb-4 text-left">
-                      <div className="flex items-center gap-2 text-teal-700 text-sm">
-                        <Users size={16} />
-                        <span><strong>4,200+ learners</strong> at your level practice daily. You're not alone! 🌍</span>
-                      </div>
-                    </div>
-
                     {/* Mistakes - Blinking Button */}
                     {showSessionSummary.corrections && showSessionSummary.corrections.length > 0 ? (
                       <div className="bg-gradient-to-r from-amber-100 to-orange-100 border-2 border-amber-300 rounded-2xl p-4 mb-4">
@@ -5929,13 +6025,14 @@ const App = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {timerActive ? (
-                <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
-                  <Clock size={12} /> {formatTime(timeRemaining)}
-                </div>
-              ) : sessionDuration === 0 ? (
+              {/* FIX: Check sessionDuration === 0 FIRST to prevent flickering */}
+              {sessionDuration === 0 ? (
                 <div className="text-xs text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-full">
                   <Clock size={12} /> ∞ No Limit
+                </div>
+              ) : timerActive ? (
+                <div className="text-xs text-red-500 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full">
+                  <Clock size={12} /> {formatTime(timeRemaining)}
                 </div>
               ) : null}
               <button
@@ -5993,55 +6090,57 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        {/* Bug 3 Fix: Time's Up Notification Overlay */}
+
+        {/* OLD showTimeOver overlay REMOVED - now using sessionEndTransition instead */}
+
+        {/* Session End Transition Animation - ADDED: This was missing! */}
         <AnimatePresence>
-          {showTimeOver && (
+          {sessionEndTransition && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-white via-emerald-50 to-teal-50 backdrop-blur-md"
             >
               <motion.div
-                initial={{ y: 50 }}
-                animate={{ y: 0 }}
-                className="bg-gradient-to-br from-amber-500 to-orange-600 text-white px-8 py-6 rounded-3xl shadow-2xl text-center"
+                initial={{ scale: 0.8, y: 50 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.8, y: -50 }}
+                transition={{ type: 'spring', damping: 20 }}
+                className="text-center bg-white rounded-3xl shadow-2xl p-8 max-w-sm mx-4 border border-emerald-100"
               >
-                <div className="text-5xl mb-3">⏰</div>
-                <div className="text-2xl font-black mb-1">Time's Up!</div>
-                <div className="text-sm opacity-90">Calculating your results...</div>
+                <motion.div
+                  className="text-8xl mb-6"
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ repeat: Infinity, duration: 1.5 }}
+                >
+                  {sessionEndTransition === 'time_over' ? '⏰' :
+                    sessionEndTransition === 'you_inactive' ? '😴' : '👋'}
+                </motion.div>
+                <h2 className="text-3xl font-black text-gray-900 mb-3">
+                  {sessionEndTransition === 'time_over' ? "Time's Up!" :
+                    sessionEndTransition === 'you_inactive' ? 'Session Ended' : 'Opponent Left'}
+                </h2>
+                <p className="text-lg text-gray-600">
+                  {sessionEndTransition === 'time_over'
+                    ? 'Great practice session!'
+                    : sessionEndTransition === 'you_inactive'
+                      ? 'No response from your side for 1 minute'
+                      : 'Your partner ended the session'}
+                </p>
+                <div className="mt-6 flex items-center justify-center gap-2">
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <p className="text-sm text-gray-400 mt-2">Analyzing your performance...</p>
               </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Session End Reason Notification Overlay */}
-        <AnimatePresence>
-          {sessionEndReason && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            >
-              <motion.div
-                initial={{ y: 50 }}
-                animate={{ y: 0 }}
-                className={`${sessionEndReason === 'timeout' ? 'bg-gradient-to-br from-red-500 to-orange-600' : 'bg-gradient-to-br from-blue-500 to-purple-600'} text-white px-8 py-6 rounded-3xl shadow-2xl text-center`}
-              >
-                <div className="text-5xl mb-3">
-                  {sessionEndReason === 'timeout' ? '😴' : sessionEndReason === 'opponent_left' ? '👋' : '⏰'}
-                </div>
-                <div className="text-2xl font-black mb-1">
-                  {sessionEndReason === 'timeout' ? 'Opponent Inactive' : sessionEndReason === 'opponent_left' ? 'Opponent Left' : "Time's Up!"}
-                </div>
-                <div className="text-sm opacity-90">
-                  {sessionEndReason === 'timeout' ? 'No response for 1 minute' : sessionEndReason === 'opponent_left' ? 'Your partner ended the session' : 'Great practice session!'}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+
+        {/* OLD sessionEndReason overlay REMOVED - now using sessionEndTransition instead */}
 
         {/* Streak Milestone Celebration Popup */}
         <AnimatePresence>

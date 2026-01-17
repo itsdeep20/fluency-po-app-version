@@ -202,22 +202,9 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                         <div className="text-6xl mb-4">💬</div>
                         <h3 className="text-xl font-black text-gray-900 mb-2">Need More Practice!</h3>
 
-                        {/* Check if opponent left early - show highlighted message */}
-                        {dualAnalysis?.message?.includes('opponent left') ? (
-                            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-4">
-                                <div className="text-2xl mb-2">🚪</div>
-                                <p className="text-red-700 font-bold text-base">
-                                    Your opponent left early!
-                                </p>
-                                <p className="text-red-600 text-sm mt-1">
-                                    Not enough messages to analyze the result.
-                                </p>
-                            </div>
-                        ) : (
-                            <p className="text-gray-600 mb-4">
-                                {dualAnalysis?.message || 'Both players need to send at least 6 messages combined for a proper analysis.'}
-                            </p>
-                        )}
+                        <p className="text-gray-600 mb-4">
+                            Not enough messages to analyze the result. Play longer next time!
+                        </p>
 
                         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-left">
                             <div className="text-xs font-bold text-amber-700 uppercase mb-1">💡 Tip</div>

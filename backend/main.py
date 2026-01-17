@@ -1331,12 +1331,89 @@ YOUR SPEAKING STYLE:
                 if not messages or len(messages) == 0:
                     return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "battleScore": 0, "feedback": "No messages sent."}
                 
+                # STEP 0: Python-based gibberish pre-detection (before AI)
+                # This catches obvious gibberish that AI might miss
+                def is_likely_gibberish(word):
+                    """Detects gibberish words using pattern analysis"""
+                    word = word.lower().strip()
+                    if len(word) <= 2:
+                        return False  # Short words are OK
+                    
+                    # Very common words to whitelist
+                    common_words = {'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 
+                                   'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
+                                   'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she',
+                                   'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what',
+                                   'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me',
+                                   'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take',
+                                   'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other',
+                                   'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also',
+                                   'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way',
+                                   'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us',
+                                   'hi', 'hello', 'hey', 'yes', 'no', 'ok', 'okay', 'thanks', 'thank', 'please',
+                                   'sorry', 'bye', 'good', 'bad', 'nice', 'great', 'fine', 'cool', 'sure', 'really',
+                                   'very', 'much', 'more', 'well', 'too', 'here', 'there', 'where', 'when', 'why',
+                                   'how', 'what', 'who', 'which', 'doing', 'going', 'coming', 'nothing', 'something',
+                                   'everything', 'anything', 'special', 'today', 'tomorrow', 'yesterday', 'morning',
+                                   'evening', 'night', 'friend', 'friends', 'family', 'name', 'live', 'love', 'help',
+                                   'am', 'is', 'are', 'was', 'were', 'been', 'being', 'has', 'had', 'having',
+                                   'done', 'doing', 'did', 'does', 'made', 'making', 'hie', 'lol', 'haha', 'hmm'}
+                    if word in common_words:
+                        return False
+                    
+                    # Only alphabetic characters for analysis
+                    alpha_word = ''.join(c for c in word if c.isalpha())
+                    if len(alpha_word) < 3:
+                        return False
+                    
+                    vowels = set('aeiou')
+                    consonants = set('bcdfghjklmnpqrstvwxyz')
+                    
+                    # Check 1: No vowels at all (gibberish like "bcdfg", "rntspl")
+                    has_vowel = any(c in vowels for c in alpha_word)
+                    if not has_vowel and len(alpha_word) > 2:
+                        print(f"[GIBBERISH_CHECK] '{word}' - No vowels")
+                        return True
+                    
+                    # Check 2: More than 4 consonants in a row (e.g., "fghrtk", "bsdjfk")
+                    consonant_streak = 0
+                    max_consonant_streak = 0
+                    for c in alpha_word:
+                        if c in consonants:
+                            consonant_streak += 1
+                            max_consonant_streak = max(max_consonant_streak, consonant_streak)
+                        else:
+                            consonant_streak = 0
+                    if max_consonant_streak >= 4:
+                        print(f"[GIBBERISH_CHECK] '{word}' - {max_consonant_streak} consonants in a row")
+                        return True
+                    
+                    # Check 3: Unusual letter distribution (e.g., "hghghgh", "jkjkjk")
+                    char_counts = {}
+                    for c in alpha_word:
+                        char_counts[c] = char_counts.get(c, 0) + 1
+                    
+                    # If any character appears more than 40% of the time in a 5+ letter word
+                    if len(alpha_word) >= 5:
+                        for c, count in char_counts.items():
+                            if count / len(alpha_word) > 0.4:
+                                print(f"[GIBBERISH_CHECK] '{word}' - Repetitive '{c}' ({count}/{len(alpha_word)})")
+                                return True
+                    
+                    return False
+                
                 # STEP 1: Python calculates basic stats (instant)
                 all_text = ' '.join(messages)
                 all_words = all_text.split()
                 total_words = len(all_words)
                 unique_words = len(set(w.lower() for w in all_words))
                 total_messages = len(messages)
+                
+                # Pre-detect gibberish words using Python
+                python_gibberish_count = sum(1 for w in all_words if is_likely_gibberish(w))
+                python_gibberish_ratio = python_gibberish_count / total_words if total_words > 0 else 0
+                print(f"[GIBBERISH_PRECHECK] Python detected {python_gibberish_count}/{total_words} gibberish words ({python_gibberish_ratio:.2%})")
+
                 
                 if total_words == 0:
                     return {"vocab": 0, "grammar": 0, "fluency": 0, "sentence": 0, "total": 0, "battleScore": 0, "feedback": "No words sent."}
@@ -1430,15 +1507,28 @@ JSON only:"""
                 punctuation_errors = ai_result.get('punctuation_errors', 0)
                 capitalization_errors = ai_result.get('capitalization_errors', 0)
                 article_errors = ai_result.get('article_errors', 0)
-                gibberish_words = ai_result.get('gibberish_words', 0)
-                valid_english_words = ai_result.get('valid_english_words', total_words - gibberish_words)
+                
+                # Use the MAXIMUM of Python detection OR AI detection for gibberish
+                ai_gibberish = ai_result.get('gibberish_words', 0)
+                gibberish_words = max(python_gibberish_count, ai_gibberish)
+                if python_gibberish_count > ai_gibberish:
+                    print(f"[GIBBERISH_OVERRIDE] Python: {python_gibberish_count} > AI: {ai_gibberish} - Using Python count")
+                
+                valid_english_words = max(0, total_words - gibberish_words)
                 basic_words = ai_result.get('basic_words', 0)
                 intermediate_words = ai_result.get('intermediate_words', 0)
                 advanced_words = ai_result.get('advanced_words', 0)
                 awkward_phrases = ai_result.get('awkward_phrases', 0)
                 incomplete_thoughts = ai_result.get('incomplete_thoughts', 0)
+                
+                # If Python detected high gibberish ratio, penalize coherence and flow
                 coherence_score = ai_result.get('coherence_score', 70)
                 natural_flow = ai_result.get('natural_flow', 70)
+                if python_gibberish_ratio > 0.5:
+                    # More than half gibberish = low coherence/flow
+                    coherence_score = min(coherence_score, 20)
+                    natural_flow = min(natural_flow, 20)
+                    print(f"[GIBBERISH_PENALTY] High gibberish ratio - capping coherence/flow to 20")
                 complete_responses = ai_result.get('complete_responses', ai_result.get('complete_sentences', 0))
                 complex_responses = ai_result.get('complex_responses', ai_result.get('complex_sentences', 0))
                 total_responses = max(ai_result.get('total_responses', ai_result.get('total_sentences', total_messages)), 1)
