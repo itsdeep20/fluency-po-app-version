@@ -388,17 +388,18 @@ const WinnerReveal = ({ dualAnalysis, myUserId, opponentData, onDashboard, onClo
                                 </button>
                             </div>
                         )}
-
-                        {/* Scoring Tips Link */}
-                        {onShowTips && (
-                            <button
-                                onClick={onShowTips}
-                                className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium hover:underline transition-colors"
-                            >
-                                💡 Want to score better? See tips →
-                            </button>
-                        )}
                     </div>
+
+                    {/* Scoring Tips Link - Sleek, subtle design */}
+                    {onShowTips && (
+                        <button
+                            onClick={onShowTips}
+                            className="w-full mb-4 py-2 px-4 bg-indigo-50 border border-indigo-200 text-indigo-600 rounded-xl text-sm flex items-center justify-center gap-2 hover:bg-indigo-100 hover:border-indigo-300 transition-all"
+                        >
+                            <span>💡</span>
+                            <span>Want to score better? See tips →</span>
+                        </button>
+                    )}
 
                     <div className="flex gap-3">
                         <button

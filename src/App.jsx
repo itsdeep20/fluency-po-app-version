@@ -1962,21 +1962,37 @@ const App = () => {
 
             (async () => {
               try {
-                // SYNC FIX: First check if analysis is already cached in Firestore
-                // The player who ended should have saved it there
+                // SYNC FIX: Check for cached analysis with retry logic
+                // The player who ended should save it, but there may be a race condition
                 const roomRef = doc(db, 'queue', roomId);
-                const roomSnap = await getDoc(roomRef);
-                const roomData = roomSnap.data();
 
-                if (roomData?.analysis && roomData?.analysis?.player1 && roomData?.analysis?.player2) {
-                  console.log('[OPPONENT_ENDED] Using cached analysis from Firestore');
-                  const cachedAnalysis = roomData.analysis;
-                  setDualAnalysis({ ...cachedAnalysis, analyzedBy: roomData.analysis.analyzedBy || data.endedBy });
+                // Try up to 8 times with 1.5 second delay to find cached analysis (~10.5s total)
+                let cachedAnalysis = null;
+                for (let attempt = 1; attempt <= 8; attempt++) {
+                  console.log(`[OPPONENT_ENDED] Checking for cached analysis (attempt ${attempt}/8)...`);
+                  const roomSnap = await getDoc(roomRef);
+                  const roomData = roomSnap.data();
+
+                  if (roomData?.analysis && roomData?.analysis?.player1 && roomData?.analysis?.player2) {
+                    cachedAnalysis = roomData.analysis;
+                    console.log('[OPPONENT_ENDED] Using cached analysis from Firestore');
+                    break;
+                  }
+
+                  // Wait 1.5 seconds before retry (except on last attempt)
+                  if (attempt < 8) {
+                    console.log('[OPPONENT_ENDED] No cached analysis yet, waiting 1.5s...');
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                  }
+                }
+
+                if (cachedAnalysis) {
+                  setDualAnalysis({ ...cachedAnalysis, analyzedBy: cachedAnalysis.analyzedBy || data.endedBy });
                   setBattleOpponentData(opponent);
                   setShowWinnerReveal(true);
                 } else {
-                  // Fallback: No cached analysis, call analyze endpoint
-                  console.log('[OPPONENT_ENDED] No cached analysis, calling analyze endpoint');
+                  // Fallback: No cached analysis after 8 attempts (~10.5s), call analyze endpoint
+                  console.log('[OPPONENT_ENDED] No cached analysis after retries, calling analyze endpoint');
                   const token = await user.getIdToken();
                   const res = await fetch(`${BACKEND_URL}`, {
                     method: 'POST',
@@ -5303,15 +5319,16 @@ const App = () => {
                         )}
                       </div>
                       <div className="text-xs text-gray-400 mt-3 text-center">↓ scroll if more content</div>
-
-                      {/* Scoring Tips Link */}
-                      <button
-                        onClick={() => setShowScoringGuide(true)}
-                        className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium hover:underline transition-colors block w-full text-center"
-                      >
-                        💡 Want to score better? See tips →
-                      </button>
                     </div>
+
+                    {/* Scoring Tips Link - Sleek, subtle design */}
+                    <button
+                      onClick={() => setShowScoringGuide(true)}
+                      className="w-full mb-4 py-2 px-4 bg-indigo-50 border border-indigo-200 text-indigo-600 rounded-xl text-sm flex items-center justify-center gap-2 hover:bg-indigo-100 hover:border-indigo-300 transition-all"
+                    >
+                      <span>💡</span>
+                      <span>Want to score better? See tips →</span>
+                    </button>
 
                     {/* Motivation Section */}
                     <div className="bg-teal-50 border border-teal-100 rounded-2xl p-3 mb-4 text-left">

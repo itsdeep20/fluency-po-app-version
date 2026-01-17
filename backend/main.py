@@ -1496,23 +1496,39 @@ JSON only:"""
                     grammar_score = min(50, grammar_score + sense_bonus)
                 
                 # ============================================
-                # VOCABULARY: Stricter with Flat Gibberish Penalty
+                # VOCABULARY: Enhanced with Variety & Repetition Scoring
                 # ============================================
                 valid_words = total_words - gibberish_words
                 if total_words > 0 and valid_words > 0:
-                    # Word level scoring
+                    # Word level scoring (raised base: 60/82/100)
                     basic_ratio = basic_words / valid_words if valid_words > 0 else 1
                     intermediate_ratio = intermediate_words / valid_words if valid_words > 0 else 0
                     advanced_ratio = advanced_words / valid_words if valid_words > 0 else 0
-                    word_level_score = (basic_ratio * 40) + (intermediate_ratio * 70) + (advanced_ratio * 100)
+                    word_level_score = (basic_ratio * 60) + (intermediate_ratio * 82) + (advanced_ratio * 100)
                     
                     # Gibberish penalties: rate-based + flat
                     gibberish_rate_penalty = gibberish_rate * 50
                     gibberish_flat = gibberish_words * 15  # -15 per gibberish word
                     
-                    vocab_score = max(0, min(100, word_level_score - gibberish_rate_penalty - gibberish_flat))
+                    # Variety ratio (unique words / total words) - calculated in Python for speed
+                    variety_ratio = unique_words / total_words if total_words > 0 else 1
+                    
+                    # Repetition penalty: penalize if less than 50% unique words
+                    if variety_ratio < 0.5:
+                        repetition_penalty = (0.5 - variety_ratio) * 40  # Up to -20 points
+                    else:
+                        repetition_penalty = 0
+                    
+                    # Variety bonus: reward diverse vocabulary (>60% unique)
+                    if variety_ratio > 0.6:
+                        variety_bonus = min(10, (variety_ratio - 0.6) * 25)  # Up to +10 points
+                    else:
+                        variety_bonus = 0
+                    
+                    vocab_score = word_level_score - gibberish_rate_penalty - gibberish_flat - repetition_penalty + variety_bonus
+                    vocab_score = max(0, min(100, vocab_score))
                 else:
-                    vocab_score = 0 if gibberish_words > 0 else 40
+                    vocab_score = 0 if gibberish_words > 0 else 50  # Raised default from 40 to 50
                 
                 # FLUENCY: Enhanced with coherence, flow, and depth penalty
                 avg_words_per_response = total_words / total_responses if total_responses > 0 else 0
@@ -1567,50 +1583,67 @@ JSON only:"""
                     
                     # ============================================
                     # DYNAMIC HANDICAP SYSTEM (for bot matches)
-                    # Bot uses TRUE scores but handicapped based on user's level
+                    # Bot score is handicapped based on user's level PER FACTOR
                     # ============================================
                     
                     p2_display_scores = p2_scores.copy()  # Scores to display/compare
                     
                     if is_bot_match:
-                        random_variance = random.random() * 0.10  # 0-10% extra randomness
-                        
-                        # --- NEW: Per-Factor Handicap System ---
-                        # Goal: Allow users with high scores (82+) to WIN against the bot.
-                        # We apply a specific handicap to EACH factor based on the User's score in that factor.
+                        # --- NEW: Per-Factor Handicap System V2 ---
+                        # Goal: Make battles fair and encouraging at all levels
+                        # 
+                        # Rules per factor:
+                        # 1. If player < 45: Bot scores random 45-58 (encouraging, bot wins but not crushing)
+                        # 2. If player 45-79: Bot scores player + random(-4 to +20), gradually reducing
+                        # 3. If player >= 80: No handicap, true battle
                         
                         modified_bot_scores = {}
                         
                         for category in ['vocab', 'grammar', 'fluency', 'sentence']:
                             user_val = p1_scores.get(category, 0)
-                            bot_val = p2_scores.get(category, 0)
+                            bot_true_val = p2_scores.get(category, 0)
                             
-                            # Determine handicap % based on User's performance in this specific category
-                            if user_val >= 82:
-                                # Expert Zone: User is great! Let them have a chance to WIN.
-                                # Reduce bot by ~20% (Bot becomes ~80), so User (82+) wins.
-                                base_handicap = 0.20 
-                            elif user_val >= 70:
-                                # Good Zone: Competitive.
-                                # Reduce bot by ~25% (Bot ~75).
-                                base_handicap = 0.25
-                            elif user_val >= 50:
-                                # Improver: Bot definitely wins but not by 100-0.
-                                # Reduce bot by ~30% (Bot ~70).
-                                base_handicap = 0.30
+                            if user_val >= 80:
+                                # EXPERT ZONE (80+): No handicap - true battle
+                                # Bot uses its actual calculated score
+                                modified_bot_scores[category] = bot_true_val
+                                print(f"[HANDICAP] {category}: Player={user_val} (Expert) -> Bot={bot_true_val} (TRUE)")
+                                
+                            elif user_val < 45:
+                                # BEGINNER ZONE (<45): Bot scores 45-58 (fixed encouraging range)
+                                # Bot always wins but never crushes the player
+                                bot_score = random.randint(45, 58)
+                                modified_bot_scores[category] = bot_score
+                                print(f"[HANDICAP] {category}: Player={user_val} (Beginner) -> Bot={bot_score} (range 45-58)")
+                                
                             else:
-                                # Beginner: Encouragement mode.
-                                # Reduce bot by ~45% (Bot ~55-60).
-                                base_handicap = 0.45
-                            
-                            # Apply randomness
-                            final_handicap = base_handicap + random_variance
-                            multiplier = max(0.1, 1.0 - final_handicap)
-                            
-                            # Calculate Bot's new score for this factor
-                            modified_bot_scores[category] = round(bot_val * multiplier)
+                                # TRANSITION ZONE (45-79): Gradual handicap reduction
+                                # At 45: full handicap (bot = player + random(-4 to +20))
+                                # At 79: almost no handicap (bot = player + random(~0 to ~0))
+                                
+                                # Calculate transition factor: 1.0 at 45, 0.0 at 80
+                                transition_factor = 1.0 - (user_val - 45) / 35.0
+                                transition_factor = max(0, min(1, transition_factor))  # Clamp 0-1
+                                
+                                # Scale the handicap range based on transition
+                                # At 45: range is -4 to +20
+                                # At 80: range is 0 to 0
+                                range_min = int(-4 * transition_factor)   # -4 at 45, 0 at 80
+                                range_max = int(20 * transition_factor)   # +20 at 45, 0 at 80
+                                
+                                # Add randomness within the range
+                                random_offset = random.randint(range_min, max(range_min, range_max))
+                                
+                                # Bot score = player score + offset
+                                bot_score = user_val + random_offset
+                                
+                                # Clamp to valid range (0-100)
+                                bot_score = max(0, min(100, bot_score))
+                                
+                                modified_bot_scores[category] = bot_score
+                                print(f"[HANDICAP] {category}: Player={user_val} (Trans {transition_factor:.2f}) -> Bot={bot_score} (offset {random_offset}, range [{range_min},{range_max}])")
                         
-                        # Set the display scores
+                        # Set the display scores with modified values
                         p2_display_scores = {
                             'vocab': modified_bot_scores['vocab'],
                             'grammar': modified_bot_scores['grammar'],
@@ -1619,12 +1652,12 @@ JSON only:"""
                             'feedback': p2_scores.get('feedback', 'Bot opponent')
                         }
                         
-                        # Recalculate Bot scores
-                        # 1. Weighted (for Stats compliance - Dashboard Update)
+                        # Recalculate Bot totals with modified scores
+                        # 1. Weighted Average (for Dashboard Stats)
                         w_tot = (p2_display_scores['grammar'] * 0.40) + (p2_display_scores['vocab'] * 0.25) + (p2_display_scores['fluency'] * 0.20) + (p2_display_scores['sentence'] * 0.15)
                         p2_display_scores['total'] = round(w_tot)
                         
-                        # 2. Battle Score (for Winner logic)
+                        # 2. Battle Score (Sum for Winner determination)
                         p2_display_scores['battleScore'] = round(
                             p2_display_scores['grammar'] + 
                             p2_display_scores['vocab'] + 
@@ -1632,9 +1665,7 @@ JSON only:"""
                             p2_display_scores['sentence']
                         )
                         
-                        print(f"[HANDICAP] Per-Factor Logic Applied. Bot Final Sum: {p2_display_scores['battleScore']}")
-                        
-                        print(f"[HANDICAP] Bot TRUE: {p2_scores['battleScore']}, Bot FINAL: {p2_display_scores['battleScore']}")
+                        print(f"[HANDICAP] FINAL: Bot battleScore={p2_display_scores['battleScore']} (TRUE was {p2_scores['battleScore']})")
                     
                     # Determine winner (using BATTLE SCORE - Sum)
                     if p1_scores['battleScore'] > p2_display_scores['battleScore']:
@@ -1867,23 +1898,39 @@ JSON only:"""
                     grammar_score = min(50, grammar_score + sense_bonus)
                 
                 # ============================================
-                # VOCABULARY: Stricter with Flat Gibberish Penalty
+                # VOCABULARY: Enhanced with Variety & Repetition Scoring
                 # ============================================
                 valid_words = total_words - gibberish_words
                 if total_words > 0 and valid_words > 0:
-                    # Word level scoring
+                    # Word level scoring (raised base: 60/82/100)
                     basic_ratio = basic_words / valid_words if valid_words > 0 else 1
                     intermediate_ratio = intermediate_words / valid_words if valid_words > 0 else 0
                     advanced_ratio = advanced_words / valid_words if valid_words > 0 else 0
-                    word_level_score = (basic_ratio * 40) + (intermediate_ratio * 70) + (advanced_ratio * 100)
+                    word_level_score = (basic_ratio * 60) + (intermediate_ratio * 82) + (advanced_ratio * 100)
                     
                     # Gibberish penalties: rate-based + flat
                     gibberish_rate_penalty = gibberish_rate * 50
                     gibberish_flat = gibberish_words * 15  # -15 per gibberish word
                     
-                    vocab_score = max(0, min(100, word_level_score - gibberish_rate_penalty - gibberish_flat))
+                    # Variety ratio (unique words / total words) - calculated in Python for speed
+                    variety_ratio = unique_words / total_words if total_words > 0 else 1
+                    
+                    # Repetition penalty: penalize if less than 50% unique words
+                    if variety_ratio < 0.5:
+                        repetition_penalty = (0.5 - variety_ratio) * 40  # Up to -20 points
+                    else:
+                        repetition_penalty = 0
+                    
+                    # Variety bonus: reward diverse vocabulary (>60% unique)
+                    if variety_ratio > 0.6:
+                        variety_bonus = min(10, (variety_ratio - 0.6) * 25)  # Up to +10 points
+                    else:
+                        variety_bonus = 0
+                    
+                    vocab_score = word_level_score - gibberish_rate_penalty - gibberish_flat - repetition_penalty + variety_bonus
+                    vocab_score = max(0, min(100, vocab_score))
                 else:
-                    vocab_score = 0 if gibberish_words > 0 else 40
+                    vocab_score = 0 if gibberish_words > 0 else 50  # Raised default from 40 to 50
                 
                 # FLUENCY: Enhanced with coherence, flow, and depth penalty
                 avg_words_per_response = total_words / total_responses if total_responses > 0 else 0
