@@ -6,7 +6,7 @@ import {
   getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence
 } from 'firebase/auth';
 import {
-  getFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
+  initializeFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
   doc, serverTimestamp, orderBy, getDocs, limit, where, deleteDoc, increment, updateDoc
 } from 'firebase/firestore';
 
@@ -183,7 +183,11 @@ let auth, db, analytics;
 try {
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  // Use initializeFirestore with long polling for Android WebView compatibility
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+    useFetchStreams: false,
+  });
   analytics = getAnalytics(app);
 } catch (e) { console.error("Firebase init error", e); }
 
