@@ -14,7 +14,7 @@
   },
   "plugins": {
     "CapacitorHttp": {
-      "enabled": false
+      "enabled": true
     }
   }
 }
