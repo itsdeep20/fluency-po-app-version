@@ -27,16 +27,16 @@ body,
 /* Mobile Safe Areas for Capacitor/Android/iOS */
 /* Ensures content doesn't overlap with status bar or navigation bar */
 .safe-area-top {
-  padding-top: env(safe-area-inset-top, 40px);
+  padding-top: env(safe-area-inset-top, 48px);
 }
 
 .safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 32px);
+  padding-bottom: env(safe-area-inset-bottom, 40px);
 }
 
 .safe-area-all {
-  padding-top: env(safe-area-inset-top, 40px);
-  padding-bottom: env(safe-area-inset-bottom, 32px);
+  padding-top: env(safe-area-inset-top, 48px);
+  padding-bottom: env(safe-area-inset-bottom, 40px);
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
 }
@@ -46,8 +46,8 @@ body,
   min-height: 100vh;
   min-height: 100dvh;
   /* Dynamic viewport height for mobile */
-  padding-top: env(safe-area-inset-top, 40px);
-  padding-bottom: env(safe-area-inset-bottom, 32px);
+  padding-top: env(safe-area-inset-top, 48px);
+  padding-bottom: env(safe-area-inset-bottom, 40px);
 }
 
 /* Dark Mode Styles */

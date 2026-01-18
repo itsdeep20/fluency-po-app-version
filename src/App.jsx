@@ -2742,7 +2742,10 @@ const App = () => {
         corrections: sessionCorrections
       });
 
-      // Fetch AI-powered personalized feedback
+      // IMPORTANT: Transition to dashboard IMMEDIATELY - don't wait for feedback
+      setView('dashboard'); setActiveSession(null);
+
+      // Fetch AI-powered personalized feedback (in background - doesn't block UI)
       setIsLoadingFeedback(true);
       setAiFeedback('');
 
@@ -2780,7 +2783,6 @@ const App = () => {
         }
       }
 
-      setView('dashboard'); setActiveSession(null);
 
     } else {
       // Calculate combined messages for proper analysis threshold
