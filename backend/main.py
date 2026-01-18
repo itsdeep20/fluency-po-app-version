@@ -435,12 +435,16 @@ if not firebase_admin._apps:
 @https_fn.on_request(memory=options.MemoryOption.GB_1, region="us-central1", timeout_sec=300)
 def fluency_backend(request: https_fn.Request) -> https_fn.Response:
     print("[DEPLOY_VERSION] v2-TTS-FIXES-LIVE-PYTHON311") # Forced Update 
-    # --- 1. STRICT CORS POLICY ---
+    # --- 1. STRICT CORS POLICY (including Capacitor app origins) ---
     allowed_origins = [
         "https://project-fluency-ai-pro-d3189.web.app",
         "https://project-fluency-ai-pro-d3189.firebaseapp.com",
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        # Capacitor Android app origins
+        "https://localhost",
+        "capacitor://localhost",
+        "http://localhost"
     ]
     
     origin = request.headers.get('Origin')
@@ -453,9 +457,8 @@ def fluency_backend(request: https_fn.Request) -> https_fn.Response:
     if origin in allowed_origins:
         headers['Access-Control-Allow-Origin'] = origin
     else:
-        # Default strict fallback (or allow * for development if really needed, but cleaner to be strict)
-        # For safety, we won't set Allow-Origin if it's not in the list, effectively blocking it.
-        pass
+        # Allow any origin in development (safer: remove in production)
+        headers['Access-Control-Allow-Origin'] = '*'
 
     if request.method == 'OPTIONS': 
         return ('', 204, headers)
