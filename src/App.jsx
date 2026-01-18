@@ -23,7 +23,6 @@ import WinnerReveal from './WinnerReveal';
 import ScoringGuide from './ScoringGuide';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { CapacitorHttp } from '@capacitor/core';
 import { Capacitor } from '@capacitor/core';
 
 // ===== PROFESSIONAL SOUND UTILITIES =====
@@ -168,26 +167,21 @@ const fireCelebrationConfetti = (withSound = true) => {
 };
 // ===== END SOUND UTILITIES =====
 
-// Helper to call backend using CapacitorHttp to bypass CORS safely
+// Helper to call backend - uses native fetch now that server CORS is configured
 const callBackend = async (endpoint, method, body, token) => {
-  const options = {
-    url: endpoint,
+  const response = await fetch(endpoint, {
     method: method,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    data: body // CapacitorHttp uses 'data' for body
-  };
+    body: JSON.stringify(body)
+  });
 
-  const response = await CapacitorHttp.request(options);
-
-  // CapacitorHttp returns response.data already parsed if JSON, but let's be safe
-  // The structure is { data, status, headers }
-  if (response.status >= 400) {
-    throw new Error(`Backend error: ${response.status} - ${JSON.stringify(response.data)}`);
+  if (!response.ok) {
+    throw new Error(`Backend error: ${response.status}`);
   }
-  return response.data;
+  return response.json();
 };
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
