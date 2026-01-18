@@ -3999,8 +3999,8 @@ const App = () => {
   if (view === 'dashboard' && user) return (
     <div className="min-h-screen bg-gray-100 font-sans md:py-8">
       <div className="max-w-2xl mx-auto bg-white shadow-xl md:rounded-3xl relative">
-        {/* HEADER */}
-        <header className="px-4 py-3 flex justify-between items-center border-b border-gray-100 bg-white sticky top-0 z-20">
+        {/* HEADER - with safe area padding for mobile status bar */}
+        <header className="px-4 py-3 flex justify-between items-center border-b border-gray-100 bg-white sticky top-0 z-20 safe-area-top">
           <button onClick={() => setShowMenu(true)} className="w-10 h-10 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
             <Menu size={22} />
           </button>
@@ -4339,7 +4339,7 @@ const App = () => {
                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                 className="fixed top-0 left-0 h-full w-72 bg-white z-50 shadow-2xl overflow-y-auto flex flex-col"
               >
-                <div className="p-6 flex flex-col flex-1 min-h-0">
+                <div className="p-6 flex flex-col flex-1 min-h-0 safe-area-top">
                   {/* Menu Header */}
                   <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-1.5">
@@ -4375,17 +4375,18 @@ const App = () => {
                     <div className="text-gray-400">›</div>
                   </button>
 
-                  {/* Quick Practice Section */}
+                  {/* Quick Practice Section - Only show Aisha chat */}
                   <div className="mb-4">
                     <div className="text-[10px] text-gray-400 uppercase font-bold mb-2 px-2">Quick Practice</div>
                     <div className="space-y-1">
-                      {SIMULATIONS.slice(0, 4).map(sim => (
+                      {/* Show only Aisha simulation (index 5) */}
+                      {SIMULATIONS.filter(sim => sim.id === 'sim_friend').map(sim => (
                         <button
                           key={sim.id}
                           onClick={() => { setShowMenu(false); startSimulation(sim); }}
                           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-emerald-50 transition-colors group"
                         >
-                          <div className={`w - 8 h - 8 ${sim.color} rounded - lg flex items - center justify - center text - white shadow - sm group - hover: scale - 110 transition - transform`}>
+                          <div className={`w-8 h-8 ${sim.color} rounded-lg flex items-center justify-center text-white shadow-sm group-hover:scale-110 transition-transform`}>
                             <sim.icon size={16} />
                           </div>
                           <div className="text-left">
@@ -4406,12 +4407,8 @@ const App = () => {
                   {/* Divider */}
                   <div className="border-t border-gray-100 mb-4"></div>
 
-                  {/* Menu Items */}
+                  {/* Menu Items - Removed Profile & Avatar (redundant with header profile) */}
                   <nav className="space-y-1">
-                    <button onClick={() => { setShowMenu(false); setShowProfile(true); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors">
-                      <User size={20} />
-                      <span className="font-medium">Profile & Avatar</span>
-                    </button>
                     <button onClick={() => { setShowMenu(false); setShowAchievements(true); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors">
                       <Award size={20} />
                       <span className="font-medium">Achievements</span>
@@ -6878,8 +6875,8 @@ const App = () => {
           <div ref={messagesEndRef} />
         </main>
 
-        {/* Fixed Input */}
-        <div className="p-4 bg-white border-t border-gray-100 shrink-0">
+        {/* Fixed Input - with safe area for mobile navigation */}
+        <div className="p-4 bg-white border-t border-gray-100 shrink-0 safe-area-bottom">
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-full border border-gray-100">
             <input
               autoFocus
@@ -7067,7 +7064,7 @@ const App = () => {
         </AnimatePresence>
       </div>
       {renderGlobalModals()}
-    </div>
+    </div >
   );
 
 
