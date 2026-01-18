@@ -21,6 +21,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import WinnerReveal from './WinnerReveal';
 import ScoringGuide from './ScoringGuide';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { Capacitor } from '@capacitor/core';
 
 // ===== PROFESSIONAL SOUND UTILITIES =====
 const createAudioContext = () => {
@@ -5092,28 +5095,55 @@ const App = () => {
                             setPdfGenerationStep('🎉 Your Learning Pack is ready!');
                             await new Promise(r => setTimeout(r, 800));
 
-                            // Download the PDF
-                            const byteCharacters = atob(data.pdf);
-                            const byteNumbers = new Array(byteCharacters.length);
-                            for (let i = 0; i < byteCharacters.length; i++) {
-                              byteNumbers[i] = byteCharacters.charCodeAt(i);
-                            }
-                            const byteArray = new Uint8Array(byteNumbers);
-                            const blob = new Blob([byteArray], { type: 'application/pdf' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            // Timestamped Filename (LOCAL time)
+                            // Download the PDF - Native Android or Web Browser
                             const now = new Date();
                             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
-                            a.download = `fluency-learning-pack-${timestamp}.pdf`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
+                            const fileName = `fluency-learning-pack-${timestamp}.pdf`;
 
-                            // Success message!
-                            setPdfGenerationStep('✅ Downloaded! Open it and practice daily! 📖');
+                            if (Capacitor.isNativePlatform()) {
+                              // NATIVE ANDROID: Use Filesystem to save and Share to open
+                              try {
+                                // Save to Documents directory
+                                const result = await Filesystem.writeFile({
+                                  path: fileName,
+                                  data: data.pdf, // Already base64
+                                  directory: Directory.Documents,
+                                });
+                                console.log('[PDF_NATIVE] Saved to:', result.uri);
+
+                                // Open share dialog so user can open/save the file
+                                await Share.share({
+                                  title: 'Your Learning Pack is Ready!',
+                                  text: 'Open your Fluency Pro Learning Pack',
+                                  url: result.uri,
+                                  dialogTitle: 'Open or Share Your Learning Pack'
+                                });
+
+                                setPdfGenerationStep('✅ Saved to Documents! Opening share dialog... 📖');
+                              } catch (fsError) {
+                                console.error('[PDF_NATIVE] Filesystem error:', fsError);
+                                setPdfGenerationStep('⚠️ Could not save PDF. Please try again.');
+                              }
+                            } else {
+                              // WEB BROWSER: Use blob download
+                              const byteCharacters = atob(data.pdf);
+                              const byteNumbers = new Array(byteCharacters.length);
+                              for (let i = 0; i < byteCharacters.length; i++) {
+                                byteNumbers[i] = byteCharacters.charCodeAt(i);
+                              }
+                              const byteArray = new Uint8Array(byteNumbers);
+                              const blob = new Blob([byteArray], { type: 'application/pdf' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = fileName;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+
+                              setPdfGenerationStep('✅ Downloaded! Open it and practice daily! 📖');
+                            }
 
                             // Celebration!
                             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
