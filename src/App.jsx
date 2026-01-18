@@ -4012,69 +4012,78 @@ const App = () => {
   if (view === 'dashboard' && user) return (
     <div className="min-h-screen bg-gray-100 font-sans md:py-8">
       <div className="max-w-2xl mx-auto bg-white shadow-xl md:rounded-3xl relative">
-        {/* HEADER - with safe area padding for mobile status bar */}
-        <header className="px-4 py-3 flex justify-between items-center border-b border-gray-100 bg-white sticky top-0 z-20 safe-area-top">
-          <button onClick={() => setShowMenu(true)} className="w-10 h-10 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
-            <Menu size={22} />
+        {/* HEADER - BROADER with safe area padding for mobile status bar */}
+        <header className="px-5 pt-4 pb-5 flex justify-between items-center border-b border-gray-100 bg-white sticky top-0 z-20 safe-area-top shadow-sm">
+          <button onClick={() => setShowMenu(true)} className="w-12 h-12 flex items-center justify-center text-gray-500 hover:bg-gray-50 rounded-2xl transition-colors">
+            <Menu size={24} />
           </button>
-          <div className="flex items-center gap-1.5">
-            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-md shadow-emerald-200">
-              <MessageCircle className="text-white" size={18} />
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
+              <MessageCircle className="text-white" size={20} />
             </div>
-            <h1 className="text-xl font-black">
+            <h1 className="text-2xl font-black tracking-tight">
               <span className="bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-600 bg-clip-text text-transparent">Flu</span>
               <span className="text-gray-900">ency</span>
             </h1>
-            <span className="px-1.5 py-0.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[10px] font-bold rounded-full">PRO</span>
+            <span className="px-2 py-1 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[10px] font-bold rounded-full shadow-md shadow-orange-200">PRO</span>
           </div>
-          <button onClick={() => setShowProfile(true)} className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl hover:ring-2 hover:ring-emerald-200 transition-all">
+          <button onClick={() => setShowProfile(true)} className="w-12 h-12 bg-gradient-to-br from-amber-100 to-orange-100 rounded-full flex items-center justify-center text-2xl ring-2 ring-white shadow-lg hover:ring-emerald-200 transition-all">
             {userAvatar}
           </button>
         </header>
 
         <main className="p-4 space-y-4">
-          {/* Quick Stats Bar */}
-          <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl p-3">
-            <button onClick={() => { console.log('[DEBUG] Streak clicked - opening showStreakProgress'); setShowStreakProgress(true); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
-              <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                <Zap className="text-orange-500" size={16} />
-              </div>
-              <div className="text-left">
-                <div className="text-[10px] text-gray-400 font-bold uppercase">Streak</div>
-                <div className="text-sm font-black text-gray-900">
-                  {(() => {
-                    if (!stats.lastPracticeDate) return 0;
-                    const todayStr = getLocalDateStr();
-                    const lastDate = stats.lastPracticeDate;
-                    if (lastDate === todayStr) return stats.streak;
-                    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-                    const yesterdayStr = getLocalDateStr(yesterday);
-                    if (lastDate === yesterdayStr) return stats.streak;
-                    return 0;
-                  })()} days
+          {/* Quick Stats Bar - BROADER with vertical layout */}
+          <div className="bg-gradient-to-r from-gray-50 via-white to-gray-50 rounded-3xl p-5 shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between">
+              {/* Streak */}
+              <button onClick={() => { console.log('[DEBUG] Streak clicked - opening showStreakProgress'); setShowStreakProgress(true); }} className="flex-1 flex flex-col items-center gap-2 py-2 hover:bg-white rounded-2xl transition-colors">
+                <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center shadow-inner">
+                  <Zap className="text-orange-500 fill-orange-500" size={24} />
                 </div>
-              </div>
-            </button>
-            <div className="w-px h-8 bg-gray-200"></div>
-            <button onClick={() => { console.log('[DEBUG] Points clicked'); setShowPointsInfo(true); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
-              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Award className="text-purple-500" size={16} />
-              </div>
-              <div className="text-left">
-                <div className="text-[10px] text-gray-400 font-bold uppercase">Points</div>
-                <div className="text-sm font-black text-gray-900">{stats.points || 0}</div>
-              </div>
-            </button>
-            <div className="w-px h-8 bg-gray-200"></div>
-            <button onClick={() => { console.log('[DEBUG] Accuracy clicked - opening showAccuracyInfo'); setShowAccuracyInfo(true); }} className="flex items-center gap-2 hover:bg-white/50 rounded-xl px-3 py-2 transition-colors">
-              <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                <Target className="text-emerald-500" size={16} />
-              </div>
-              <div className="text-left">
-                <div className="text-[10px] text-gray-400 font-bold uppercase">Accuracy</div>
-                <div className="text-sm font-black text-emerald-600">{stats.avgScore || 0}%</div>
-              </div>
-            </button>
+                <div className="text-center">
+                  <div className="text-xl font-black text-gray-900">
+                    {(() => {
+                      if (!stats.lastPracticeDate) return 0;
+                      const todayStr = getLocalDateStr();
+                      const lastDate = stats.lastPracticeDate;
+                      if (lastDate === todayStr) return stats.streak;
+                      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+                      const yesterdayStr = getLocalDateStr(yesterday);
+                      if (lastDate === yesterdayStr) return stats.streak;
+                      return 0;
+                    })()} days
+                  </div>
+                  <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Streak</div>
+                </div>
+              </button>
+
+              <div className="w-px h-16 bg-gray-200"></div>
+
+              {/* Points */}
+              <button onClick={() => { console.log('[DEBUG] Points clicked'); setShowPointsInfo(true); }} className="flex-1 flex flex-col items-center gap-2 py-2 hover:bg-white rounded-2xl transition-colors">
+                <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center shadow-inner">
+                  <Award className="text-purple-500" size={24} />
+                </div>
+                <div className="text-center">
+                  <div className="text-xl font-black text-gray-900">{stats.points || 0}</div>
+                  <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Points</div>
+                </div>
+              </button>
+
+              <div className="w-px h-16 bg-gray-200"></div>
+
+              {/* Accuracy */}
+              <button onClick={() => { console.log('[DEBUG] Accuracy clicked - opening showAccuracyInfo'); setShowAccuracyInfo(true); }} className="flex-1 flex flex-col items-center gap-2 py-2 hover:bg-white rounded-2xl transition-colors">
+                <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center shadow-inner">
+                  <Target className="text-emerald-500" size={24} />
+                </div>
+                <div className="text-center">
+                  <div className="text-xl font-black text-emerald-600">{stats.avgScore || 0}%</div>
+                  <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Accuracy</div>
+                </div>
+              </button>
+            </div>
           </div>
 
           {/* MAIN ACTION - Free Practice */}

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluency Pro - Vibrant Concept</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            font-family: 'Urbanist', sans-serif;
+        }
+
+        .safe-area-top {
+            padding-top: 48px;
+        }
+
+        .gradient-border-bottom {
+            position: relative;
+        }
+
+        .gradient-border-bottom::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(to right, #10b981, #f97316);
+            /* Emerald to Orange gradient */
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 overflow-hidden h-screen flex flex-col">
+
+    <!-- HEADER: Bold, White with Gradient Border -->
+    <header
+        class="bg-white sticky top-0 z-20 safe-area-top pb-4 px-5 flex justify-between items-center shadow-sm gradient-border-bottom">
+        <button
+            class="w-10 h-10 flex items-center justify-center text-gray-700 hover:bg-gray-50 rounded-xl transition-colors">
+            <i data-lucide="menu"></i>
+        </button>
+
+        <div class="flex items-center gap-2">
+            <div
+                class="w-9 h-9 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200 transform -rotate-3">
+                <i data-lucide="message-circle" class="text-white w-5 h-5"></i>
+            </div>
+            <h1 class="text-2xl font-black text-gray-900 tracking-tight">
+                Fluency<span class="text-emerald-500">.</span>
+            </h1>
+            <span
+                class="ml-1 px-2 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full shadow-lg shadow-orange-200">PRO</span>
+        </div>
+
+        <div class="relative">
+            <button
+                class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center border-2 border-white shadow-md">
+                <span class="text-lg">👤</span>
+            </button>
+            <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-5 space-y-6 pb-32">
+
+        <!-- Welcome Message -->
+        <div>
+            <h2 class="text-2xl font-bold text-gray-800">Hello, <span class="text-emerald-600">Alex!</span> 👋</h2>
+            <p class="text-gray-500">Ready to master English today?</p>
+        </div>
+
+        <!-- STATISTICS CARD: Orange Border Accent -->
+        <div class="bg-white rounded-3xl p-1 shadow-xl shadow-gray-100 border-b-4 border-orange-400">
+            <div class="flex items-center justify-between bg-white rounded-2xl p-4">
+                <!-- Streak -->
+                <div class="flex-1 text-center border-r border-gray-100">
+                    <div class="flex flex-col items-center gap-1">
+                        <div class="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center mb-1">
+                            <i data-lucide="zap" class="text-orange-500 w-5 h-5 fill-orange-500"></i>
+                        </div>
+                        <div class="text-2xl font-black text-gray-900">5</div>
+                        <div class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Day Streak</div>
+                    </div>
+                </div>
+
+                <!-- Points -->
+                <div class="flex-1 text-center border-r border-gray-100">
+                    <div class="flex flex-col items-center gap-1">
+                        <div class="w-10 h-10 bg-purple-50 rounded-full flex items-center justify-center mb-1">
+                            <i data-lucide="award" class="text-purple-500 w-5 h-5"></i>
+                        </div>
+                        <div class="text-2xl font-black text-gray-900">1,240</div>
+                        <div class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Points</div>
+                    </div>
+                </div>
+
+                <!-- Level -->
+                <div class="flex-1 text-center">
+                    <div class="flex flex-col items-center gap-1">
+                        <div class="w-10 h-10 bg-emerald-50 rounded-full flex items-center justify-center mb-1">
+                            <i data-lucide="target" class="text-emerald-500 w-5 h-5"></i>
+                        </div>
+                        <div class="text-2xl font-black text-gray-900">B2</div>
+                        <div class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Level</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN ACTION: Vibrant Gradient -->
+        <button
+            class="w-full relative group overflow-hidden rounded-3xl shadow-xl shadow-emerald-200 transition-all transform active:scale-95">
+            <div class="absolute inset-0 bg-gradient-to-r from-emerald-500 to-teal-600"></div>
+            <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10">
+            </div>
+
+            <div class="relative p-6 flex items-center gap-5">
+                <div
+                    class="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shadow-inner">
+                    <i data-lucide="play" class="text-white w-8 h-8 fill-white"></i>
+                </div>
+                <div class="text-left">
+                    <div class="text-xs font-bold text-emerald-100 uppercase tracking-widest mb-1">Daily Practice</div>
+                    <h3 class="text-2xl font-black text-white leading-tight">Start Conversation</h3>
+                    <p class="text-emerald-100 text-sm mt-1 opacity-90">Simulate real-world scenarios</p>
+                </div>
+                <div class="absolute right-4 top-1/2 -translate-y-1/2 opacity-20 transform rotate-12">
+                    <i data-lucide="message-square" class="text-white w-24 h-24"></i>
+                </div>
+            </div>
+        </button>
+
+        <!-- Quick Actions Grid -->
+        <div class="grid grid-cols-2 gap-4">
+            <button
+                class="bg-white p-4 rounded-3xl shadow-lg shadow-gray-100 border-l-4 border-blue-400 flex flex-col gap-3 active:scale-95 transition-transform">
+                <div class="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                    <i data-lucide="swords" class="text-blue-500 w-5 h-5"></i>
+                </div>
+                <div class="text-left">
+                    <div class="font-bold text-gray-800">Battle Mode</div>
+                    <div class="text-xs text-gray-400">Compete with AI</div>
+                </div>
+            </button>
+
+            <button
+                class="bg-white p-4 rounded-3xl shadow-lg shadow-gray-100 border-l-4 border-rose-400 flex flex-col gap-3 active:scale-95 transition-transform">
+                <div class="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center">
+                    <i data-lucide="book-open" class="text-rose-500 w-5 h-5"></i>
+                </div>
+                <div class="text-left">
+                    <div class="font-bold text-gray-800">Study Guide</div>
+                    <div class="text-xs text-gray-400">Review lessons</div>
+                </div>
+            </button>
+        </div>
+
+    </main>
+
+    <!-- Bottom Navigation (Simulated) -->
+    <nav
+        class="bg-white border-t border-gray-100 px-6 py-4 pb-8 flex justify-between items-center safe-area-bottom fixed bottom-0 w-full z-10">
+        <button class="flex flex-col items-center gap-1 text-emerald-600">
+            <i data-lucide="home" class="w-6 h-6"></i>
+            <span class="text-[10px] font-bold">Home</span>
+        </button>
+        <button class="flex flex-col items-center gap-1 text-gray-400">
+            <i data-lucide="compass" class="w-6 h-6"></i>
+            <span class="text-[10px] font-medium">Explore</span>
+        </button>
+        <button class="flex flex-col items-center gap-1 text-gray-400">
+            <i data-lucide="user" class="w-6 h-6"></i>
+            <span class="text-[10px] font-medium">Profile</span>
+        </button>
+    </nav>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
