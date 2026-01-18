@@ -23,6 +23,7 @@ import WinnerReveal from './WinnerReveal';
 import ScoringGuide from './ScoringGuide';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { CapacitorHttp } from '@capacitor/core';
 import { Capacitor } from '@capacitor/core';
 
 // ===== PROFESSIONAL SOUND UTILITIES =====
@@ -166,6 +167,28 @@ const fireCelebrationConfetti = (withSound = true) => {
   }, 200);
 };
 // ===== END SOUND UTILITIES =====
+
+// Helper to call backend using CapacitorHttp to bypass CORS safely
+const callBackend = async (endpoint, method, body, token) => {
+  const options = {
+    url: endpoint,
+    method: method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    data: body // CapacitorHttp uses 'data' for body
+  };
+
+  const response = await CapacitorHttp.request(options);
+
+  // CapacitorHttp returns response.data already parsed if JSON, but let's be safe
+  // The structure is { data, status, headers }
+  if (response.status >= 400) {
+    throw new Error(`Backend error: ${response.status} - ${JSON.stringify(response.data)}`);
+  }
+  return response.data;
+};
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -526,7 +549,12 @@ const App = () => {
 
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${BACKEND_URL}`, {
+      // Use callBackend helper
+      const data = await callBackend(BACKEND_URL, 'POST', {
+        type: 'get_pdf_history',
+        userId: user.uid
+      }, token);
+      /*const res = await fetch(`${BACKEND_URL}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -542,7 +570,7 @@ const App = () => {
         throw new Error(`Server returned ${res.status}`);
       }
 
-      const data = await res.json();
+      const data = await res.json();*/
 
       if (data.history && Array.isArray(data.history)) {
         setPdfHistory(data.history);
@@ -864,10 +892,13 @@ const App = () => {
   useEffect(() => {
     if (view === 'dashboard' && user) {
       user.getIdToken().then(token => {
-        fetch(`${BACKEND_URL}`, {
+        // Use callBackend helper
+        callBackend(BACKEND_URL, 'POST', { type: 'warmup' }, token)
+          .catch(() => { });
+        /*fetch(`${BACKEND_URL}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ type: 'warmup' })
-        }).catch(() => { });
+        }).catch(() => { });*/
       });
     }
   }, [view, user]);
@@ -1846,8 +1877,10 @@ const App = () => {
     try {
       if (isJoiningRef.current) return;
       const token = await user.getIdToken();
-      const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'trigger_bot_match', roomId, userId: user.uid }) });
-      const data = await res.json();
+      // Use callBackend helper instead of fetch
+      const data = await callBackend(BACKEND_URL, 'POST', { type: 'trigger_bot_match', roomId, userId: user.uid }, token);
+      // const res = await fetch(`${BACKEND_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ type: 'trigger_bot_match', roomId, userId: user.uid }) });
+      // const data = await res.json();
       // Ensure we haven't canceled or already matched with a human
       if (data.success && data.matched && !isJoiningRef.current) {
         joinMatch(data.roomId, data.opponent, data.isBotMatch ? 'battle-bot' : 'human', data.topic);
@@ -2057,7 +2090,14 @@ const App = () => {
                   // Fallback: No cached analysis after 8 attempts (~10.5s), call analyze endpoint
                   console.log('[OPPONENT_ENDED] No cached analysis after retries, calling analyze endpoint');
                   const token = await user.getIdToken();
-                  const res = await fetch(`${BACKEND_URL}`, {
+                  const result = await callBackend(BACKEND_URL, 'POST', {
+                    type: 'analyze',
+                    roomId: roomId,
+                    player1History: myMsgs,
+                    player2History: oppMsgs,
+                    isBotMatch: false
+                  }, token);
+                  /*const res = await fetch(`${BACKEND_URL}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                     body: JSON.stringify({
@@ -2068,7 +2108,7 @@ const App = () => {
                       isBotMatch: false
                     })
                   });
-                  const result = await res.json();
+                  const result = await res.json();*/
                   console.log('[OPPONENT_ENDED] Analysis result:', result);
 
                   if (result.player1 && result.player2) {
@@ -2421,14 +2461,15 @@ const App = () => {
 
       try {
         const token = await user.getIdToken();
-        const res = await fetch(`${BACKEND_URL}`, {
+        const data = await callBackend(BACKEND_URL, 'POST', { type: 'send_message', roomId: activeSession.id, text, senderId: user.uid, difficulty: difficultyLevel }, token);
+        /*const res = await fetch(`${BACKEND_URL}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ type: 'send_message', roomId: activeSession.id, text, senderId: user.uid, difficulty: difficultyLevel })
         });
 
         // V8: Parse accuracy from response
-        const data = await res.json();
+        const data = await res.json();*/
         const msgAccuracy = data.accuracy ?? 100;
         const errorLevel = data.errorLevel || 'perfect';
         const correction = data.correction;
@@ -2622,7 +2663,13 @@ const App = () => {
         try {
           const token = await user.getIdToken();
           console.log('[SIM PRO ANALYSIS] Starting API call immediately...');
-          const res = await fetch(`${BACKEND_URL}`, {
+          const data = await callBackend(BACKEND_URL, 'POST', {
+            type: 'analyze_simulation',
+            simId: capturedSession.id,
+            simName: capturedSession.opponent?.name || 'Simulation',
+            playerHistory: myMsgs
+          }, token);
+          /*const res = await fetch(`${BACKEND_URL}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({
@@ -2632,7 +2679,7 @@ const App = () => {
               playerHistory: myMsgs
             })
           });
-          const data = await res.json();
+          const data = await res.json();*/
           if (data.accuracy !== undefined) {
             proAccuracy = Math.round(data.accuracy);
             console.log('[SIM PRO ANALYSIS] PRO accuracy:', proAccuracy, 'vs Flash average:', sessionAccuracy);
