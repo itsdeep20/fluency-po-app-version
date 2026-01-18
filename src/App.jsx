@@ -1189,12 +1189,8 @@ const App = () => {
             const corrections = sessions.flatMap(s => s.corrections || []).slice(-30);
             console.log('[DEBUG] AI Analysis: Found', corrections.length, 'corrections from', sessions.length, 'sessions');
             console.log('[DEBUG] Sample corrections:', corrections.slice(0, 2));
-            const res = await fetch(`${BACKEND_URL}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify({ type: 'progress_analysis', corrections })
-            });
-            const data = await res.json();
+            const res = await callBackend(BACKEND_URL, 'POST', { type: 'progress_analysis', corrections }, token);
+            const data = res;
             setProgressReportData(data);
           } catch (err) {
             console.error('Auto AI analysis error:', err);
@@ -1298,10 +1294,8 @@ const App = () => {
     try {
       if (!user) return; // Need user for token
       const token = await user.getIdToken();
-      fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'warmup' })
-      }).catch(err => console.log('Warmup partial fail', err));
+      callBackend(BACKEND_URL, 'POST', { type: 'warmup' }, token)
+        .catch(err => console.log('Warmup partial fail', err));
     } catch (e) { }
   };
 
@@ -1391,17 +1385,12 @@ const App = () => {
     setIsLoadingAssist(true);
     try {
       const token = await user.getIdToken();
-      const response = await fetch(`${BACKEND_URL}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          type: 'ai_assist',
-          message: message,
-          context: conversationContext,
-          nativeLanguage: motherTongue || 'Hindi'
-        })
-      });
-      const data = await response.json();
+      const data = await callBackend(BACKEND_URL, 'POST', {
+        type: 'ai_assist',
+        message: message,
+        context: conversationContext,
+        nativeLanguage: motherTongue || 'Hindi'
+      }, token);
       return data;
     } catch (e) {
       console.error('[AI_ASSIST_ERROR]', e);
@@ -1417,16 +1406,11 @@ const App = () => {
     setIsLoadingTranslation(true);
     try {
       const token = await user.getIdToken();
-      const response = await fetch(`${BACKEND_URL}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          type: 'translate',
-          message: message,
-          targetLanguage: motherTongue || 'Hindi'
-        })
-      });
-      const data = await response.json();
+      const data = await callBackend(BACKEND_URL, 'POST', {
+        type: 'translate',
+        message: message,
+        targetLanguage: motherTongue || 'Hindi'
+      }, token);
       return data.translation;
     } catch (e) {
       console.error('[TRANSLATION_ERROR]', e);
@@ -1614,23 +1598,15 @@ const App = () => {
     try {
       // Create a room for both players
       const token = await user.getIdToken();
-      const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          type: 'create_invitation_room',
-          hostId: incomingInvitation.fromUserId,
-          hostName: incomingInvitation.fromName,
-          hostAvatar: incomingInvitation.fromAvatar,
-          guestId: user.uid,
-          guestName: user.displayName || 'Player',
-          guestAvatar: userAvatar
-        })
-      });
-      const data = await res.json();
+      const data = await callBackend(BACKEND_URL, 'POST', {
+        type: 'create_invitation_room',
+        hostId: incomingInvitation.fromUserId,
+        hostName: incomingInvitation.fromName,
+        hostAvatar: incomingInvitation.fromAvatar,
+        guestId: user.uid,
+        guestName: user.displayName || 'Player',
+        guestAvatar: userAvatar
+      }, token);
 
       if (data.success && data.roomId) {
         // Update invitation status
@@ -1718,11 +1694,7 @@ const App = () => {
     try {
       console.log('[BOT MATCH] Sending create_bot_room request...');
       const token = await user.getIdToken();
-      const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'create_bot_room', userId: user.uid, userName: user.displayName || 'Player', userAvatar, botId })
-      });
-      const data = await res.json();
+      const data = await callBackend(BACKEND_URL, 'POST', { type: 'create_bot_room', userId: user.uid, userName: user.displayName || 'Player', userAvatar, botId }, token);
       console.log('[BOT MATCH] Response:', data);
 
       if (data.success && data.roomId) {
@@ -1745,11 +1717,7 @@ const App = () => {
     setIsCreatingRoom(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'create_room', userId: user.uid, userName: user.displayName || 'Host', userAvatar })
-      });
-      const data = await res.json();
+      const data = await callBackend(BACKEND_URL, 'POST', { type: 'create_room', userId: user.uid, userName: user.displayName || 'Host', userAvatar }, token);
       if (data.success) {
         setRoomCode(data.roomCode);
         console.log('[CREATE_ROOM] Room created:', data.roomId, 'Code:', data.roomCode);
@@ -1779,11 +1747,7 @@ const App = () => {
     if (!code || code.length < 4) return;
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'join_room', roomCode: code, userId: user.uid, userName: user.displayName || 'Friend', userAvatar })
-      });
-      const data = await res.json();
+      const data = await callBackend(BACKEND_URL, 'POST', { type: 'join_room', roomCode: code, userId: user.uid, userName: user.displayName || 'Friend', userAvatar }, token);
       if (data.success) {
         joinMatch(data.roomId, data.opponent, 'human', 'Friend Match');
         setShowRoomInput(false);
@@ -1800,20 +1764,14 @@ const App = () => {
     // Warmup backend for faster bot response
     if (user) {
       user.getIdToken().then(token => {
-        fetch(`${BACKEND_URL}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ type: 'warmup' })
-        }).catch(() => { });
+        callBackend(BACKEND_URL, 'POST', { type: 'warmup' }, token)
+          .catch(() => { });
       });
     }
 
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${BACKEND_URL}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar, sessionDuration })
-      });
-      const data = await res.json();
+      const data = await callBackend(BACKEND_URL, 'POST', { type: 'find_random_match', userId: user.uid, userName: user.displayName || 'Player', userAvatar, sessionDuration }, token);
       console.log('MATCH_DEBUG: find_random_match response:', data);
       if (data.success) {
         if (data.matched) {
@@ -5123,18 +5081,11 @@ const App = () => {
 
                           // Start API call IMMEDIATELY (in parallel with animation)
                           const token = await user.getIdToken();
-                          const apiPromise = fetch(`${BACKEND_URL}`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              'Authorization': `Bearer ${token}`
-                            },
-                            body: JSON.stringify({
-                              type: 'generate_learning_pack',
-                              userId: user.uid,
-                              dateFilter: studyGuideFilter
-                            })
-                          }).then(res => res.json());
+                          const apiPromise = callBackend(BACKEND_URL, 'POST', {
+                            type: 'generate_learning_pack',
+                            userId: user.uid,
+                            dateFilter: studyGuideFilter
+                          }, token);
 
                           // Run animation steps while API is processing
                           let apiFinished = false;
@@ -6743,12 +6694,7 @@ const App = () => {
                             const lang = langMap[motherTongue] || 'hi-IN';
                             console.log('[TRANSLATION_TTS] Requesting WaveNet TTS for lang:', lang);
                             const token = await user.getIdToken();
-                            const res = await fetch(`${BACKEND_URL}`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                              body: JSON.stringify({ type: 'tts', text: showTranslationPopup.translation, lang })
-                            });
-                            const data = await res.json();
+                            const data = await callBackend(BACKEND_URL, 'POST', { type: 'tts', text: showTranslationPopup.translation, lang }, token);
                             console.log('[TRANSLATION_TTS] Response:', data.audioBase64 ? 'Got WaveNet audio!' : 'No audio, error:', data.error);
 
                             if (data.audioBase64) {
