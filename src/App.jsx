@@ -2636,8 +2636,16 @@ const App = () => {
         return proAccuracy;
       })();
 
-      // Wait for API to complete
-      sessionAccuracy = await analyzePromise;
+      // Wait for API to complete with 15 second timeout to prevent UI blocking
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Analyze timeout')), 15000)
+      );
+      try {
+        sessionAccuracy = await Promise.race([analyzePromise, timeoutPromise]);
+      } catch (e) {
+        console.warn('[ANALYZE_TIMEOUT] Using fallback accuracy:', sessionAccuracy);
+        // Keep sessionAccuracy as the pre-calculated Flash average
+      }
 
       // Store session history to Firestore
       const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0; // Duration in seconds
@@ -4377,12 +4385,12 @@ const App = () => {
                     <div className="text-gray-400">›</div>
                   </button>
 
-                  {/* Quick Practice Section - Only show Aisha chat */}
+                  {/* Quick Practice Section - Show first 3 simulations */}
                   <div className="mb-4">
                     <div className="text-[10px] text-gray-400 uppercase font-bold mb-2 px-2">Quick Practice</div>
                     <div className="space-y-1">
-                      {/* Show only Aisha simulation (index 5) */}
-                      {SIMULATIONS.filter(sim => sim.id === 'sim_friend').map(sim => (
+                      {/* Show first 3 simulations for quick access */}
+                      {SIMULATIONS.slice(0, 3).map(sim => (
                         <button
                           key={sim.id}
                           onClick={() => { setShowMenu(false); startSimulation(sim); }}
