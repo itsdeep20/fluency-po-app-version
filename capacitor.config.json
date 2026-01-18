@@ -1,0 +1,20 @@
+{
+  "appId": "com.fluency.ai.pro",
+  "appName": "Fluency AI Pro",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "*.firebaseapp.com",
+      "*.googleapis.com",
+      "*.cloudfunctions.net",
+      "*.firebase.com",
+      "*.google.com"
+    ]
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
