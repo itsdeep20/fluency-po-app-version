@@ -5947,7 +5947,7 @@ const App = () => {
   if (view === 'simlab') return (
     <div className="min-h-screen bg-gray-100 font-sans md:py-8">
       <div className="max-w-2xl mx-auto bg-white shadow-xl md:rounded-3xl relative">
-        <header className="px-6 py-4 flex items-center gap-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+        <header className="px-6 py-4 flex items-center gap-4 border-b border-gray-100 sticky top-0 bg-white z-10 safe-area-top">
           <button onClick={() => setView('dashboard')} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
           <h1 className="text-xl font-black text-gray-900">Simulation Lab</h1>
         </header>
@@ -5987,8 +5987,8 @@ const App = () => {
   if (view === 'chat') return (
     <div className="h-screen bg-gray-100 font-sans flex flex-col">
       <div className="max-w-2xl w-full mx-auto bg-white flex-1 shadow-xl md:my-4 md:rounded-3xl md:max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
-        {/* Fixed Header */}
-        <header className="px-4 py-3 flex flex-col gap-2 border-b border-gray-100 bg-white shrink-0">
+        {/* Fixed Header - with safe area for mobile status bar */}
+        <header className="px-4 py-3 flex flex-col gap-2 border-b border-gray-100 bg-white shrink-0 safe-area-top">
           {/* Main Header Row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">

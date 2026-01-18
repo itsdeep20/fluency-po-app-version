@@ -27,16 +27,16 @@ body,
 /* Mobile Safe Areas for Capacitor/Android/iOS */
 /* Ensures content doesn't overlap with status bar or navigation bar */
 .safe-area-top {
-  padding-top: env(safe-area-inset-top, 24px);
+  padding-top: env(safe-area-inset-top, 40px);
 }
 
 .safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 16px);
+  padding-bottom: env(safe-area-inset-bottom, 32px);
 }
 
 .safe-area-all {
-  padding-top: env(safe-area-inset-top, 24px);
-  padding-bottom: env(safe-area-inset-bottom, 16px);
+  padding-top: env(safe-area-inset-top, 40px);
+  padding-bottom: env(safe-area-inset-bottom, 32px);
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
 }
@@ -46,8 +46,8 @@ body,
   min-height: 100vh;
   min-height: 100dvh;
   /* Dynamic viewport height for mobile */
-  padding-top: env(safe-area-inset-top, 24px);
-  padding-bottom: env(safe-area-inset-bottom, 16px);
+  padding-top: env(safe-area-inset-top, 40px);
+  padding-bottom: env(safe-area-inset-bottom, 32px);
 }
 
 /* Dark Mode Styles */
@@ -215,4 +215,40 @@ button {
 
 .blinking-alert {
   animation: blink-red 0.6s ease-in-out 2;
+}
+
+/* Mobile Performance Optimizations */
+/* GPU acceleration for smoother animations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* Reduce motion for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Smoother touch scrolling for mobile */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Prevent layout shifts during animations */
+.stable-layout {
+  contain: layout;
+}
+
+/* Optimize images and heavy elements */
+.optimize-render {
+  content-visibility: auto;
 }
