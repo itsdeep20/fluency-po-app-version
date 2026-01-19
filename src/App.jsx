@@ -2133,6 +2133,72 @@ const App = () => {
                   setDualAnalysis({ ...cachedAnalysis, analyzedBy: cachedAnalysis.analyzedBy || data.endedBy });
                   setBattleOpponentData(opponent);
                   setShowWinnerReveal(true);
+
+                  // FIX: User B also saves their session and updates stats
+                  const analyzedBy = cachedAnalysis?.analyzedBy || data.endedBy;
+                  const amIPlayer1 = analyzedBy === user.uid; // If I analyzed, I'm player1
+                  const myData = amIPlayer1 ? cachedAnalysis?.player1 : cachedAnalysis?.player2;
+                  const didIWin = amIPlayer1 ? (cachedAnalysis?.winner === 'player1') : (cachedAnalysis?.winner === 'player2');
+                  const myScore = myData?.total || 0;
+
+                  // Save session to Firestore for User B
+                  try {
+                    const battleChatHistory = capturedMessages
+                      .filter(m => m.sender === 'me' || m.sender === 'opponent')
+                      .map(m => ({ sender: m.sender, text: m.text, timestamp: m.createdAt || Date.now() }));
+                    const battleDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+
+                    const sessionsRef = collection(db, 'users', user.uid, 'sessions');
+                    await addDoc(sessionsRef, {
+                      type: '1v1',
+                      score: myScore,
+                      opponentId: opponent?.id,
+                      opponentName: opponent?.name || 'Opponent',
+                      opponentAvatar: opponent?.avatar || '👤',
+                      won: didIWin,
+                      corrections: battleCorrectionsRef.current,
+                      correctionsCount: battleCorrectionsRef.current.length,
+                      accuracy: myScore,
+                      messagesCount: myMessages.length,
+                      duration: battleDuration,
+                      startTime: serverTimestamp(),
+                      timestamp: serverTimestamp(),
+                      chatHistory: battleChatHistory
+                    });
+                    console.log('[OPPONENT_ENDED] Session saved for User B');
+
+                    // Update User B stats
+                    const totalSent = myMessages.length;
+                    if (totalSent >= 3) {
+                      const todayStr = getLocalDateStr();
+                      setStats(prev => {
+                        const lastDate = prev.lastPracticeDate;
+                        let newStreak = prev.streak || 0;
+                        if (lastDate !== todayStr) {
+                          const yesterday = new Date();
+                          yesterday.setDate(yesterday.getDate() - 1);
+                          const yesterdayStr = getLocalDateStr(yesterday);
+                          if (lastDate === yesterdayStr) newStreak += 1;
+                          else newStreak = 1;
+                        }
+                        const newTotalSessions = prev.sessions + 1;
+                        const newTotalPoints = prev.points + (myScore || 0);
+                        let newAvgScore;
+                        if (prev.sessions < 5) {
+                          newAvgScore = Math.round((prev.avgScore * prev.sessions + myScore) / newTotalSessions);
+                        } else {
+                          newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
+                        }
+                        const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
+                        const n = { ...prev, sessions: newTotalSessions, points: newTotalPoints, avgScore: newAvgScore, level: newLevel, streak: newStreak, lastPracticeDate: todayStr };
+                        setTimeout(() => saveUserData(n, null), 10);
+                        return n;
+                      });
+                      console.log('[OPPONENT_ENDED] Stats updated for User B');
+                    }
+                  } catch (saveErr) {
+                    console.error('[OPPONENT_ENDED] Failed to save session for User B:', saveErr);
+                  }
                 } else {
                   // Fallback: No cached analysis after 8 attempts (~10.5s), call analyze endpoint
                   console.log('[OPPONENT_ENDED] No cached analysis after retries, calling analyze endpoint');
@@ -2162,6 +2228,70 @@ const App = () => {
                     setDualAnalysis({ ...result, analyzedBy: user.uid });
                     setBattleOpponentData(opponent);
                     setShowWinnerReveal(true);
+
+                    // FIX: User B also saves their session and updates stats (fallback case)
+                    const amIPlayer1 = true; // I called analyze, so I'm player1
+                    const myData = result?.player1;
+                    const didIWin = result?.winner === 'player1';
+                    const myScore = myData?.total || 0;
+
+                    try {
+                      const battleChatHistory = capturedMessages
+                        .filter(m => m.sender === 'me' || m.sender === 'opponent')
+                        .map(m => ({ sender: m.sender, text: m.text, timestamp: m.createdAt || Date.now() }));
+                      const battleDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+
+                      const sessionsRef = collection(db, 'users', user.uid, 'sessions');
+                      await addDoc(sessionsRef, {
+                        type: '1v1',
+                        score: myScore,
+                        opponentId: opponent?.id,
+                        opponentName: opponent?.name || 'Opponent',
+                        opponentAvatar: opponent?.avatar || '👤',
+                        won: didIWin,
+                        corrections: battleCorrectionsRef.current,
+                        correctionsCount: battleCorrectionsRef.current.length,
+                        accuracy: myScore,
+                        messagesCount: myMessages.length,
+                        duration: battleDuration,
+                        startTime: serverTimestamp(),
+                        timestamp: serverTimestamp(),
+                        chatHistory: battleChatHistory
+                      });
+                      console.log('[OPPONENT_ENDED] Session saved for User B (fallback)');
+
+                      // Update User B stats
+                      const totalSent = myMessages.length;
+                      if (totalSent >= 3) {
+                        const todayStr = getLocalDateStr();
+                        setStats(prev => {
+                          const lastDate = prev.lastPracticeDate;
+                          let newStreak = prev.streak || 0;
+                          if (lastDate !== todayStr) {
+                            const yesterday = new Date();
+                            yesterday.setDate(yesterday.getDate() - 1);
+                            const yesterdayStr = getLocalDateStr(yesterday);
+                            if (lastDate === yesterdayStr) newStreak += 1;
+                            else newStreak = 1;
+                          }
+                          const newTotalSessions = prev.sessions + 1;
+                          const newTotalPoints = prev.points + (myScore || 0);
+                          let newAvgScore;
+                          if (prev.sessions < 5) {
+                            newAvgScore = Math.round((prev.avgScore * prev.sessions + myScore) / newTotalSessions);
+                          } else {
+                            newAvgScore = Math.round(((prev.avgScore || 0) * 9 + myScore) / 10);
+                          }
+                          const newLevel = newAvgScore >= 95 ? 'Master' : newAvgScore >= 85 ? 'Pro' : newAvgScore >= 70 ? 'Improver' : newAvgScore >= 50 ? 'Learner' : 'Starter';
+                          const n = { ...prev, sessions: newTotalSessions, points: newTotalPoints, avgScore: newAvgScore, level: newLevel, streak: newStreak, lastPracticeDate: todayStr };
+                          setTimeout(() => saveUserData(n, null), 10);
+                          return n;
+                        });
+                        console.log('[OPPONENT_ENDED] Stats updated for User B (fallback)');
+                      }
+                    } catch (saveErr) {
+                      console.error('[OPPONENT_ENDED] Failed to save session for User B (fallback):', saveErr);
+                    }
                   }
                 }
               } catch (e) {
