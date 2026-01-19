@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1012349805984",
+    "project_id": "project-fluency-ai-pro-d3189",
+    "storage_bucket": "project-fluency-ai-pro-d3189.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1012349805984:android:188d57668ad0fcd772b0c5",
+        "android_client_info": {
+          "package_name": "com.fluency.ai.pro"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1012349805984-adkthts5nn99vdre4ko6k914n35r3g0f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA5lb0vAg9tY4heYITqve7BkooYlOUdrzk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1012349805984-adkthts5nn99vdre4ko6k914n35r3g0f.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
