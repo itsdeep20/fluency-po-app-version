@@ -1022,7 +1022,15 @@ const App = () => {
             console.log('[PRESENCE] FILTER_STALE:', u.name, 'last seen', secondsAgo, 'seconds ago');
           }
           return isRecent;
-        });
+        })
+        // Sort: live users first, then busy users
+        .sort((a, b) => {
+          if (a.status === 'live' && b.status === 'busy') return -1;
+          if (a.status === 'busy' && b.status === 'live') return 1;
+          return 0;
+        })
+        // Limit to 50 users max
+        .slice(0, 50);
 
       console.log('[PRESENCE] Live/Busy users:', live.map(u => ({
         name: u.name,
@@ -6521,7 +6529,7 @@ const App = () => {
                 initial={{ x: -300, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -300, opacity: 0 }}
-                className="absolute left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-emerald-50 to-white border-r border-emerald-200 shadow-xl z-40 p-4"
+                className="absolute left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-emerald-50 to-white border-r border-emerald-200 shadow-xl z-40 p-4 pt-10 safe-area-top overflow-y-auto"
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
