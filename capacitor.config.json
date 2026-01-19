@@ -21,7 +21,7 @@
         "profile",
         "email"
       ],
-      "serverClientId": "YOUR_WEB_CLIENT_ID_FROM_FIREBASE",
+      "serverClientId": "1012349805984-adkthts5nn99vdre4ko6k914n35r3g0f.apps.googleusercontent.com",
       "forceCodeForRefreshToken": true
     }
   }
