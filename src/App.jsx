@@ -5977,119 +5977,132 @@ const App = () => {
         {/* Settings Modal */}
         <AnimatePresence>
           {showSettings && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-md p-6 relative my-auto max-h-[90vh] overflow-y-auto">
-                <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 z-10"><X size={24} /></button>
-
-                <h3 className="text-2xl font-black text-gray-900 mb-6 text-center">Settings</h3>
-
-                {/* Theme Toggle */}
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-3">
-                  <div>
-                    <div className="font-semibold text-gray-900">Dark Theme</div>
-                    <div className="text-xs text-gray-500">Switch to dark mode</div>
-                  </div>
-                  <button
-                    onClick={() => setIsDarkTheme(!isDarkTheme)}
-                    className={`w-14 h-8 rounded-full transition-colors relative ${isDarkTheme ? 'bg-emerald-500' : 'bg-gray-300'}`}
-                  >
-                    <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-transform ${isDarkTheme ? 'translate-x-7' : 'translate-x-1'}`} />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto safe-area-top">
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="bg-white rounded-3xl w-full max-w-md relative my-auto max-h-[85vh] overflow-hidden flex flex-col"
+              >
+                {/* Sticky Header */}
+                <div className="flex items-center justify-between p-4 border-b border-gray-100 shrink-0">
+                  <h3 className="text-xl font-black text-gray-900">⚙️ Settings</h3>
+                  <button onClick={() => setShowSettings(false)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors">
+                    <X size={20} />
                   </button>
                 </div>
 
-                {/* Mother Tongue */}
-                <div className="p-4 bg-gray-50 rounded-xl mb-3">
-                  <div className="font-semibold text-gray-900 mb-2">Mother Tongue</div>
-                  <select
-                    value={motherTongue}
-                    onChange={(e) => setMotherTongue(e.target.value)}
-                    className="w-full p-3 bg-white rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none"
-                  >
-                    <option value="Hindi">हिंदी (Hindi)</option>
-                    <option value="Punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
-                    <option value="Tamil">தமிழ் (Tamil)</option>
-                    <option value="Telugu">తెలుగు (Telugu)</option>
-                    <option value="Bengali">বাংলা (Bengali)</option>
-                    <option value="Marathi">मराठी (Marathi)</option>
-                    <option value="Gujarati">ગુજરાતી (Gujarati)</option>
-                    <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
-                    <option value="Malayalam">മലയാളം (Malayalam)</option>
-                    <option value="Odia">ଓଡ଼ିଆ (Odia)</option>
-                    <option value="Assamese">অসমীয়া (Assamese)</option>
-                  </select>
-                </div>
+                {/* Scrollable Content */}
+                <div className="p-4 overflow-y-auto flex-1 space-y-3">
 
-                {/* Session Timer */}
-                <div className="p-4 bg-gray-50 rounded-xl mb-3">
-                  <div className="font-semibold text-gray-900 mb-2">Session Timer</div>
-                  <div className="flex gap-2">
-                    {[3, 5, 7, 0].map(mins => (
-                      <button
-                        key={mins}
-                        onClick={() => setSessionDuration(mins)}
-                        className={`flex-1 py-2 rounded-xl font-bold transition-all ${sessionDuration === mins ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
-                      >
-                        {mins === 0 ? '∞' : `${mins} min`}
-                      </button>
-                    ))}
+                  {/* Theme Toggle */}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-3">
+                    <div>
+                      <div className="font-semibold text-gray-900">Dark Theme</div>
+                      <div className="text-xs text-gray-500">Switch to dark mode</div>
+                    </div>
+                    <button
+                      onClick={() => setIsDarkTheme(!isDarkTheme)}
+                      className={`w-14 h-8 rounded-full transition-colors relative ${isDarkTheme ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                    >
+                      <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-transform ${isDarkTheme ? 'translate-x-7' : 'translate-x-1'}`} />
+                    </button>
                   </div>
-                  <div className="text-xs text-gray-500 mt-2 text-center">
-                    {sessionDuration === 0 ? 'Session never ends automatically' : `Session auto-ends after ${sessionDuration} minutes`}
-                  </div>
-                </div>
 
-                {/* Difficulty Level */}
-                <div className="p-4 bg-gray-50 rounded-xl mb-3">
-                  <div className="font-semibold text-gray-900 mb-2">AI Difficulty</div>
-                  <div className="flex gap-2">
-                    {['Easy', 'Medium', 'Hard'].map(level => (
-                      <button
-                        key={level}
-                        onClick={() => setDifficultyLevel(level)}
-                        className={`flex-1 py-2 rounded-xl font-bold transition-all ${difficultyLevel === level ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
-                      >
-                        {level}
-                      </button>
-                    ))}
+                  {/* Mother Tongue */}
+                  <div className="p-4 bg-gray-50 rounded-xl mb-3">
+                    <div className="font-semibold text-gray-900 mb-2">Mother Tongue</div>
+                    <select
+                      value={motherTongue}
+                      onChange={(e) => setMotherTongue(e.target.value)}
+                      className="w-full p-3 bg-white rounded-xl border border-gray-200 focus:border-emerald-400 focus:outline-none"
+                    >
+                      <option value="Hindi">हिंदी (Hindi)</option>
+                      <option value="Punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
+                      <option value="Tamil">தமிழ் (Tamil)</option>
+                      <option value="Telugu">తెలుగు (Telugu)</option>
+                      <option value="Bengali">বাংলা (Bengali)</option>
+                      <option value="Marathi">मराठी (Marathi)</option>
+                      <option value="Gujarati">ગુજરાતી (Gujarati)</option>
+                      <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
+                      <option value="Malayalam">മലയാളം (Malayalam)</option>
+                      <option value="Odia">ଓଡ଼ିଆ (Odia)</option>
+                      <option value="Assamese">অসমীয়া (Assamese)</option>
+                    </select>
                   </div>
-                  <div className="text-xs text-gray-400 mt-2">
-                    {difficultyLevel === 'Easy' && '🌱 Simple vocabulary, slower responses'}
-                    {difficultyLevel === 'Medium' && '🎯 Balanced conversation, natural pace'}
-                    {difficultyLevel === 'Hard' && '🔥 Advanced vocabulary, challenging topics'}
-                  </div>
-                </div>
 
-                {/* Sound Effects */}
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-3">
-                  <div>
-                    <div className="font-semibold text-gray-900">Sound Effects</div>
-                    <div className="text-xs text-gray-500">Audio feedback during practice</div>
+                  {/* Session Timer */}
+                  <div className="p-4 bg-gray-50 rounded-xl mb-3">
+                    <div className="font-semibold text-gray-900 mb-2">Session Timer</div>
+                    <div className="flex gap-2">
+                      {[3, 5, 7, 0].map(mins => (
+                        <button
+                          key={mins}
+                          onClick={() => setSessionDuration(mins)}
+                          className={`flex-1 py-2 rounded-xl font-bold transition-all ${sessionDuration === mins ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
+                        >
+                          {mins === 0 ? '∞' : `${mins} min`}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2 text-center">
+                      {sessionDuration === 0 ? 'Session never ends automatically' : `Session auto-ends after ${sessionDuration} minutes`}
+                    </div>
                   </div>
-                  <button
-                    onClick={() => setSoundEnabled(!soundEnabled)}
-                    className={`w-14 h-8 rounded-full transition-colors relative ${soundEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
-                  >
-                    <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-transform ${soundEnabled ? 'translate-x-7' : 'translate-x-1'}`} />
-                  </button>
-                </div>
 
-                {/* Daily Reminders - Coming Soon */}
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-6">
-                  <div>
-                    <div className="font-semibold text-gray-900">Daily Reminders</div>
-                    <div className="text-xs text-gray-500">Get notified to practice</div>
+                  {/* Difficulty Level */}
+                  <div className="p-4 bg-gray-50 rounded-xl mb-3">
+                    <div className="font-semibold text-gray-900 mb-2">AI Difficulty</div>
+                    <div className="flex gap-2">
+                      {['Easy', 'Medium', 'Hard'].map(level => (
+                        <button
+                          key={level}
+                          onClick={() => setDifficultyLevel(level)}
+                          className={`flex-1 py-2 rounded-xl font-bold transition-all ${difficultyLevel === level ? 'bg-emerald-500 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}`}
+                        >
+                          {level}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-2">
+                      {difficultyLevel === 'Easy' && '🌱 Simple vocabulary, slower responses'}
+                      {difficultyLevel === 'Medium' && '🎯 Balanced conversation, natural pace'}
+                      {difficultyLevel === 'Hard' && '🔥 Advanced vocabulary, challenging topics'}
+                    </div>
                   </div>
-                  <button
-                    className="w-14 h-8 rounded-full bg-gray-300 relative cursor-not-allowed opacity-50"
-                    title="Coming soon"
-                  >
-                    <div className="w-6 h-6 bg-white rounded-full absolute top-1 translate-x-1" />
-                  </button>
-                </div>
 
-                <p className="text-xs text-gray-400 text-center">
-                  Made with ❤️ in India 🇮🇳
-                </p>
+                  {/* Sound Effects */}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-3">
+                    <div>
+                      <div className="font-semibold text-gray-900">Sound Effects</div>
+                      <div className="text-xs text-gray-500">Audio feedback during practice</div>
+                    </div>
+                    <button
+                      onClick={() => setSoundEnabled(!soundEnabled)}
+                      className={`w-14 h-8 rounded-full transition-colors relative ${soundEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                    >
+                      <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-transform ${soundEnabled ? 'translate-x-7' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  {/* Daily Reminders - Coming Soon */}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-6">
+                    <div>
+                      <div className="font-semibold text-gray-900">Daily Reminders</div>
+                      <div className="text-xs text-gray-500">Get notified to practice</div>
+                    </div>
+                    <button
+                      className="w-14 h-8 rounded-full bg-gray-300 relative cursor-not-allowed opacity-50"
+                      title="Coming soon"
+                    >
+                      <div className="w-6 h-6 bg-white rounded-full absolute top-1 translate-x-1" />
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-gray-400 text-center mt-4">
+                    Made with ❤️ in India 🇮🇳
+                  </p>
+                </div>
               </motion.div>
             </motion.div>
           )}
