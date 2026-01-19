@@ -898,117 +898,167 @@ const App = () => {
     }
   }, [view, user]);
 
-  // Presence Tracking System with Tab Visibility Detection
+  // ===== HYBRID PRESENCE SYSTEM =====
+  // Primary: Event-based (instant status updates)
+  // Secondary: 60s heartbeat backup (catches crashes)
+  const PRESENCE_CONFIG = {
+    HEARTBEAT_INTERVAL: 60000,    // 60 seconds (6x reduction from 10s)
+    STALE_THRESHOLD: 150000,      // 2.5 minutes
+    STATUS: { LIVE: 'live', BUSY: 'busy', OFFLINE: 'offline' }
+  };
+
+  // Helper to update presence status
+  const updatePresenceStatus = useCallback(async (status, activity = null) => {
+    if (!user || !db) return;
+
+    const presenceDocRef = doc(db, 'presence', user.uid);
+    const presenceData = {
+      name: user.displayName || 'Player',
+      avatar: userAvatar,
+      level: getLevelFromAccuracy(stats.avgScore || 0).name,
+      status: status,
+      lastSeen: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    if (activity) presenceData.activity = activity;
+
+    console.log('[PRESENCE] SET:', status, activity || '', user.uid);
+
+    try {
+      await setDoc(presenceDocRef, presenceData, { merge: true });
+    } catch (e) {
+      console.error('[PRESENCE] Update error:', e);
+    }
+  }, [user, db, userAvatar, stats.avgScore]);
+
+  // Presence Tracking with Hybrid Approach
   useEffect(() => {
     if (!user || !db) return;
 
-    // Only track presence when on dashboard (not in session)
-    if (view === 'dashboard') {
-      const presenceDocRef = doc(db, 'presence', user.uid);
+    const presenceDocRef = doc(db, 'presence', user.uid);
+    const { HEARTBEAT_INTERVAL, STALE_THRESHOLD, STATUS } = PRESENCE_CONFIG;
 
-      // Function to update presence based on visibility
-      const updatePresence = (isVisible) => {
-        console.log('[PRESENCE] Tab visibility changed. Visible:', isVisible);
+    // Determine status based on current view
+    const getStatusForView = (currentView) => {
+      if (currentView === 'dashboard') return STATUS.LIVE;
+      if (['session', 'friendSession', 'randomSession', 'simSession'].includes(currentView)) return STATUS.BUSY;
+      return STATUS.OFFLINE;
+    };
+
+    const currentStatus = getStatusForView(view);
+    const currentActivity = view === 'dashboard' ? 'dashboard' :
+      view.includes('Session') ? 'battle' : view;
+
+    // Function to update presence based on visibility
+    const updatePresence = (isVisible) => {
+      if (!isVisible) {
+        console.log('[PRESENCE] Tab hidden - marking offline');
         setDoc(presenceDocRef, {
-          name: user.displayName || 'Player',
-          avatar: userAvatar,
-          level: getLevelFromAccuracy(stats.avgScore || 0).name,
-          lastSeen: serverTimestamp(),
-          isOnline: isVisible, // Only online if tab is visible
-          view: 'dashboard'
-        }, { merge: true }).catch(e => console.error('Presence set error:', e));
-      };
+          status: STATUS.OFFLINE,
+          lastSeen: serverTimestamp()
+        }, { merge: true }).catch(e => console.error('[PRESENCE] Visibility error:', e));
+      } else if (view === 'dashboard') {
+        console.log('[PRESENCE] Tab visible on dashboard - marking live');
+        updatePresenceStatus(STATUS.LIVE, 'dashboard');
+      } else {
+        console.log('[PRESENCE] Tab visible in session - marking busy');
+        updatePresenceStatus(STATUS.BUSY, currentActivity);
+      }
+    };
 
-      // Initial set - only online if tab is visible
-      const isTabVisible = document.visibilityState === 'visible';
-      console.log('[PRESENCE] Initial tab visibility:', isTabVisible);
-      updatePresence(isTabVisible);
+    // Initial presence set based on view
+    console.log('[PRESENCE] View changed to:', view, '| Status:', currentStatus);
+    updatePresenceStatus(currentStatus, currentActivity);
 
-      // Listen for visibility changes (tab switching, minimize, etc.)
-      const handleVisibilityChange = () => {
-        const isVisible = document.visibilityState === 'visible';
-        updatePresence(isVisible);
-      };
-      document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Listen for visibility changes (tab switching, minimize, etc.)
+    const handleVisibilityChange = () => {
+      const isVisible = document.visibilityState === 'visible';
+      updatePresence(isVisible);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
-      // Also handle window focus/blur for more accuracy
-      const handleFocus = () => {
-        console.log('[PRESENCE] Window focused');
-        updatePresence(true);
-      };
-      const handleBlur = () => {
-        console.log('[PRESENCE] Window blurred');
-        updatePresence(false);
-      };
-      window.addEventListener('focus', handleFocus);
-      window.addEventListener('blur', handleBlur);
+    // Window focus/blur for more accuracy
+    const handleFocus = () => {
+      console.log('[PRESENCE] Window focused');
+      if (document.visibilityState === 'visible') {
+        updatePresenceStatus(currentStatus, currentActivity);
+      }
+    };
+    const handleBlur = () => {
+      console.log('[PRESENCE] Window blurred');
+      // Don't immediately go offline on blur - wait for visibility change
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
 
-      // Heartbeat every 10 seconds (only if tab is visible)
-      heartbeatRef.current = setInterval(() => {
-        if (document.visibilityState === 'visible') {
-          setDoc(presenceDocRef, { lastSeen: serverTimestamp(), isOnline: true }, { merge: true })
-            .catch(e => console.error('Heartbeat error:', e));
-        }
-      }, 10000);
+    // HYBRID: 60-second heartbeat backup (only updates lastSeen)
+    heartbeatRef.current = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        console.log('[PRESENCE] HEARTBEAT:', user.uid);
+        setDoc(presenceDocRef, { lastSeen: serverTimestamp() }, { merge: true })
+          .catch(e => console.error('[PRESENCE] Heartbeat error:', e));
+      }
+    }, HEARTBEAT_INTERVAL);
 
-      // Listen for all live users (excluding self)
-      const liveQuery = query(
-        collection(db, 'presence'),
-        where('isOnline', '==', true)
-      );
-      presenceListenerRef.current = onSnapshot(liveQuery, (snap) => {
-        const now = Date.now();
-        const staleThreshold = 2 * 60 * 1000; // 2 minutes in milliseconds
+    // Listen for all non-offline users (live or busy)
+    const liveQuery = query(
+      collection(db, 'presence'),
+      where('status', 'in', [STATUS.LIVE, STATUS.BUSY])
+    );
+    presenceListenerRef.current = onSnapshot(liveQuery, (snap) => {
+      const now = Date.now();
 
-        const live = snap.docs
-          .filter(d => d.id !== user.uid)
-          .map(d => ({ id: d.id, ...d.data() }))
-          // Filter out stale users (lastSeen more than 2 minutes ago)
-          .filter(u => {
-            if (!u.lastSeen) return false; // No lastSeen means stale
-            const lastSeenMs = u.lastSeen.toMillis ? u.lastSeen.toMillis() : u.lastSeen;
-            const isRecent = (now - lastSeenMs) < staleThreshold;
-            if (!isRecent) {
-              console.log('[PRESENCE] Filtering out stale user:', u.name, 'Last seen:', Math.round((now - lastSeenMs) / 1000), 'seconds ago');
-            }
-            return isRecent;
-          });
-        console.log('[PRESENCE] My UID:', user.uid, '| Live users:', live.map(u => ({ name: u.name, id: u.id })));
-        setLiveUsers(live);
-      }, e => console.error('Live users listener error:', e));
+      const live = snap.docs
+        .filter(d => d.id !== user.uid)
+        .map(d => ({ id: d.id, ...d.data() }))
+        // Filter out stale users (lastSeen more than 2.5 minutes ago)
+        .filter(u => {
+          if (!u.lastSeen) return false;
+          const lastSeenMs = u.lastSeen.toMillis ? u.lastSeen.toMillis() : u.lastSeen;
+          const secondsAgo = Math.round((now - lastSeenMs) / 1000);
+          const isRecent = (now - lastSeenMs) < STALE_THRESHOLD;
+          if (!isRecent) {
+            console.log('[PRESENCE] FILTER_STALE:', u.name, 'last seen', secondsAgo, 'seconds ago');
+          }
+          return isRecent;
+        });
 
-      // Cleanup
-      return () => {
-        if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-        if (presenceListenerRef.current) presenceListenerRef.current();
+      console.log('[PRESENCE] Live/Busy users:', live.map(u => ({
+        name: u.name,
+        status: u.status || 'unknown',
+        id: u.id.substring(0, 6) + '...'
+      })));
+      setLiveUsers(live);
+    }, e => console.error('[PRESENCE] Listener error:', e));
 
-        // Remove visibility event listeners
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-        window.removeEventListener('focus', handleFocus);
-        window.removeEventListener('blur', handleBlur);
+    // Cleanup
+    return () => {
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+      if (presenceListenerRef.current) presenceListenerRef.current();
 
-        // Cancel pending invitation if we leave dashboard
-        if (sentInviteTargetRef.current) {
-          const targetId = sentInviteTargetRef.current.id;
-          console.log('[CLEANUP] Cancelling invitation to:', targetId);
-          // Set cancelled status so they know we left
-          const invRef = doc(db, 'invitations', targetId);
-          setDoc(invRef, { status: 'cancelled' }, { merge: true }).catch(e => console.error('Cancel error:', e));
-          // Delete after short delay (fire and forget)
-          setTimeout(() => deleteDoc(invRef).catch(e => console.error('Delete error:', e)), 500);
-        }
+      // Remove visibility event listeners
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
 
-        // Set offline when leaving dashboard
-        setDoc(presenceDocRef, { isOnline: false, lastSeen: serverTimestamp() }, { merge: true })
-          .catch(e => console.error('Presence cleanup error:', e));
-      };
-    } else {
-      // Set away status when not on dashboard
-      const presenceDocRef = doc(db, 'presence', user.uid);
-      setDoc(presenceDocRef, { isOnline: false, view: view }, { merge: true })
-        .catch(e => console.error('Away status error:', e));
-    }
-  }, [view, user, userAvatar, stats.level]);
+      // Cancel pending invitation if we leave dashboard
+      if (sentInviteTargetRef.current) {
+        const targetId = sentInviteTargetRef.current.id;
+        console.log('[PRESENCE] Cancelling invitation to:', targetId);
+        const invRef = doc(db, 'invitations', targetId);
+        setDoc(invRef, { status: 'cancelled' }, { merge: true }).catch(e => console.error('[PRESENCE] Cancel error:', e));
+        setTimeout(() => deleteDoc(invRef).catch(e => console.error('[PRESENCE] Delete error:', e)), 500);
+      }
+
+      // Set offline when component unmounts
+      console.log('[PRESENCE] Cleanup - marking offline');
+      setDoc(presenceDocRef, {
+        status: STATUS.OFFLINE,
+        lastSeen: serverTimestamp()
+      }, { merge: true }).catch(e => console.error('[PRESENCE] Cleanup error:', e));
+    };
+  }, [view, user, userAvatar, stats.avgScore, updatePresenceStatus]);
 
   // DEDICATED Invitation Listener (Split from Presence to be more stable)
   useEffect(() => {
@@ -4272,12 +4322,20 @@ const App = () => {
                       onClick={() => requestBattle(liveUser)}
                       className="flex-shrink-0 w-20 bg-white rounded-2xl p-3 text-center border border-gray-100 shadow-sm hover:shadow-lg hover:border-emerald-300 transition-all group relative"
                     >
-                      {/* Live Indicator - Blinking */}
+                      {/* Status Indicator - Green=Live, Yellow=Busy */}
                       <div className="absolute top-2 right-2">
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-                        </span>
+                        {liveUser.status === 'busy' ? (
+                          // Busy - Yellow static dot
+                          <span className="relative flex h-2.5 w-2.5" title="In battle/chat">
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400"></span>
+                          </span>
+                        ) : (
+                          // Live - Green pulsing dot
+                          <span className="relative flex h-2.5 w-2.5" title="Available">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                          </span>
+                        )}
                       </div>
 
                       {/* Avatar */}
@@ -4286,8 +4344,10 @@ const App = () => {
                       {/* Name */}
                       <div className="font-bold text-gray-800 text-xs truncate">{liveUser.name}</div>
 
-                      {/* Level */}
-                      <div className="text-[9px] text-emerald-600 font-semibold uppercase">{liveUser.level}</div>
+                      {/* Level + Status */}
+                      <div className="text-[9px] font-semibold uppercase" style={{ color: liveUser.status === 'busy' ? '#d97706' : '#059669' }}>
+                        {liveUser.status === 'busy' ? '🟡 Busy' : liveUser.level}
+                      </div>
                     </motion.button>
                   ))}
                 </div>
