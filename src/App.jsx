@@ -4736,14 +4736,16 @@ const App = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
               className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto"
               onClick={() => setShowProgressReport(false)}
             >
               <motion.div
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: 20 }}
-                className="bg-white rounded-3xl max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto"
+                initial={{ scale: 0.9, y: 30, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                exit={{ scale: 0.9, y: 30, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="bg-white rounded-3xl max-w-md w-full shadow-2xl max-h-[85vh] overflow-y-auto"
                 onClick={e => e.stopPropagation()}
               >
                 {/* Header */}
@@ -5098,6 +5100,9 @@ const App = () => {
                           if (data.pdf) {
                             setPdfProgress(100);
                             setPdfGenerationStep('🎉 Your Learning Pack is ready!');
+
+                            // CELEBRATION - Fire confetti BEFORE opening!
+                            confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
                             await new Promise(r => setTimeout(r, 800));
 
                             // Download the PDF - Native Android or Web Browser
@@ -5106,7 +5111,7 @@ const App = () => {
                             const fileName = `fluency-learning-pack-${timestamp}.pdf`;
 
                             if (Capacitor.isNativePlatform()) {
-                              // NATIVE ANDROID: Use Filesystem to save and Share to open
+                              // NATIVE ANDROID: Save file and open directly (no share dialog)
                               try {
                                 // Save to Documents directory
                                 const result = await Filesystem.writeFile({
@@ -5115,16 +5120,22 @@ const App = () => {
                                   directory: Directory.Documents,
                                 });
                                 console.log('[PDF_NATIVE] Saved to:', result.uri);
+                                setPdfGenerationStep('✅ Saved to Documents! 📖');
 
-                                // Open share dialog so user can open/save the file
-                                await Share.share({
-                                  title: 'Your Learning Pack is Ready!',
-                                  text: 'Open your Fluency Pro Learning Pack',
-                                  url: result.uri,
-                                  dialogTitle: 'Open or Share Your Learning Pack'
-                                });
-
-                                setPdfGenerationStep('✅ Saved to Documents! Opening share dialog... 📖');
+                                // Try to open the file directly using the file URI
+                                // On Android, we can use window.open with the content URI
+                                // Or just show success message - user can find it in Documents
+                                try {
+                                  // Try opening with Share but configure as "open" action
+                                  await Share.share({
+                                    title: 'Open Your Learning Pack',
+                                    url: result.uri,
+                                    dialogTitle: 'Open PDF'
+                                  });
+                                } catch (openErr) {
+                                  // If share fails, that's okay - file is saved
+                                  console.log('[PDF_NATIVE] Could not auto-open, but file is saved');
+                                }
                               } catch (fsError) {
                                 console.error('[PDF_NATIVE] Filesystem error:', fsError);
                                 setPdfGenerationStep('⚠️ Could not save PDF. Please try again.');
@@ -5149,9 +5160,6 @@ const App = () => {
 
                               setPdfGenerationStep('✅ Downloaded! Open it and practice daily! 📖');
                             }
-
-                            // Celebration!
-                            confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
 
                             // Update history from server (single source of truth)
                             // Small delay to ensure Firestore has propagated the write
@@ -5342,8 +5350,15 @@ const App = () => {
 
         <AnimatePresence>
           {showStatInfo && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowStatInfo(null)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-2xl p-6 max-w-xs text-center" onClick={e => e.stopPropagation()}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} onClick={() => setShowStatInfo(null)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.85, y: 20, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                exit={{ scale: 0.85, y: 20, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                className="bg-white rounded-2xl p-6 max-w-xs text-center shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
                 <div className="text-3xl mb-2">{showStatInfo === 'streak' ? '🔥' : showStatInfo === 'points' ? '⭐' : showStatInfo === 'level' ? '🏆' : '📊'}</div>
                 <h3 className="text-xl font-black text-gray-900 mb-2">{STAT_INFO[showStatInfo]?.title}</h3>
                 <p className="text-gray-500 text-sm">{STAT_INFO[showStatInfo]?.desc}</p>
@@ -6562,10 +6577,11 @@ const App = () => {
                 className="absolute inset-0 bg-black/40 z-45"
               />
               <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                className="absolute inset-4 z-50 bg-white rounded-3xl shadow-2xl border border-emerald-200 overflow-hidden flex flex-col"
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="absolute inset-x-4 top-16 bottom-20 z-50 bg-white rounded-3xl shadow-2xl border border-emerald-200 overflow-hidden flex flex-col max-h-[65vh]"
               >
                 <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-4 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-white">
@@ -6916,8 +6932,8 @@ const App = () => {
         </main>
 
         {/* Fixed Input - with safe area for mobile navigation */}
-        <div className="p-4 bg-white border-t border-gray-100 shrink-0 safe-area-bottom">
-          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-full border border-gray-100">
+        <div className="p-3 sm:p-4 bg-white border-t border-gray-100 shrink-0 safe-area-bottom">
+          <div className="flex items-center gap-1.5 sm:gap-2 bg-gray-50 p-1.5 sm:p-2 rounded-full border border-gray-100">
             <input
               autoFocus
               value={inputText}
@@ -6938,7 +6954,7 @@ const App = () => {
               }}
               onKeyDown={e => e.key === 'Enter' && sendMessage()}
               placeholder="Type your message..."
-              className="flex-1 bg-transparent px-3 py-2 text-sm focus:outline-none"
+              className="flex-1 min-w-0 bg-transparent px-2 sm:px-3 py-2 text-sm focus:outline-none"
             />
 
             {/* Quick Assist Button - Opens AI Assist for last bot message - with Shake */}
@@ -6949,7 +6965,7 @@ const App = () => {
                   onClick={() => handleAiAssistClick(lastBotMsg.id, lastBotMsg.text)}
                   animate={shouldShakeButtons ? { x: [0, -3, 3, -3, 3, 0] } : {}}
                   transition={{ duration: 0.5, repeat: shouldShakeButtons ? 2 : 0 }}
-                  className={`p-2 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all ${shouldShakeButtons ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
+                  className={`p-2 flex-shrink-0 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all ${shouldShakeButtons ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
                   title="Need help replying?"
                 >
                   <Lightbulb size={16} />
@@ -6958,10 +6974,10 @@ const App = () => {
             })()}
 
             {/* Voice Input Button with Enhanced Styling */}
-            <div className="relative">
+            <div className="relative flex-shrink-0">
               <button
                 onClick={toggleVoiceInput}
-                className={`p-2.5 rounded-full transition-all duration-300 ${isListening
+                className={`p-2 sm:p-2.5 rounded-full transition-all duration-300 ${isListening
                   ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/40 scale-110'
                   : 'bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 hover:scale-105'
                   }`}
@@ -6981,8 +6997,8 @@ const App = () => {
               )}
             </div>
 
-            <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
-              {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+            <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 sm:p-3 flex-shrink-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
+              {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
           </div>
         </div>

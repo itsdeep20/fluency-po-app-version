@@ -252,3 +252,94 @@ button {
 .optimize-render {
   content-visibility: auto;
 }
+
+/* ===== RESPONSIVE LAYOUT FIXES ===== */
+
+/* Constrain popups to not overflow viewport */
+.popup-container {
+  max-height: 70vh;
+  max-height: 70dvh;
+  overflow-y: auto;
+}
+
+/* Ensure popups respect safe areas */
+.popup-safe-area {
+  margin-top: env(safe-area-inset-top, 24px);
+  margin-bottom: env(safe-area-inset-bottom, 24px);
+  max-height: calc(100vh - env(safe-area-inset-top, 24px) - env(safe-area-inset-bottom, 24px) - 48px);
+  max-height: calc(100dvh - env(safe-area-inset-top, 24px) - env(safe-area-inset-bottom, 24px) - 48px);
+}
+
+/* Small screen adjustments (phones under 380px width) */
+@media (max-width: 380px) {
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 40px);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 32px);
+  }
+
+  /* Smaller chat input padding */
+  .chat-input-container {
+    padding: 8px 12px !important;
+    gap: 6px !important;
+  }
+
+  /* Smaller send button on tiny screens */
+  .send-button-responsive {
+    min-width: 40px !important;
+    padding: 8px !important;
+  }
+
+  /* Compact dashboard on small screens */
+  .dashboard-compact {
+    padding: 12px !important;
+  }
+
+  /* Smaller live users section */
+  .live-users-compact {
+    max-height: 120px;
+    overflow-y: auto;
+  }
+}
+
+/* Large screen adjustments (tablets, big phones) */
+@media (min-width: 600px) {
+  .popup-container {
+    max-height: 60vh;
+    max-width: 90vw;
+  }
+}
+
+/* Smooth popup animations */
+.popup-smooth-enter {
+  animation: popup-enter 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes popup-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Fix for chat input button not being cut off */
+.chat-input-safe {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: max(12px, env(safe-area-inset-right, 12px));
+  padding-left: max(12px, env(safe-area-inset-left, 12px));
+}
+
+/* Ensure buttons stay fully visible */
+.button-no-overflow {
+  flex-shrink: 0;
+  min-width: 44px;
+}
