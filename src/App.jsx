@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import {
-  getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence
+  getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence, signInWithCredential
 } from 'firebase/auth';
 import {
   initializeFirestore, collection, query, getDoc, setDoc, addDoc, onSnapshot,
@@ -24,6 +24,7 @@ import ScoringGuide from './ScoringGuide';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 
 // ===== PROFESSIONAL SOUND UTILITIES =====
 const createAudioContext = () => {
@@ -1274,7 +1275,43 @@ const App = () => {
     const d = date.getDate().toString().padStart(2, '0');
     return `${y}-${m}-${d}`;
   };
-  const handleLogin = async (p) => { try { if (p === 'google') await signInWithPopup(auth, new GoogleAuthProvider()); else await signInAnonymously(auth); } catch (e) { } };
+  const handleLogin = async (p) => {
+    try {
+      if (p === 'google') {
+        if (Capacitor.isNativePlatform()) {
+          // Native Android: Use GoogleAuth plugin for native sign-in
+          try {
+            // Initialize GoogleAuth (only needed once, but safe to call multiple times)
+            await GoogleAuth.initialize({
+              clientId: import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || '',
+              scopes: ['profile', 'email'],
+            });
+
+            // Sign in with native Google
+            const googleUser = await GoogleAuth.signIn();
+            console.log('[GOOGLE_AUTH] Native sign-in success:', googleUser.email);
+
+            // Create Firebase credential from Google ID token
+            const credential = GoogleAuthProvider.credential(googleUser.authentication.idToken);
+
+            // Sign in to Firebase with the credential
+            await signInWithCredential(auth, credential);
+          } catch (nativeErr) {
+            console.error('[GOOGLE_AUTH] Native sign-in error:', nativeErr);
+            // Fallback to web popup if native fails
+            await signInWithPopup(auth, new GoogleAuthProvider());
+          }
+        } else {
+          // Web: Use popup sign-in
+          await signInWithPopup(auth, new GoogleAuthProvider());
+        }
+      } else {
+        await signInAnonymously(auth);
+      }
+    } catch (e) {
+      console.error('[LOGIN_ERROR]', e);
+    }
+  };
 
   const saveUserData = async (newStats, newAvatar) => {
     if (!user) return;

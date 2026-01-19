@@ -15,6 +15,14 @@
   "plugins": {
     "CapacitorHttp": {
       "enabled": false
+    },
+    "GoogleAuth": {
+      "scopes": [
+        "profile",
+        "email"
+      ],
+      "serverClientId": "YOUR_WEB_CLIENT_ID_FROM_FIREBASE",
+      "forceCodeForRefreshToken": true
     }
   }
 }
