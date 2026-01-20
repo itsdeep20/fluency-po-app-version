@@ -24,6 +24,7 @@ import ScoringGuide from './ScoringGuide';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 
 // ===== PROFESSIONAL SOUND UTILITIES =====
@@ -473,7 +474,7 @@ const App = () => {
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [isAiAssistOn, setIsAiAssistOn] = useState(true); // ON by default
   const [isTranslationOn, setIsTranslationOn] = useState(true); // ON by default
-  const [isBattleTipsOn, setIsBattleTipsOn] = useState(false); // OFF by default - Battle Tips
+  const [isBattleTipsOn, setIsBattleTipsOn] = useState(true); // ON by default - Battle Tips
   const isBattleTipsOnRef = useRef(isBattleTipsOn); // Ref for stale closure prevention
   useEffect(() => { isBattleTipsOnRef.current = isBattleTipsOn; }, [isBattleTipsOn]);
 
@@ -852,7 +853,7 @@ const App = () => {
 
     // 2. Recent Sessions Listener
     const sessionsRef = collection(db, 'users', user.uid, 'sessions');
-    const sessionsQuery = query(sessionsRef, orderBy('timestamp', 'desc'), limit(5));
+    const sessionsQuery = query(sessionsRef, orderBy('timestamp', 'desc'), limit(15));
 
     const unsubSessions = onSnapshot(sessionsQuery, (snap) => {
       const recentSessions = snap.docs.map(docSnap => {
@@ -942,7 +943,8 @@ const App = () => {
     // Determine status based on current view
     const getStatusForView = (currentView) => {
       if (currentView === 'dashboard') return STATUS.LIVE;
-      if (['session', 'friendSession', 'randomSession', 'simSession'].includes(currentView)) return STATUS.BUSY;
+      // All these views mean user is busy (in battle, chat, simulation, etc.)
+      if (['session', 'friendSession', 'randomSession', 'simSession', 'chat', 'simulations', 'analyzing', 'ending'].includes(currentView)) return STATUS.BUSY;
       return STATUS.OFFLINE;
     };
 
@@ -991,6 +993,26 @@ const App = () => {
     };
     window.addEventListener('focus', handleFocus);
     window.addEventListener('blur', handleBlur);
+
+    // ANDROID: Listen for app state changes (screen on/off, app to background)
+    let appStateListener = null;
+    if (Capacitor.isNativePlatform()) {
+      CapacitorApp.addListener('appStateChange', (state) => {
+        console.log('[PRESENCE] App state changed:', state.isActive ? 'ACTIVE' : 'BACKGROUND');
+        if (state.isActive) {
+          // App came to foreground - restore current status
+          updatePresenceStatus(currentStatus, currentActivity);
+        } else {
+          // App went to background (screen off, home button, etc.) - mark offline
+          setDoc(presenceDocRef, {
+            status: STATUS.OFFLINE,
+            lastSeen: serverTimestamp()
+          }, { merge: true }).catch(e => console.error('[PRESENCE] App background error:', e));
+        }
+      }).then(listener => {
+        appStateListener = listener;
+      });
+    }
 
     // HYBRID: 60-second heartbeat backup (only updates lastSeen)
     heartbeatRef.current = setInterval(() => {
@@ -1049,6 +1071,11 @@ const App = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('blur', handleBlur);
+
+      // Remove Capacitor app state listener
+      if (appStateListener) {
+        appStateListener.remove();
+      }
 
       // Cancel pending invitation if we leave dashboard
       if (sentInviteTargetRef.current) {
