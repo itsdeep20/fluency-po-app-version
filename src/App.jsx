@@ -2779,16 +2779,19 @@ const App = () => {
     if (!activeSession || isEndingRef.current) return;
     isEndingRef.current = true;
 
-    // IMMEDIATE: Show ending animation right away to avoid freeze
-    const isCompetitive = activeSession?.type !== 'bot';
+    // IMMEDIATE: Set isEnding to show loading overlay and prevent UI flicker
+    setIsEnding(true);
+
     // Bug 6 Fix: Use REFS for capturing to avoid stale closure issues in auto-end
+    const isCompetitive = activeSession?.type !== 'bot';
     const capturedMessages = [...messagesRef.current];
     const capturedSession = { ...activeSession }; // Capture session info
     const capturedBattleAccuracies = [...battleAccuraciesRef.current];
     console.log('[BUG6 FIX] Captured latest data from refs:', { msgCount: capturedMessages.length, accCount: capturedBattleAccuracies.length });
 
     // Show ending view for Simulation only (Bug 4 fix: skip for Battle to avoid animation flash)
-    // UPDATE: For simulation, show 'analyzing' IMMEDIATELY and start API call right away
+    // For simulation, show 'analyzing' IMMEDIATELY and start API call right away
+    // For battles, the isEnding loading overlay is already showing
     if (!isCompetitive) {
       setView('analyzing'); // Skip 'ending', go straight to 'analyzing' for faster UX
     }
@@ -6832,13 +6835,28 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        {/* Settings Toggle Button - Left Edge */}
-        <button
-          onClick={() => setShowChatSettings(!showChatSettings)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-r-xl p-2 shadow-lg hover:shadow-xl transition-all hover:scale-105"
-        >
-          <Settings size={14} className={`transition-transform ${showChatSettings ? 'rotate-90' : ''} text-white`} />
-        </button>
+        {/* Floating Controls - Left Edge Stack */}
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-1">
+          {/* Speaker Toggle - Floating above settings */}
+          <button
+            onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+            className={`rounded-r-lg p-1.5 shadow-md transition-all hover:scale-110 ${isSpeakerOn
+              ? 'bg-white/90 backdrop-blur-sm text-gray-600 border border-gray-200'
+              : 'bg-gray-200/80 text-gray-400'
+              }`}
+            title={isSpeakerOn ? 'Sound ON' : 'Sound OFF'}
+          >
+            {isSpeakerOn ? <Volume2 size={12} /> : <VolumeX size={12} />}
+          </button>
+
+          {/* Settings Toggle Button */}
+          <button
+            onClick={() => setShowChatSettings(!showChatSettings)}
+            className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-r-xl p-2 shadow-lg hover:shadow-xl transition-all hover:scale-105"
+          >
+            <Settings size={14} className={`transition-transform ${showChatSettings ? 'rotate-90' : ''} text-white`} />
+          </button>
+        </div>
 
         {/* AI Assist Popup */}
         <AnimatePresence>
@@ -7209,89 +7227,74 @@ const App = () => {
 
         {/* Fixed Input - with safe area for mobile navigation */}
         <div className="p-3 sm:p-4 bg-white border-t border-gray-100 shrink-0 safe-area-bottom">
-          {/* Input Bar with Speaker Toggle */}
-          <div className="flex items-center gap-2">
-            {/* Speaker Toggle - Modern Glass Style */}
-            <button
-              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-              className={`p-2.5 rounded-full transition-all duration-300 backdrop-blur-sm border ${isSpeakerOn
-                ? 'bg-white/80 border-gray-200 text-gray-600 shadow-sm'
-                : 'bg-gray-100/80 border-gray-200 text-gray-400'
-                } hover:scale-105 active:scale-95`}
-              title={isSpeakerOn ? 'Sound ON - Tap to mute' : 'Sound OFF - Tap to unmute'}
-            >
-              {isSpeakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
-            </button>
+          {/* Main Input Container */}
+          <div className="flex items-center gap-1.5 sm:gap-2 bg-gray-50 p-1.5 sm:p-2 rounded-full border border-gray-100">
+            <input
+              autoFocus
+              value={inputText}
+              onChange={e => {
+                setInputText(e.target.value);
+                // Real-time typing for human matches
+                if (activeSession?.type === 'human' && activeSession?.id) {
+                  handleTyping(true);
+                }
+              }}
+              onFocus={() => {
+                // Close popups when user focuses on input
+                setShowAiAssistPopup(null);
+                setShowTranslationPopup(null);
+              }}
+              onBlur={() => {
+                if (activeSession?.type === 'human') handleTyping(false);
+              }}
+              onKeyDown={e => e.key === 'Enter' && sendMessage()}
+              placeholder="Type your message..."
+              className="flex-1 min-w-0 bg-transparent px-2 sm:px-3 py-2 text-sm focus:outline-none"
+            />
 
-            {/* Main Input Container */}
-            <div className="flex-1 flex items-center gap-1.5 sm:gap-2 bg-gray-50 p-1.5 sm:p-2 rounded-full border border-gray-100">
-              <input
-                autoFocus
-                value={inputText}
-                onChange={e => {
-                  setInputText(e.target.value);
-                  // Real-time typing for human matches
-                  if (activeSession?.type === 'human' && activeSession?.id) {
-                    handleTyping(true);
-                  }
-                }}
-                onFocus={() => {
-                  // Close popups when user focuses on input
-                  setShowAiAssistPopup(null);
-                  setShowTranslationPopup(null);
-                }}
-                onBlur={() => {
-                  if (activeSession?.type === 'human') handleTyping(false);
-                }}
-                onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                placeholder="Type your message..."
-                className="flex-1 min-w-0 bg-transparent px-2 sm:px-3 py-2 text-sm focus:outline-none"
-              />
-
-              {/* Quick Assist Button - Opens AI Assist for last bot message - with Shake */}
-              {isAiAssistOn && messages.length > 0 && (() => {
-                const lastBotMsg = [...messages].reverse().find(m => m.sender !== 'me' && m.sender !== 'system' && m.sender !== 'correction' && m.sender !== 'suggestion');
-                return lastBotMsg ? (
-                  <motion.button
-                    onClick={() => handleAiAssistClick(lastBotMsg.id, lastBotMsg.text)}
-                    animate={shouldShakeButtons ? { x: [0, -3, 3, -3, 3, 0] } : {}}
-                    transition={{ duration: 0.5, repeat: shouldShakeButtons ? 2 : 0 }}
-                    className={`p-2 flex-shrink-0 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all ${shouldShakeButtons ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
-                    title="Need help replying?"
-                  >
-                    <Lightbulb size={16} />
-                  </motion.button>
-                ) : null;
-              })()}
-
-              {/* Voice Input Button with Enhanced Styling */}
-              <div className="relative flex-shrink-0">
-                <button
-                  onClick={toggleVoiceInput}
-                  className={`p-2 sm:p-2.5 rounded-full transition-all duration-300 ${isListening
-                    ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/40 scale-110'
-                    : 'bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 hover:scale-105'
-                    }`}
-                  title={isListening ? 'Stop listening' : 'Speak to type'}
+            {/* Quick Assist Button - Opens AI Assist for last bot message - with Shake */}
+            {isAiAssistOn && messages.length > 0 && (() => {
+              const lastBotMsg = [...messages].reverse().find(m => m.sender !== 'me' && m.sender !== 'system' && m.sender !== 'correction' && m.sender !== 'suggestion');
+              return lastBotMsg ? (
+                <motion.button
+                  onClick={() => handleAiAssistClick(lastBotMsg.id, lastBotMsg.text)}
+                  animate={shouldShakeButtons ? { x: [0, -3, 3, -3, 3, 0] } : {}}
+                  transition={{ duration: 0.5, repeat: shouldShakeButtons ? 2 : 0 }}
+                  className={`p-2 flex-shrink-0 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all ${shouldShakeButtons ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
+                  title="Need help replying?"
                 >
-                  {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-                </button>
-                {/* Listening Indicator */}
-                {isListening && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="absolute -top-8 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full whitespace-nowrap font-semibold shadow-lg"
-                  >
-                    <span className="animate-pulse">🎙️ Listening...</span>
-                  </motion.div>
-                )}
-              </div>
+                  <Lightbulb size={16} />
+                </motion.button>
+              ) : null;
+            })()}
 
-              <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 sm:p-3 flex-shrink-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
-                {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            {/* Voice Input Button with Enhanced Styling */}
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={toggleVoiceInput}
+                className={`p-2 sm:p-2.5 rounded-full transition-all duration-300 ${isListening
+                  ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/40 scale-110'
+                  : 'bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 hover:scale-105'
+                  }`}
+                title={isListening ? 'Stop listening' : 'Speak to type'}
+              >
+                {isListening ? <MicOff size={18} /> : <Mic size={18} />}
               </button>
+              {/* Listening Indicator */}
+              {isListening && (
+                <motion.div
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute -top-8 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full whitespace-nowrap font-semibold shadow-lg"
+                >
+                  <span className="animate-pulse">🎙️ Listening...</span>
+                </motion.div>
+              )}
             </div>
+
+            <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 sm:p-3 flex-shrink-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
+              {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            </button>
           </div>
         </div>
 
