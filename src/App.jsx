@@ -3080,9 +3080,10 @@ const App = () => {
       }
 
       // Show transition animation for the initiating player (time_over or left_early)
-      // SKIP if already showing transition (e.g., timer/inactivity already set it)
-      if (!sessionEndTransition) {
-        const transitionType = timeEnded ? 'time_over' : 'opponent_left';
+      // SKIP if already showing transition OR if timer/inactivity already showed animation before calling endSession
+      // When timeEnded=true or inactivityReason is set, animation was already shown in the timer/inactivity handlers
+      if (!sessionEndTransition && !timeEnded && !inactivityReason) {
+        const transitionType = 'opponent_left'; // Only used for manual "End Session" button
         setSessionEndTransition(transitionType);
       }
       setBattleOpponentData(capturedSession?.opponent);
