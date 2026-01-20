@@ -943,8 +943,8 @@ const App = () => {
     // Determine status based on current view
     const getStatusForView = (currentView) => {
       if (currentView === 'dashboard') return STATUS.LIVE;
-      // All these views mean user is busy (in battle, chat, simulation, etc.)
-      if (['session', 'friendSession', 'randomSession', 'simSession', 'chat', 'simulations', 'analyzing', 'ending'].includes(currentView)) return STATUS.BUSY;
+      // All these views mean user is busy (in battle, chat, simulation, matchmaking, viewing report, etc.)
+      if (['session', 'friendSession', 'randomSession', 'simSession', 'chat', 'simulations', 'analyzing', 'ending', 'report', 'finding'].includes(currentView)) return STATUS.BUSY;
       return STATUS.OFFLINE;
     };
 
@@ -7209,73 +7209,89 @@ const App = () => {
 
         {/* Fixed Input - with safe area for mobile navigation */}
         <div className="p-3 sm:p-4 bg-white border-t border-gray-100 shrink-0 safe-area-bottom">
-          <div className="flex items-center gap-1.5 sm:gap-2 bg-gray-50 p-1.5 sm:p-2 rounded-full border border-gray-100">
-            <input
-              autoFocus
-              value={inputText}
-              onChange={e => {
-                setInputText(e.target.value);
-                // Real-time typing for human matches
-                if (activeSession?.type === 'human' && activeSession?.id) {
-                  handleTyping(true);
-                }
-              }}
-              onFocus={() => {
-                // Close popups when user focuses on input
-                setShowAiAssistPopup(null);
-                setShowTranslationPopup(null);
-              }}
-              onBlur={() => {
-                if (activeSession?.type === 'human') handleTyping(false);
-              }}
-              onKeyDown={e => e.key === 'Enter' && sendMessage()}
-              placeholder="Type your message..."
-              className="flex-1 min-w-0 bg-transparent px-2 sm:px-3 py-2 text-sm focus:outline-none"
-            />
-
-            {/* Quick Assist Button - Opens AI Assist for last bot message - with Shake */}
-            {isAiAssistOn && messages.length > 0 && (() => {
-              const lastBotMsg = [...messages].reverse().find(m => m.sender !== 'me' && m.sender !== 'system' && m.sender !== 'correction' && m.sender !== 'suggestion');
-              return lastBotMsg ? (
-                <motion.button
-                  onClick={() => handleAiAssistClick(lastBotMsg.id, lastBotMsg.text)}
-                  animate={shouldShakeButtons ? { x: [0, -3, 3, -3, 3, 0] } : {}}
-                  transition={{ duration: 0.5, repeat: shouldShakeButtons ? 2 : 0 }}
-                  className={`p-2 flex-shrink-0 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all ${shouldShakeButtons ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
-                  title="Need help replying?"
-                >
-                  <Lightbulb size={16} />
-                </motion.button>
-              ) : null;
-            })()}
-
-            {/* Voice Input Button with Enhanced Styling */}
-            <div className="relative flex-shrink-0">
-              <button
-                onClick={toggleVoiceInput}
-                className={`p-2 sm:p-2.5 rounded-full transition-all duration-300 ${isListening
-                  ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/40 scale-110'
-                  : 'bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 hover:scale-105'
-                  }`}
-                title={isListening ? 'Stop listening' : 'Speak to type'}
-              >
-                {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-              </button>
-              {/* Listening Indicator */}
-              {isListening && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute -top-8 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full whitespace-nowrap font-semibold shadow-lg"
-                >
-                  <span className="animate-pulse">🎙️ Listening...</span>
-                </motion.div>
-              )}
-            </div>
-
-            <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 sm:p-3 flex-shrink-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
-              {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+          {/* Input Bar with Speaker Toggle */}
+          <div className="flex items-center gap-2">
+            {/* Speaker Toggle - Modern Glass Style */}
+            <button
+              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+              className={`p-2.5 rounded-full transition-all duration-300 backdrop-blur-sm border ${isSpeakerOn
+                ? 'bg-white/80 border-gray-200 text-gray-600 shadow-sm'
+                : 'bg-gray-100/80 border-gray-200 text-gray-400'
+                } hover:scale-105 active:scale-95`}
+              title={isSpeakerOn ? 'Sound ON - Tap to mute' : 'Sound OFF - Tap to unmute'}
+            >
+              {isSpeakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
             </button>
+
+            {/* Main Input Container */}
+            <div className="flex-1 flex items-center gap-1.5 sm:gap-2 bg-gray-50 p-1.5 sm:p-2 rounded-full border border-gray-100">
+              <input
+                autoFocus
+                value={inputText}
+                onChange={e => {
+                  setInputText(e.target.value);
+                  // Real-time typing for human matches
+                  if (activeSession?.type === 'human' && activeSession?.id) {
+                    handleTyping(true);
+                  }
+                }}
+                onFocus={() => {
+                  // Close popups when user focuses on input
+                  setShowAiAssistPopup(null);
+                  setShowTranslationPopup(null);
+                }}
+                onBlur={() => {
+                  if (activeSession?.type === 'human') handleTyping(false);
+                }}
+                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                placeholder="Type your message..."
+                className="flex-1 min-w-0 bg-transparent px-2 sm:px-3 py-2 text-sm focus:outline-none"
+              />
+
+              {/* Quick Assist Button - Opens AI Assist for last bot message - with Shake */}
+              {isAiAssistOn && messages.length > 0 && (() => {
+                const lastBotMsg = [...messages].reverse().find(m => m.sender !== 'me' && m.sender !== 'system' && m.sender !== 'correction' && m.sender !== 'suggestion');
+                return lastBotMsg ? (
+                  <motion.button
+                    onClick={() => handleAiAssistClick(lastBotMsg.id, lastBotMsg.text)}
+                    animate={shouldShakeButtons ? { x: [0, -3, 3, -3, 3, 0] } : {}}
+                    transition={{ duration: 0.5, repeat: shouldShakeButtons ? 2 : 0 }}
+                    className={`p-2 flex-shrink-0 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-100 hover:scale-105 transition-all ${shouldShakeButtons ? 'ring-2 ring-emerald-400 ring-offset-1' : ''}`}
+                    title="Need help replying?"
+                  >
+                    <Lightbulb size={16} />
+                  </motion.button>
+                ) : null;
+              })()}
+
+              {/* Voice Input Button with Enhanced Styling */}
+              <div className="relative flex-shrink-0">
+                <button
+                  onClick={toggleVoiceInput}
+                  className={`p-2 sm:p-2.5 rounded-full transition-all duration-300 ${isListening
+                    ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/40 scale-110'
+                    : 'bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 hover:scale-105'
+                    }`}
+                  title={isListening ? 'Stop listening' : 'Speak to type'}
+                >
+                  {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                </button>
+                {/* Listening Indicator */}
+                {isListening && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="absolute -top-8 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full whitespace-nowrap font-semibold shadow-lg"
+                  >
+                    <span className="animate-pulse">🎙️ Listening...</span>
+                  </motion.div>
+                )}
+              </div>
+
+              <button onClick={sendMessage} disabled={!inputText.trim() || (activeSession?.type === 'bot' && isOpponentTyping)} className="p-2.5 sm:p-3 flex-shrink-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200">
+                {activeSession?.type === 'bot' && isOpponentTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+              </button>
+            </div>
           </div>
         </div>
 
